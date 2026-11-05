@@ -309,6 +309,10 @@ static inline HRESULT rs_serv1(const D3D12_ROOT_SIGNATURE_DESC1 *d, ID3DBlob **b
 }
 
 /* need all four entry points; skip otherwise */
+/* compare a value that comes from a call with side effects (AddRef/Release): evaluated exactly once */
+#define EQV(call, want) do { ULONG_PTR g_ = (ULONG_PTR)(call), w_ = (ULONG_PTR)(want); \
+    t_check(g_ == w_, __FILE__, __LINE__, #call " == " #want, "got %llu want %llu", (unsigned long long)g_, (unsigned long long)w_); } while (0)
+
 #define RS_REQUIRE_ALL() do { REQUIRE(SER10()); REQUIRE(SERV()); REQUIRE(CRDES()); REQUIRE(CRVDES()); } while (0)
 
 

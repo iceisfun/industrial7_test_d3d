@@ -162,14 +162,14 @@ TEST(d3d12_rootsig_cpu_err_error_blob_refcount) {
     rs0_sampler(b, 0, 0, ALL)->AddressU = (D3D12_TEXTURE_ADDRESS_MODE)0;
     EXPECT_HR(rs_ser0(rs0_done(b, 0), &bl, &e), E_INVALID);
     if (e) {
-        EXPECT_EQ(ID3D10Blob_AddRef(e), 2); EXPECT_EQ(ID3D10Blob_Release(e), 1); EXPECT_EQ(ID3D10Blob_Release(e), 0);
+        EQV(ID3D10Blob_AddRef(e), 2); EQV(ID3D10Blob_Release(e), 1); EQV(ID3D10Blob_Release(e), 0);
     } else CHECK(e != NULL);
     free(b);
 }
 TEST(d3d12_rootsig_cpu_err_success_blob_refcount) {
     RS_REQUIRE_ALL(); D3D12_ROOT_SIGNATURE_DESC d; ID3DBlob *bl = NULL, *e = NULL; memset(&d, 0, sizeof d);
     EXPECT_HR(rs_ser0(&d, &bl, &e), S_OK);
-    if (bl) { EXPECT_EQ(ID3D10Blob_AddRef(bl), 2); EXPECT_EQ(ID3D10Blob_Release(bl), 1); EXPECT_EQ(ID3D10Blob_Release(bl), 0); }
+    if (bl) { EQV(ID3D10Blob_AddRef(bl), 2); EQV(ID3D10Blob_Release(bl), 1); EQV(ID3D10Blob_Release(bl), 0); }
 }
 TEST(d3d12_rootsig_cpu_err_two_blobs_distinct) {
     RS_REQUIRE_ALL(); D3D12_ROOT_SIGNATURE_DESC d; ID3DBlob *a = NULL, *b = NULL, *e = NULL; memset(&d, 0, sizeof d);
