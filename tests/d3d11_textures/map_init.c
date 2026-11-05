@@ -299,7 +299,7 @@ DEVTEST(d3d11_textures_index_cube_faces) {
     EXPECT_HR(tx_mk2d(c, 4, 4, 3, 6, F_RGBA8, U_DEF, B_SRV, 0, M_CUBE, NULL, &def), S_OK);
     if (!stg || !def) { SAFE_RELEASE(stg); SAFE_RELEASE(def); return; }
     for (s = 0; s < n; s++) EXPECT_HR(tx_write_pat(c, (ID3D11Resource *)stg, s, 4, 4, 1, 3, F_RGBA8, 200 + s, D3D11_MAP_WRITE), S_OK);
-    ID3D11DeviceContext_CopyResource(c->ctx, (ID3D11Resource *)def, (ID3D11Resource *)stg);
+    for (s = 0; s < n; s++) ID3D11DeviceContext_CopySubresourceRegion(c->ctx, (ID3D11Resource *)def, s, 0, 0, 0, (ID3D11Resource *)stg, s, NULL);
     tx_verify_all(c, (ID3D11Resource *)def, n, 200, __FILE__, __LINE__);
     ID3D11Texture2D_Release(def); ID3D11Texture2D_Release(stg);
 }
@@ -309,7 +309,7 @@ DEVTEST(d3d11_textures_index_cube_array) {
     EXPECT_HR(tx_mk2d(c, 2, 2, 2, 12, F_RGBA8, U_DEF, B_SRV, 0, M_CUBE, NULL, &def), S_OK);
     if (!stg || !def) { SAFE_RELEASE(stg); SAFE_RELEASE(def); return; }
     for (s = 0; s < n; s++) EXPECT_HR(tx_write_pat(c, (ID3D11Resource *)stg, s, 2, 2, 1, 2, F_RGBA8, 300 + s, D3D11_MAP_WRITE), S_OK);
-    ID3D11DeviceContext_CopyResource(c->ctx, (ID3D11Resource *)def, (ID3D11Resource *)stg);
+    for (s = 0; s < n; s++) ID3D11DeviceContext_CopySubresourceRegion(c->ctx, (ID3D11Resource *)def, s, 0, 0, 0, (ID3D11Resource *)stg, s, NULL);
     tx_verify_all(c, (ID3D11Resource *)def, n, 300, __FILE__, __LINE__);
     ID3D11Texture2D_Release(def); ID3D11Texture2D_Release(stg);
 }

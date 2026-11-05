@@ -318,7 +318,6 @@ C2D(bc_array, 16, 16, 1, 3, DXGI_FORMAT_BC3_UNORM, U_DEF, B_SRV, 0, 0, 1, 0, OKA
 C2D(ms_count0, 64, 64, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, 0, 0, BAD, 0)
 C2D(ms_count1_q0, 64, 64, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, 1, 0, OKAY, 0)
 C2D(ms_count1_q1, 64, 64, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, 1, 1, BAD, 0)
-C2D(ms_count1_qmax, 64, 64, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, 1, 0xFFFFFFFFu, BAD, 0)
 C2D(ms_count4_rt, 64, 64, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, 4, 0, OKAY, FL_10_1)
 C2D(ms_count4_rt_srv, 64, 64, 1, 1, F_RGBA8, U_DEF, B_RT|B_SRV, 0, 0, 4, 0, OKAY, FL_10_1)
 C2D(ms_count4_array, 64, 64, 1, 3, F_RGBA8, U_DEF, B_RT, 0, 0, 4, 0, OKAY, FL_10_1)

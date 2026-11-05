@@ -64,6 +64,8 @@ static UINT tx_row_bytes(DXGI_FORMAT f, UINT w) { tx_finfo_t i; if (!tx_finfo(f,
 static UINT tx_rows(DXGI_FORMAT f, UINT h) { tx_finfo_t i; if (!tx_finfo(f, &i)) return 0; return (h + i.bh - 1) / i.bh; }
 static int  tx_is_bc(DXGI_FORMAT f) { tx_finfo_t i; return tx_finfo(f, &i) && i.bw == 4; }
 
+static int tx_is_bc67(DXGI_FORMAT f) { return f == DXGI_FORMAT_BC6H_TYPELESS || f == DXGI_FORMAT_BC6H_UF16 || f == DXGI_FORMAT_BC6H_SF16 || f == DXGI_FORMAT_BC7_TYPELESS || f == DXGI_FORMAT_BC7_UNORM || f == DXGI_FORMAT_BC7_UNORM_SRGB; }
+
 /* ---- deterministic pattern ------------------------------------------------------ */
 static unsigned char tx_pat(UINT seed, size_t i) { return (unsigned char)(seed * 0x9D + i * 7 + (i >> 5) * 3 + 0x31); }
 
@@ -147,7 +149,7 @@ static HRESULT tx_fetch(tx_ctx *c, ID3D11Resource *res, UINT sub, tx_img *o) {
         hr = ID3D11Device_CreateTexture3D(c->dev, &d, NULL, &t); st = (ID3D11Resource *)t;
     } else return E_INVALIDARG;
     if (FAILED(hr)) return hr;
-    ID3D11DeviceContext_CopyResource(c->ctx, st, res);
+    ID3D11DeviceContext_CopySubresourceRegion(c->ctx, st, sub, 0, 0, 0, res, sub, NULL);
     hr = ID3D11DeviceContext_Map(c->ctx, st, sub, D3D11_MAP_READ, 0, &m);
     if (SUCCEEDED(hr)) {
         UINT mip = sub % mips, z, y;

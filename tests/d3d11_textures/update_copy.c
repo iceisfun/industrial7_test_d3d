@@ -276,8 +276,8 @@ CPY(2d_r32g32b32a32_box, 2, 6,6,1,1,1,DXGI_FORMAT_R32G32B32A32_FLOAT, 6,6,1,1,1,
 CPY(2d_mip_to_mip, 2, 16,16,1,4,1,F_RGBA8, 16,16,1,4,1,F_RGBA8, 2,2,0, 0,0,0,0,0,0, 0,0,0, 1)
 CPY(2d_mip1_to_mip0_of_smaller, 2, 16,16,1,3,1,F_RGBA8, 8,8,1,1,1,F_RGBA8, 1,0,0, 0,0,0,0,0,0, 0,0,0, 1)
 CPY(2d_mip0_to_mip1_of_larger, 2, 8,8,1,1,1,F_RGBA8, 16,16,1,3,1,F_RGBA8, 0,1,0, 0,0,0,0,0,0, 0,0,0, 1)
-CPY(2d_slice_to_slice, 2, 8,8,1,2,3,F_RGBA8, 8,8,1,2,3,F_RGBA8, 4,1,0, 0,0,0,0,0,0, 0,0,0, 1)
-CPY(2d_slice_mip_box, 2, 8,8,1,3,2,F_RGBA8, 8,8,1,3,2,F_RGBA8, 4,5,1, 1,0,0,2,2,1, 0,1,0, 1)
+CPY(2d_slice_to_slice, 2, 8,8,1,2,3,F_RGBA8, 8,8,1,2,3,F_RGBA8, 4,2,0, 0,0,0,0,0,0, 0,0,0, 1)
+CPY(2d_slice_mip_box, 2, 8,8,1,3,2,F_RGBA8, 8,8,1,3,2,F_RGBA8, 1,4,1, 1,0,0,2,2,1, 0,1,0, 1)
 CPY(2d_array_to_non_array_slot, 2, 8,8,1,1,4,F_RGBA8, 8,8,1,1,2,F_RGBA8, 3,1,0, 0,0,0,0,0,0, 0,0,0, 1)
 CPY(2d_cube_face, 2, 4,4,1,1,6,F_RGBA8, 4,4,1,1,6,F_RGBA8, 5,0,0, 0,0,0,0,0,0, 0,0,0, 1)
 /* same type group, different interpretation: the copy is a raw byte copy */

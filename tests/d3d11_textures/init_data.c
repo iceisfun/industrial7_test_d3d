@@ -12,6 +12,7 @@ static void tx_verify_subs(tx_ctx *c, ID3D11Resource *res, UINT nsub, UINT seed0
 }
 
 static void tx_init_case2d(tx_ctx *c, UINT w, UINT h, UINT mips, UINT arr, DXGI_FORMAT f, D3D11_USAGE u, UINT bind, UINT cpu, UINT misc, UINT rowpad, const char *file, int line) {
+    if (tx_is_bc67(f) && c->fl < FL_11_0) { t_skip("BC6H/BC7 need feature level 11_0"); return; }
     tx_init in; ID3D11Texture2D *t = NULL; HRESULT hr; UINT n = (mips ? mips : tx_full_mips(w > h ? w : h)) * arr;
     if (!tx_init_make(&in, w, h, 1, mips, arr, f, rowpad, 0, 40)) { t_check(0, file, line, "tx_init_make", "oom"); tx_init_free(&in); return; }
     hr = tx_mk2d(c, w, h, mips, arr, f, u, bind, cpu, misc, in.sd, &t);
@@ -105,6 +106,7 @@ INIT1D(r8_chain, 33, 0, 2, F_R8, U_IMM, B_SRV, 0, 0)
 INIT1D(r32g32b32a32, 5, 3, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, U_IMM, B_SRV, 0, 0)
 
 static void tx_init_case3d(tx_ctx *c, UINT w, UINT h, UINT d, UINT mips, DXGI_FORMAT f, D3D11_USAGE u, UINT bind, UINT cpu, UINT rowpad, UINT slicepad, const char *file, int line) {
+    if (tx_is_bc67(f) && c->fl < FL_11_0) { t_skip("BC6H/BC7 need feature level 11_0"); return; }
     tx_init in; ID3D11Texture3D *t = NULL; HRESULT hr; UINT m2 = w > h ? w : h, n;
     if (d > m2) m2 = d;
     n = mips ? mips : tx_full_mips(m2);
@@ -204,6 +206,7 @@ DEVTEST(d3d11_textures_init2d_pitch_too_small_note) {
 
 /* ---- DYNAMIC textures: discard + rewrite -------------------------------------------------------------------------- */
 static void tx_dynamic_case(tx_ctx *c, UINT w, UINT h, DXGI_FORMAT f, const char *file, int line) {
+    if (tx_is_bc67(f) && c->fl < FL_11_0) { t_skip("BC6H/BC7 need feature level 11_0"); return; }
     ID3D11Texture2D *t = NULL; HRESULT hr; tx_img im; size_t bad = 0;
     hr = tx_mk2d(c, w, h, 1, 1, f, U_DYN, B_SRV, CPU_W, 0, NULL, &t);
     t_check(hr == S_OK, file, line, "create dynamic", "%s", d3dh_hr_name(hr)); if (FAILED(hr)) return;
