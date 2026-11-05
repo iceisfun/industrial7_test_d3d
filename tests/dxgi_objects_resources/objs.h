@@ -18,7 +18,7 @@ static int objs_open(objs_ctx *c)
 {
     memset(c, 0, sizeof(*c));
     if (!d3dh_D3D11CreateDevice()) return 0;
-    if (FAILED(d3dh_make_device11(&c->dev, &c->ctx, &c->fl, &c->drv, 0))) return 0;
+    if (FAILED(d3dh_make_device11(&c->dev, &c->ctx, &c->fl, &c->drv, D3D11_CREATE_DEVICE_BGRA_SUPPORT))) return 0;
     if (FAILED(ID3D11Device_QueryInterface(c->dev, &IID_IDXGIDevice, (void **)&c->dx))) {
         SAFE_RELEASE(c->ctx); SAFE_RELEASE(c->dev); return 0;
     }
