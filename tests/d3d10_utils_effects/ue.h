@@ -37,3 +37,18 @@ extern const char UE_VS_SRC[];
 extern const char UE_PS_SRC[];
 extern const char UE_GS_SRC[];
 #endif
+
+/* Shared WARP/ref D3D10 device for the effect tests (created once, released at process exit). NULL when unavailable. */
+ID3D10Device *ue_shared_device(void);
+#define NEED_DEVICE(dev) ID3D10Device *dev = ue_shared_device(); if (!dev) { t_skip("no D3D10 device"); return; }
+/* compile + create; skips the test (returns 0) if the effect cannot be compiled/created at all */
+int ue_fx_open(ID3D10Device *dev, const char *src, ID3D10Effect **fx);
+extern const char UE_FX_BASIC[];
+extern const char UE_FX_OBJECTS[];
+extern const char UE_FX_SHADERS[];
+extern const char UE_FX_STRING[];
+extern const char UE_FX_POOL[];
+extern const char UE_FX_CHILD[];
+/* true when the shared device is only the emulator stand-in */
+int ue_device_is_fake(void);
+#define FX_OPEN(fx, src) ID3D10Effect *fx = NULL; if (!ue_fx_open(dev, src, &fx)) return
