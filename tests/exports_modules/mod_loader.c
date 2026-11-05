@@ -135,32 +135,7 @@ static void p_fname(int i) {
 }
 XM_FOR_ALL(getmodulefilename_buffer_protocol, p_fname)
 
-static void p_datafile(int i) {
-    NEED(i);
-    WCHAR full[MAX_PATH * 2];
-    GetModuleFileNameW(h, full, MAX_PATH * 2);
-    HMODULE d = LoadLibraryExW(full, NULL, LOAD_LIBRARY_AS_DATAFILE);
-    /* the image is already loaded normally: a data-file load of the same file still yields a data-file handle */
-    XC(d != NULL, "data-file load");
-    if (!d) return;
-    XC(((ULONG_PTR)d & 1) == 1, "AS_DATAFILE handle has bit 0 set (%p)", d);
-    XC(d != h, "distinct from the image handle");
-    HRSRC r = FindResourceW(d, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
-    XC(r != NULL, "version resource id 1 present");
-    if (r) { XC(SizeofResource(d, r) > 0x40, "version resource size"); XC(LoadResource(d, r) != NULL, "LoadResource"); }
-    SetLastError(0);
-    XC(GetProcAddress(d, g_xm[i].e[0].name ? g_xm[i].e[0].name : "x") == NULL, "GetProcAddress on a data-file handle fails");
-    XC(FreeLibrary(d), "FreeLibrary(data file)");
-    HMODULE r2 = LoadLibraryExW(full, NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE);
-    XC(r2 != NULL, "image-resource load");
-    if (r2) {
-        XC(((ULONG_PTR)r2 & 3) != 0, "AS_IMAGE_RESOURCE handle is tagged (%p)", r2);
-        if (((ULONG_PTR)r2 & 3) != 2) t_note("AS_IMAGE_RESOURCE handle tag is %lu", (unsigned long)((ULONG_PTR)r2 & 3));
-        XC(FindResourceW(r2, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16)) != NULL, "version resource via image mapping");
-        XC(FreeLibrary(r2), "FreeLibrary(image resource)");
-    }
-}
-XM_FOR_ALL(datafile_load, p_datafile)
+
 
 /* ---- child-process scenarios (clean module list) ---------------------------------------------- */
 static int idx_arg(int argc, char **argv) { return argc > 1 ? atoi(argv[1]) : -1; }
@@ -250,6 +225,75 @@ CHILD(xm_dep_unload) {
     return GetModuleHandleA("d3d10core.dll") ? 5 : 0;
 }
 
+
+CHILD(xm_datafile) {
+    int i = idx_arg(argc, argv); if (i < 0 || i >= XM_COUNT) return 90;
+    if (GetModuleHandleA(g_xm[i].dll)) return 91;
+    char full[MAX_PATH * 2]; GetSystemDirectoryA(full, MAX_PATH); strcat(full, "\\"); strcat(full, g_xm[i].dll);
+    HMODULE d = LoadLibraryExA(full, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    if (!d) return 77;
+    if (((ULONG_PTR)d & 3) != 1) return 1;                  /* data-file mapping: tag bit 0 */
+    HRSRC r = FindResourceW(d, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));
+    if (!r || SizeofResource(d, r) <= 0x40 || !LoadResource(d, r)) return 2;
+    SetLastError(0);
+    if (GetProcAddress(d, g_xm[i].e[0].name ? g_xm[i].e[0].name : "x")) return 3;   /* tagged handle is no module */
+    if (GetProcAddress(d, (LPCSTR)(ULONG_PTR)g_xm[i].e[0].ord)) return 3;
+    if (GetModuleHandleA(g_xm[i].dll)) return 4;
+    if (!FreeLibrary(d)) return 5;
+    HMODULE r2 = LoadLibraryExA(full, NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+    if (!r2) return 6;
+    if (((ULONG_PTR)r2 & 3) == 0) return 7;
+    if (!FindResourceW(r2, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16))) return 8;
+    if (!FreeLibrary(r2)) return 9;
+    HMODULE ex = LoadLibraryExA(full, NULL, LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE);
+    if (!ex || ((ULONG_PTR)ex & 3) != 1) return 10;
+    if (!FreeLibrary(ex)) return 11;
+    /* now with the image loaded normally */
+    HMODULE h = LoadLibraryA(full);
+    if (!h) return 12;
+    HMODULE d2 = LoadLibraryExA(full, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    if (!d2) return 13;
+    if (d2 == h) return 0;                                   /* already-loaded image: the image handle comes back */
+    return ((ULONG_PTR)d2 & 3) == 1 ? 0 : 14;
+}
+CHILD(xm_disable_thread_calls) {
+    int i = idx_arg(argc, argv); if (i < 0 || i >= XM_COUNT) return 90;
+    HMODULE m = LoadLibraryA(g_xm[i].dll);
+    if (!m) return 77;
+    if (!DisableThreadLibraryCalls(m)) return 1;
+    if (!DisableThreadLibraryCalls(m)) return 2;
+    SetLastError(0);
+    if (DisableThreadLibraryCalls((HMODULE)(ULONG_PTR)0x10000)) return 3;
+    return 0;
+}
+CHILD(xm_modinfo) {
+    int i = idx_arg(argc, argv); if (i < 0 || i >= XM_COUNT) return 90;
+    HMODULE m = LoadLibraryA(g_xm[i].dll);
+    if (!m) return 77;
+    typedef struct { LPVOID base; DWORD size; LPVOID entry; } MI;
+    typedef BOOL (WINAPI *pgmi)(HANDLE, HMODULE, MI *, DWORD);
+    typedef DWORD (WINAPI *pgmb)(HANDLE, HMODULE, LPSTR, DWORD);
+    typedef BOOL (WINAPI *pem)(HANDLE, HMODULE *, DWORD, LPDWORD);
+    HMODULE k = GetModuleHandleA("kernel32.dll");
+    pgmi gmi = (pgmi)GetProcAddress(k, "K32GetModuleInformation");
+    pgmb gmb = (pgmb)GetProcAddress(k, "K32GetModuleBaseNameA");
+    pem em = (pem)GetProcAddress(k, "K32EnumProcessModules");
+    if (!gmi || !gmb || !em) return 78;
+    const IMAGE_NT_HEADERS64 *nt = xm_nt(m); if (!nt) return 1;
+    MI mi; memset(&mi, 0, sizeof mi);
+    if (!gmi(GetCurrentProcess(), m, &mi, sizeof mi)) return 2;
+    if (mi.base != (LPVOID)m) return 3;
+    if (mi.size != nt->OptionalHeader.SizeOfImage) return 4;
+    if (mi.entry != (char *)m + nt->OptionalHeader.AddressOfEntryPoint) return 5;
+    char nm[64];
+    DWORD n = gmb(GetCurrentProcess(), m, nm, sizeof nm);
+    if (n != strlen(g_xm[i].dll) || lstrcmpiA(nm, g_xm[i].dll)) return 6;
+    HMODULE all[512]; DWORD need = 0;
+    if (!em(GetCurrentProcess(), all, sizeof all, &need) || need < sizeof(HMODULE)) return 7;
+    int found = 0;
+    for (DWORD k2 = 0; k2 < need / sizeof(HMODULE) && k2 < 512; k2++) if (all[k2] == m) found = 1;
+    return found ? 0 : 8;
+}
 static void run_child_prop(const char *child, int i, const char *what) {
     HMODULE probe = LoadLibraryExA(g_xm[i].dll, NULL, LOAD_LIBRARY_AS_DATAFILE);
     if (!probe) { t_skip("%s not present", g_xm[i].dll); return; }
@@ -257,6 +301,7 @@ static void run_child_prop(const char *child, int i, const char *what) {
     char a[16]; snprintf(a, sizeof a, "%d", i);
     DWORD rc = t_run_child(child, a, 20000);
     if (rc == 77) { t_skip("%s cannot be loaded in a plain process", g_xm[i].dll); return; }
+    if (rc == 78) { t_skip("required kernel32 export missing"); return; }
     if (rc == 91) { t_skip("%s is already loaded in a fresh process (injected)", g_xm[i].dll); return; }
     if (rc == 10 && !strcmp(child, "xm_refcount")) { t_note("%s stays resident after its last FreeLibrary", g_xm[i].dll); return; }
     if (xm_wine() && rc != 0) { t_note("emulator: %s child %s returned %lu", g_xm[i].dll, what, rc); return; }
@@ -267,6 +312,9 @@ static void run_child_prop(const char *child, int i, const char *what) {
 CHILD_PROP(refcount_lifetime, "xm_refcount")
 CHILD_PROP(pin_keeps_resident, "xm_pin")
 CHILD_PROP(datafile_not_in_module_list, "xm_datafile_hidden")
+CHILD_PROP(datafile_load, "xm_datafile")
+CHILD_PROP(disable_thread_library_calls, "xm_disable_thread_calls")
+CHILD_PROP(module_information_apis, "xm_modinfo")
 
 static void p_deps(int i) {
     HMODULE probe = LoadLibraryExA(g_xm[i].dll, NULL, LOAD_LIBRARY_AS_DATAFILE);

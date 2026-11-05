@@ -138,6 +138,47 @@ static void p_disk(int i) {
 }
 XM_FOR_ALL(pe_disk_matches_memory, p_disk)
 
+static void p_imports(int i) {
+    NEED(i);
+    const IMAGE_NT_HEADERS64 *nt = xm_nt(h);
+    if (!nt || nt->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_IMPORT) { t_skip("no PE"); return; }
+    const IMAGE_DATA_DIRECTORY *dd = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dd->VirtualAddress) { t_skip("no imports"); return; }
+    const IMAGE_IMPORT_DESCRIPTOR *d = (const IMAGE_IMPORT_DESCRIPTOR *)((const char *)h + dd->VirtualAddress);
+    int n = 0;
+    for (; d->Name && n < 64; d++, n++) {
+        const char *nm = (const char *)h + d->Name;
+        XC(xm_in_image(h, nm) && strlen(nm) < 64, "import descriptor %d name in image", n);
+        const ULONG_PTR *iat = (const ULONG_PTR *)((const char *)h + d->FirstThunk);
+        XC(xm_in_image(h, iat) && iat[0] != 0, "%s: IAT is bound by the loader", nm);
+        if (!strncmp(nm, "api-", 4) || !strncmp(nm, "ext-", 4)) continue;      /* API sets are virtual */
+        XC(GetModuleHandleA(nm) != NULL, "static import %s is in the module list", nm);
+        if (iat[0] && !strncmp(nm, "ntdll", 5)) {
+            HMODULE nd = GetModuleHandleA(nm);
+            XC(nd && xm_in_image(nd, (void *)iat[0]), "first ntdll IAT slot points into ntdll");
+        }
+    }
+    XC(n >= 1, "has at least one import");
+}
+XM_FOR_ALL(pe_import_table_bound, p_imports)
+
+static void p_lastbyte(int i) {
+    NEED(i);
+    const IMAGE_NT_HEADERS64 *nt = xm_nt(h);
+    if (!nt) { t_skip("no PE"); return; }
+    HMODULE m = NULL;
+    const char *last = (const char *)h + nt->OptionalHeader.SizeOfImage - 1;
+    BOOL ok = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)last, &m);
+    XC(ok && m == h, "last byte of the image maps to the module");
+    m = NULL;
+    ok = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)h, &m);
+    XC(ok && m == h, "image base maps to the module");
+    m = NULL;
+    ok = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)((const char *)h + nt->OptionalHeader.AddressOfEntryPoint), &m);
+    XC(ok && m == h, "entry point maps to the module");
+}
+XM_FOR_ALL(address_to_module_bounds, p_lastbyte)
+
 /* ---- version resource ------------------------------------------------------------------------- */
 typedef DWORD (WINAPI *pfnVerSizeW)(LPCWSTR, LPDWORD);
 typedef BOOL (WINAPI *pfnVerInfoW)(LPCWSTR, DWORD, DWORD, LPVOID);

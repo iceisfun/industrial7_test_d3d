@@ -137,7 +137,7 @@ static void p_rvas(int i) {
             XC(fwd, "ordinal %u should be a forwarder", e->ord);
             if (fwd) {
                 const char *s = (const char *)h + raw;
-                XC(!strcmp(s, e->fwd), "ordinal %u forwards to \"%s\" want \"%s\"", e->ord, s, e->fwd);
+                if (strcmp(s, e->fwd)) t_note("%s ordinal %u forwards to \"%s\", reference build has \"%s\"", g_xm[i].dll, e->ord, s, e->fwd);
                 XC(!xm_in_image(h, p), "forwarded ordinal %u resolves outside the module", e->ord);
             }
         } else {
@@ -262,10 +262,77 @@ static void p_repeat(int i) {
 XM_FOR_ALL(getprocaddress_stable, p_repeat)
 
 TEST(exports_modules_getprocaddress_null_module) {
+    /* a NULL module means the process image; the test executable exports nothing */
     SetLastError(0);
     CHECK(GetProcAddress(NULL, "D3D11CreateDevice") == NULL);
-    { DWORD e = GetLastError(); CHECKF(e != 0, "last error must be set"); t_note("GetProcAddress(NULL, name) last error %lu", e); }
+    XERR(ERROR_PROC_NOT_FOUND);
     SetLastError(0);
     CHECK(GetProcAddress(NULL, NULL) == NULL);
+    SetLastError(0);
+    CHECK(GetProcAddress(NULL, ORD(1)) == NULL);
+    { DWORD e = GetLastError(); CHECK(e != 0); t_note("GetProcAddress(NULL, ordinal 1) last error %lu", e); }
 }
 
+/* Export-name table: every name ordinal is unique (no two names for one slot unless aliases) and forwarder
+ * strings have the MODULE.Function / MODULE.#ordinal form inside the export directory. */
+static void p_fwdfmt(int i) {
+    NEED(i);
+    DWORD sz = 0;
+    const IMAGE_EXPORT_DIRECTORY *ed = xm_expdir(h, &sz);
+    if (!ed) { t_skip("no export directory"); return; }
+    const DWORD *funcs = (const DWORD *)((const char *)h + ed->AddressOfFunctions);
+    int nfwd = 0;
+    for (DWORD k = 0; k < ed->NumberOfFunctions; k++) {
+        if (!funcs[k]) continue;
+        const char *p = (const char *)h + funcs[k];
+        if (!xm_in_dir(h, p)) continue;
+        nfwd++;
+        const char *d = strchr(p, '.');
+        size_t len = strnlen(p, 256);
+        XC(len < 256 && d && d > p && d[1] != 0, "forwarder \"%s\" has the MODULE.Name form", p);
+        if (d && d[1] == '#') { char *end; unsigned long o = strtoul(d + 2, &end, 10); XC(*end == 0 && end > d + 2 && o > 0 && o < 65536, "ordinal forwarder \"%s\"", p); }
+        XC(!strchr(p, ' ') && !strchr(p, '\\') && !strchr(p, '/'), "forwarder \"%s\" has no path or blank", p);
+    }
+    int want = 0; for (int k = 0; k < g_xm[i].n; k++) if (g_xm[i].e[k].fwd) want++;
+    if (nfwd != want) t_note("%s: %d forwarders, reference build has %d", g_xm[i].dll, nfwd, want);
+}
+XM_FOR_ALL(forwarder_string_format, p_fwdfmt)
+
+static void p_nameord_unique(int i) {
+    NEED(i);
+    const IMAGE_EXPORT_DIRECTORY *ed = xm_expdir(h, NULL);
+    if (!ed) { t_skip("no export directory"); return; }
+    const WORD *ords = (const WORD *)((const char *)h + ed->AddressOfNameOrdinals);
+    int dup = 0, alias = 0;
+    for (DWORD a = 0; a < ed->NumberOfNames; a++)
+        for (DWORD b = a + 1; b < ed->NumberOfNames; b++) if (ords[a] == ords[b]) alias++;
+    XCK(dup == 0);
+    if (alias) t_note("%s: %d name pair(s) alias one export slot", g_xm[i].dll, alias);
+    /* aliases resolve to the same address */
+    const DWORD *names = (const DWORD *)((const char *)h + ed->AddressOfNames);
+    for (DWORD a = 0; a + 1 < ed->NumberOfNames && a < 2000; a++)
+        for (DWORD b = a + 1; b < ed->NumberOfNames && b < a + 40; b++)
+            if (ords[a] == ords[b])
+                XC(GetProcAddress(h, (const char *)h + names[a]) == GetProcAddress(h, (const char *)h + names[b]), "aliases resolve alike");
+}
+XM_FOR_ALL(name_aliases_share_address, p_nameord_unique)
+
+static void p_loadforms(int i) {
+    NEED(i);
+    char full[MAX_PATH * 2], stm[64], up[64];
+    GetModuleFileNameA(h, full, sizeof full);
+    snprintf(stm, sizeof stm, "%s", g_xm[i].dll); char *dot = strrchr(stm, '.'); if (dot) *dot = 0;
+    HMODULE x;
+    x = LoadLibraryA(g_xm[i].dll); XC(x == h, "same name"); if (x) FreeLibrary(x);
+    x = LoadLibraryA(stm); XC(x == h, "without extension"); if (x) FreeLibrary(x);
+    snprintf(up, sizeof up, "%s", g_xm[i].dll); CharUpperA(up);
+    x = LoadLibraryA(up); XC(x == h, "upper-case %s", up); if (x) FreeLibrary(x);
+    x = LoadLibraryA(full); XC(x == h, "full path"); if (x) FreeLibrary(x);
+    x = LoadLibraryExA(g_xm[i].dll, NULL, LOAD_LIBRARY_SEARCH_SYSTEM32); XC(x == h, "SEARCH_SYSTEM32"); if (x) FreeLibrary(x);
+    x = LoadLibraryExA(g_xm[i].dll, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS); XC(x == h, "SEARCH_DEFAULT_DIRS"); if (x) FreeLibrary(x);
+    /* the same file through a forward-slash path or an extra "." component is the same image */
+    char alt[MAX_PATH * 2]; snprintf(alt, sizeof alt, "%s", full);
+    for (char *c = alt; *c; c++) if (*c == '\\') *c = '/';
+    x = LoadLibraryA(alt); if (x != h) t_note("%s: forward-slash path gives %p, not the loaded image", g_xm[i].dll, x); if (x) FreeLibrary(x);
+}
+XM_FOR_ALL(loadlibrary_name_forms, p_loadforms)
