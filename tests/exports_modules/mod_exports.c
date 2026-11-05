@@ -116,7 +116,7 @@ static void p_holes(int i) {
         SetLastError(0);
         FARPROC p = GetProcAddress(h, ORD(o));
         XC(p == NULL, "ordinal %lu has RVA 0 but resolves to %p", o, p);
-        EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_PROC_NOT_FOUND);
     }
     if (!holes) t_note("%s: export ordinal range is dense", g_xm[i].dll);
 }
@@ -168,7 +168,7 @@ static void p_absent(int i) {
             SetLastError(0);
             FARPROC p = GetProcAddress(h, nm);
             XC(p == NULL, "%s unexpectedly exports %s (an export of %s)", g_xm[i].dll, nm, g_xm[j].dll);
-            if (!p) { EXPECT_ERR(ERROR_PROC_NOT_FOUND); }
+            if (!p) { XERR(ERROR_PROC_NOT_FOUND); }
             checked++;
         }
     }
@@ -183,7 +183,7 @@ static void p_bad(int i) {
     const IMAGE_EXPORT_DIRECTORY *ed = xm_expdir(h, NULL);
     SetLastError(0);
     XC(GetProcAddress(h, "NoSuchExport_xyz") == NULL, "missing name");
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    XERR(ERROR_PROC_NOT_FOUND);
     SetLastError(0);
     XC(GetProcAddress(h, "") == NULL, "empty name");
     { DWORD e = GetLastError(); if (e != ERROR_PROC_NOT_FOUND) t_note("GetProcAddress(\"\") last error %lu", e); }
@@ -192,12 +192,12 @@ static void p_bad(int i) {
     { DWORD e = GetLastError(); if (e != ERROR_PROC_NOT_FOUND) t_note("GetProcAddress(ordinal 0) last error %lu", e); }
     SetLastError(0);
     XC(GetProcAddress(h, ORD(0xFFFF)) == NULL, "ordinal 0xFFFF");
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    XERR(ERROR_PROC_NOT_FOUND);
     if (ed) {
         SetLastError(0);
         FARPROC p = GetProcAddress(h, ORD(ed->Base + ed->NumberOfFunctions));
         XC(p == NULL, "first ordinal past the table");
-        EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_PROC_NOT_FOUND);
     }
     if (!first) return;
     char buf[256];
@@ -207,30 +207,30 @@ static void p_bad(int i) {
         if (xm_has_name(i, buf)) continue;
         SetLastError(0);
         XC(GetProcAddress(h, buf) == NULL, "decorated name %s", buf);
-        EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_PROC_NOT_FOUND);
     }
     snprintf(buf, sizeof buf, "_%s", first);
     SetLastError(0);
     XC(GetProcAddress(h, buf) == NULL, "underscore prefix %s", buf);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    XERR(ERROR_PROC_NOT_FOUND);
     snprintf(buf, sizeof buf, "%s ", first);
     SetLastError(0);
     XC(GetProcAddress(h, buf) == NULL, "trailing blank");
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    XERR(ERROR_PROC_NOT_FOUND);
     /* exports are case sensitive */
     snprintf(buf, sizeof buf, "%s", first);
     for (char *c = buf; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
     if (strcmp(buf, first) && !xm_has_name(i, buf)) {
         SetLastError(0);
         XC(GetProcAddress(h, buf) == NULL, "lower case %s", buf);
-        EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_PROC_NOT_FOUND);
     }
     snprintf(buf, sizeof buf, "%s", first);
     for (char *c = buf; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
     if (strcmp(buf, first) && !xm_has_name(i, buf)) {
         SetLastError(0);
         XC(GetProcAddress(h, buf) == NULL, "upper case %s", buf);
-        EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_PROC_NOT_FOUND);
     }
     /* a prefix of an existing export is not an export */
     if (strlen(first) > 3) {
@@ -238,7 +238,7 @@ static void p_bad(int i) {
         if (!xm_has_name(i, buf)) {
             SetLastError(0);
             XC(GetProcAddress(h, buf) == NULL, "truncated name %s", buf);
-            EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+            XERR(ERROR_PROC_NOT_FOUND);
         }
     }
 }

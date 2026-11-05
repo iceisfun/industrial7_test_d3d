@@ -37,6 +37,9 @@ void xm_end(void);
 void xm_check(int ok, const char *file, int line, const char *expr, const char *fmt, ...);
 #define XC(c, ...) xm_check(!!(c), __FILE__, __LINE__, #c, __VA_ARGS__)
 
+#define XCK(c) xm_check(!!(c), __FILE__, __LINE__, #c, NULL)
+#define XERR(err) do { DWORD e_ = GetLastError(); xm_check(e_ == (DWORD)(err), __FILE__, __LINE__, #err, "GetLastError got %lu want %lu", e_, (DWORD)(err)); } while (0)
+
 /* helpers (xm_util.c) */
 HMODULE xm_load(int i);                          /* LoadLibraryA of the module, NULL if missing */
 const IMAGE_NT_HEADERS64 *xm_nt(HMODULE m);      /* NULL if the image is malformed */
