@@ -8,6 +8,8 @@
 
 static int first_phys(PHYSICAL_MONITOR *pm)
 {
+    /* Safety: live DDC/CI writes happen only when explicitly requested (TP_ALLOW_MONITOR_WRITE=1). */
+    char ev[8]; if (!GetEnvironmentVariableA("TP_ALLOW_MONITOR_WRITE", ev, sizeof ev) || ev[0] != '1') return 0;
     BOOL (WINAPI *num)(HMONITOR, LPDWORD) = U(GetNumberOfPhysicalMonitorsFromHMONITOR);
     BOOL (WINAPI *get)(HMONITOR, DWORD, LPPHYSICAL_MONITOR) = U(GetPhysicalMonitorsFromHMONITOR);
     if (!num || !get) return 0;
@@ -26,7 +28,7 @@ static void roundtrip(get_fn g, set_fn s, const char *nm)
 {
     PHYSICAL_MONITOR pm;
     if (!g || !s) { t_skip("missing export"); return; }
-    if (!first_phys(&pm)) { t_skip("no single physical monitor"); return; }
+    if (!first_phys(&pm)) { t_skip("live monitor writes disabled (set TP_ALLOW_MONITOR_WRITE=1) or no single physical monitor"); return; }
     DWORD mn, cu, mx;
     if (!g(pm.hPhysicalMonitor, &mn, &cu, &mx)) { t_skip("%s not readable (GLE=%lu)", nm, GetLastError()); rel(&pm); return; }
     SET_ERR(0);
@@ -48,7 +50,7 @@ TEST(dxgap2_save_current_settings_live) {
     BOOL (WINAPI *b)(HANDLE) = U(SaveCurrentSettings);
     PHYSICAL_MONITOR pm;
     REQUIRE(a); REQUIRE(b);
-    if (!first_phys(&pm)) { t_skip("no single physical monitor"); return; }
+    if (!first_phys(&pm)) { t_skip("live monitor writes disabled (set TP_ALLOW_MONITOR_WRITE=1) or no single physical monitor"); return; }
     SET_ERR(0); BOOL ra = a(pm.hPhysicalMonitor); DWORD ea = GetLastError();
     SET_ERR(0); BOOL rb = b(pm.hPhysicalMonitor); DWORD eb = GetLastError();
     t_note("save: %d/%lu and %d/%lu", ra, ea, rb, eb);

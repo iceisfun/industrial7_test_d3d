@@ -894,7 +894,7 @@ typedef struct { void *p; UINT n; UINT pad; } core_ext;
 typedef HRESULT (WINAPI *core_create_fn)(core_ext *, IUnknown *, UINT, HMODULE, UINT, const D3D_FEATURE_LEVEL *, UINT, ULONG_PTR,
                                          ID3D11Device **, D3D_FEATURE_LEVEL *);
 T(core_create_extensions_count_too_large)
-{
+{ if (t_is_wine()) { t_skip("Wine faults on this call; Windows behaviour is authoritative"); return; }
     core_create_fn f = (core_create_fn)t_proc_in("d3d11.dll", "D3D11CoreCreateDevice");
     REQUIRE(f);
     ID3D11Device *d = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
@@ -909,7 +909,7 @@ T(core_create_extensions_count_too_large)
     }
 }
 T(core_create_extensions_null_pointer_with_count)
-{
+{ if (t_is_wine()) { t_skip("Wine faults on this call; Windows behaviour is authoritative"); return; }
     core_create_fn f = (core_create_fn)t_proc_in("d3d11.dll", "D3D11CoreCreateDevice");
     REQUIRE(f);
     ID3D11Device *d = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;

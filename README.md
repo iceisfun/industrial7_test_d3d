@@ -17,7 +17,7 @@ exit code 1 if any test failed. `NOTE` lines record observed, version-dependent 
 Tests that need a second process re-launch the exe (`--child <name>`). Scratch files live in
 `%TEMP%\d3dt_<pid>\` and are removed on exit. `tools/*_exports.txt` list the named exports.
 
-See `HANDOFF.md` (when present) for how to run and triage the Windows passes.
+See `HANDOFF.md` for how to run and triage the Windows passes and `COVERAGE.md` for export coverage and per-area totals.
 
 ## Writing D3D tests
 
@@ -55,3 +55,30 @@ Writers own only their `tests/<area>/`; `common/`, `assets/` and the Makefile ar
   `d3dh_d12_resource_desc`, `d3dh_d12_heap_cpu_start/gpu_start` (C wrappers for struct-returning D3D12 methods).
 - Misc: `SAFE_RELEASE(p)`, `d3dh_refcount(p)`, `D3DH_RELEASE_RC(p)`, `D3DH_QI(p,iid,&out)`, `d3dh_hr_name(hr)`, `EXPECT_HR/EXPECT_HR_OK/EXPECT_HR_FAILED`,
   `d3dh_guid_str`, `d3dh_rng_*` (splitmix64), `d3dh_fnv1a`, `d3dh_crc32`, `d3dh_image_hash`, `d3dh_image_pixel32`, `d3dh_format_bytes`.
+
+## Areas
+`make list-areas` prints them; each `tests/<area>` builds to `build/<area>.exe`.
+
+| group | areas |
+|---|---|
+| harness | core_smoke, d3dh_selftest, exports_modules, formats_pitch_tables |
+| D3D11 | d3d11_device_create, d3d11_caps_formats, d3d11_buffers, d3d11_textures, d3d11_views, d3d11_state_objects, d3d11_shaders, d3d11_context_state, d3d11_render_exec, d3d11_debug_refcount, d3d11_interfaces_video |
+| D3D10 / compiler | d3d10_device, d3d10_utils_effects, d3dcompiler_compile, d3dcompiler_reflect_blob, hlsl_semantics_exec |
+| D3D12 | d3d12_entry_points, d3d12_objects, d3d12_rootsig_cpu |
+| D3D9 / legacy | d3d9_core, d3d9_device_resources, d3d9_state_draw, ddraw_legacy, d3dx_redist_optional |
+| DXGI | dxgi_factory, dxgi_adapter_output, dxgi_objects_resources, dxgi_swapchain |
+| misc | d3d_on12_dxcore_misc, dxva2_monitor_video, cross_com_threads_stress, gap_00..gap_04 (export depth and arg validation) |
+| state-changing (opt-in) | dx_gap_00..dx_gap_03 (run only with `run_all.bat /destructive`) |
+
+## Safety rules (apply to every test)
+- Devices: WARP first, then REFERENCE/NULL; no device means `t_skip`, never a failure. Windows without D3D12 or the debug layers (Graphics Tools) yields skips.
+- No visible windows (hidden `WS_POPUP` only), no fullscreen, no display-mode changes, no gamma ramps. Monitor DDC/CI writes (`dx_gap_02`) additionally require `TP_ALLOW_MONITOR_WRITE=1` and otherwise skip.
+- No GPU timeouts or hangs, no unbounded shader loops, no registry writes, no system-wide state.
+- Resources stay below 512 MB per test, children are spawned with a timeout, everything created is released or deleted.
+- Expectations that depend on GPU, driver, vendor or WDDM version are `t_note`; only API-contract behaviour is hard-checked.
+
+## Running on Windows 10
+Build on Linux (`make`, mingw-w64), copy `build\*.exe` and `tools\run_all.bat` to the VM, run `tools\run_all.bat`, then `python tools\summarize.py results --failures`. Details and triage in `HANDOFF.md`.
+
+## Headless validation under Wine (Linux only)
+`tools/wine_run.sh build/<area>.exe [filter]` runs one exe in a throw-away prefix with no X display and a hard timeout (`TP_TIMEOUT`, default 600 s), then kills the prefix. `python3 tools/reap_wine.py` kills stray prefixes. Never run wine against the main X session. Wine has no GPU device in this setup, so most device tests skip; it only proves the exes build, finish and skip cleanly.

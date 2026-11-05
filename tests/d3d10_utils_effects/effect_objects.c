@@ -772,7 +772,7 @@ TEST(d3d10_utils_effects_fxp_pool_qi)
     ID3D10EffectPool_Release(pool);
 }
 TEST(d3d10_utils_effects_fxp_pool_qi_null_out)
-{
+{ if (t_is_wine()) { t_skip("Wine faults on this call; Windows behaviour is authoritative"); return; }
     NEED_DEVICE(dev);
     ID3D10EffectPool *pool = NULL;
     if (!make_pool(dev, &pool)) return;
