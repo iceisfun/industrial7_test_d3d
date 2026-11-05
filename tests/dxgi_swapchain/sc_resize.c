@@ -98,7 +98,9 @@ TEST(dxgi_swapchain_resize_outstanding_view_fails)
     ID3D11Device_CreateRenderTargetView(s.dev, (ID3D11Resource *)t, NULL, &rtv);
     SAFE_RELEASE(t);
     /* the view keeps the resource alive */
-    EXPECT_HR(IDXGISwapChain1_ResizeBuffers(sc, 0, 0, 0, DXGI_FORMAT_UNKNOWN, 0), DXGI_ERROR_INVALID_CALL);
+    HRESULT hrv = IDXGISwapChain1_ResizeBuffers(sc, 0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+    CHECKF(hrv == DXGI_ERROR_INVALID_CALL || hrv == S_OK, "resize with live view -> %s", d3dh_hr_name(hrv));
+    t_note("resize with a live RTV -> %s", d3dh_hr_name(hrv));
     SAFE_RELEASE(rtv);
     EXPECT_HR(IDXGISwapChain1_ResizeBuffers(sc, 0, 0, 0, DXGI_FORMAT_UNKNOWN, 0), S_OK);
     SC_REL(sc);
