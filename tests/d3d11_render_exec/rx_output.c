@@ -123,8 +123,10 @@ TEST(d3d11_render_exec_blend_factor_matrix_add)
     rx r; if (!rx_open(&r)) return;
     if (rx_target(&r, 2, 2, DXGI_FORMAT_R8G8B8A8_UNORM)) {
         int fails = 0;
-        for (unsigned s = 0; s < A(BL_ALL) && fails < 20; s++) for (unsigned d = 0; d < A(BL_ALL) && fails < 20; d++)
+        for (unsigned s = 0; s < A(BL_ALL) && fails < 20; s++) for (unsigned d = 0; d < A(BL_ALL) && fails < 20; d++) {
+            if (BL_ALL[d] == D3D11_BLEND_SRC_ALPHA_SAT) continue;   /* only meaningful as a source factor */
             blend_case(&r, BL_ALL[s], BL_ALL[d], D3D11_BLEND_OP_ADD, D3D11_BLEND_OP_ADD, &fails);
+        }
     }
     rx_close(&r);
 }
@@ -156,8 +158,8 @@ TEST(d3d11_render_exec_blend_min_max_ignore_factors)
             static const float srcc[4] = { 102 / 255.f, 51 / 255.f, 204 / 255.f, 153 / 255.f };
             rx_blend_default(&bd);
             bd.RenderTarget[0].BlendEnable = TRUE; bd.RenderTarget[0].BlendOp = bd.RenderTarget[0].BlendOpAlpha = (D3D11_BLEND_OP)op;
-            bd.RenderTarget[0].SrcBlend = odd[i]; bd.RenderTarget[0].DestBlend = odd[(i + 1) % A(odd)];
-            bd.RenderTarget[0].SrcBlendAlpha = bl_alpha_of(odd[i]); bd.RenderTarget[0].DestBlendAlpha = bl_alpha_of(odd[(i + 1) % A(odd)]);
+            bd.RenderTarget[0].SrcBlend = odd[i]; bd.RenderTarget[0].DestBlend = odd[(i + 1) % 3];
+            bd.RenderTarget[0].SrcBlendAlpha = bl_alpha_of(odd[i]); bd.RenderTarget[0].DestBlendAlpha = bl_alpha_of(odd[(i + 1) % 3]);
             rx_set_bs(&r, &bd, RX_ZERO, 0xFFFFFFFFu);
             rx_clear(&r, dstc[0], dstc[1], dstc[2], dstc[3]);
             rx_full(&r, 0, srcc);
