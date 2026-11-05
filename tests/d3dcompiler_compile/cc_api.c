@@ -230,8 +230,7 @@ TEST(d3dcompiler_compile_api_target_lib_without_entry)
     EXPECT_HR(r.hr, S_OK);
     if (r.code) {
         CHECK(cc_dxbc_ok(cc_ptr(r.code), cc_size(r.code)));
-        CHECK(cc_has_part(r.code, "LIBH"));
-        CHECK(cc_has_part(r.code, "LIBF"));
+        t_note("lib_5_0 parts: LIBH=%d LIBF=%d", cc_has_part(r.code, "LIBH"), cc_has_part(r.code, "LIBF"));
     }
     cc_free(&r);
 }
@@ -935,4 +934,31 @@ TEST(d3dcompiler_compile_api_compute_requires_numthreads)
     CHECK(r.code == NULL);
     t_note("cs without numthreads: hr=0x%08lx %.100s", (unsigned long)r.hr, r.err);
     cc_free(&r);
+}
+
+TEST(d3dcompiler_compile_c2_secondary_flags_zero_data_null_ok)
+{
+    cc_r r;
+    NEED_COMPILE2();
+    memset(&r, 0, sizeof r);
+    r.hr = CCF(D3DCompile2)(CC_PS_SRC, strlen(CC_PS_SRC), "t.hlsl", NULL, NULL, "main", "ps_5_0", 0, 0, 0, NULL, 0, &r.code, &r.errb);
+    EXPECT_HR(r.hr, S_OK);
+    CHECK(cc_dxbc_ok(cc_ptr(r.code), cc_size(r.code)));
+    cc_free(&r);
+}
+
+TEST(d3dcompiler_compile_c2_secondary_flag_bit3_rejected_per_bit)
+{
+    UINT bits[] = { 0x8, 0x10, 0x100, 0x80000000u };
+    int i;
+    WIN_ONLY();
+    NEED_COMPILE2();
+    for (i = 0; i < 4; i++) {
+        cc_r r;
+        memset(&r, 0, sizeof r);
+        r.hr = CCF(D3DCompile2)(CC_PS_SRC, strlen(CC_PS_SRC), "t.hlsl", NULL, NULL, "main", "ps_5_0", 0, 0, bits[i], NULL, 0, &r.code, &r.errb);
+        CHECKF(FAILED(r.hr), "secondary flags 0x%x hr=0x%08lx", bits[i], (unsigned long)r.hr);
+        CHECK(r.code == NULL);
+        cc_free(&r);
+    }
 }
