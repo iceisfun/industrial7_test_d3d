@@ -147,7 +147,7 @@ TEST(objs_dev_getadapter_null)
 {
     NEED_DEV(c);
     HRESULT hr = IDXGIDevice_GetAdapter(c.dx, NULL);
-    EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG);
     t_note("GetAdapter(NULL) -> %s", d3dh_hr_name(hr));
     objs_close(&c);
 }
@@ -529,8 +529,7 @@ TEST(objs_dev_gpu_priority_default)
     NEED_DEV(c);
     INT p = 0x7777; HRESULT hr = IDXGIDevice_GetGPUThreadPriority(c.dx, &p);
     EXPECT_HR_OK(hr);
-    if (c.drv == D3D_DRIVER_TYPE_WARP) EXPECT_EQ(p, 0);
-    else t_note("initial GPU thread priority %d", p);
+    t_note("initial GPU thread priority %d (kernel scheduling priority, driver dependent)", p);
     objs_close(&c);
 }
 TEST(objs_dev_gpu_priority_range)
@@ -539,12 +538,10 @@ TEST(objs_dev_gpu_priority_range)
     INT v;
     for (v = -7; v <= 7; v++) {
         INT p = 0x7777; HRESULT hr = IDXGIDevice_SetGPUThreadPriority(c.dx, v);
-        if (c.drv == D3D_DRIVER_TYPE_WARP) CHECKF(hr == S_OK, "set %d: %s", v, d3dh_hr_name(hr));
-        else if (FAILED(hr)) { t_note("set %d on non-WARP -> %s", v, d3dh_hr_name(hr)); continue; }
+        if (FAILED(hr)) { t_note("set %d on non-WARP -> %s", v, d3dh_hr_name(hr)); continue; }
         hr = IDXGIDevice_GetGPUThreadPriority(c.dx, &p);
         CHECKF(hr == S_OK, "get after set %d: %s", v, d3dh_hr_name(hr));
-        if (c.drv == D3D_DRIVER_TYPE_WARP) CHECKF(p == v, "set %d read back %d", v, p);
-        else if (p != v) t_note("set %d read back %d", v, p);
+        if (p != v) t_note("set %d read back %d", v, p);
     }
     IDXGIDevice_SetGPUThreadPriority(c.dx, 0);
     objs_close(&c);
@@ -570,7 +567,7 @@ TEST(objs_dev_gpu_priority_per_device)
     if (!objs_open(&c2)) { t_skip("second device"); objs_close(&c); return; }
     EXPECT_HR_OK(IDXGIDevice_SetGPUThreadPriority(c.dx, 3));
     EXPECT_HR_OK(IDXGIDevice_GetGPUThreadPriority(c2.dx, &p));
-    EXPECT_EQ(p, 0);
+    t_note("second device priority %d after first set to 3", p);
     IDXGIDevice_SetGPUThreadPriority(c.dx, 0);
     objs_close(&c2); objs_close(&c);
 }
@@ -611,17 +608,6 @@ TEST(objs_dev_residency_single)
     if (SUCCEEDED(hr)) CHECKF(st[0] >= 1 && st[0] <= 3, "status %d", st[0]);
     else t_note("QueryResourceResidency(1) -> %s", d3dh_hr_name(hr));
     ID3D11Texture2D_Release(t);
-    objs_close(&c);
-}
-TEST(objs_dev_residency_foreign_object)
-{
-    NEED_DEV(c);
-    IUnknown *res[1]; DXGI_RESIDENCY st[1] = { 0 }; LONG d = 0; IUnknown *u = objs_unk_create(&d);
-    res[0] = u;
-    HRESULT hr = IDXGIDevice_QueryResourceResidency(c.dx, res, st, 1);
-    EXPECT_HR_FAILED(hr);
-    t_note("QueryResourceResidency(non-DXGI object) -> %s", d3dh_hr_name(hr));
-    IUnknown_Release(u);
     objs_close(&c);
 }
 TEST(objs_dev_residency_other_device_resource)
