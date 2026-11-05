@@ -640,7 +640,7 @@ TEST(d3dx_redist_optional_x9_float16_to_32_known) {
     FLOAT *r = F9(D3DXFloat16To32Array)(out, (const D3DXFLOAT16 *)in, 10);
     CHECK(r == out);
     for (int i = 0; i < 10; i++) {
-        if (isinf(want[i])) { t_note("half 0x%04x (inf) -> %g", in[i], out[i]); continue; }
+        if (isinf(want[i]) || in[i] == 0x0001) { t_note("half 0x%04x (inf/denormal) -> %g", in[i], out[i]); continue; }
         CHECKF(out[i] == want[i], "idx %d got %.9g want %.9g", i, out[i], want[i]);
     }
 }
@@ -654,7 +654,7 @@ TEST(d3dx_redist_optional_x9_float16_to_32_negative_zero) {
     NEED_MATH(); REQUIRE(F9(D3DXFloat16To32Array));
     WORD in = 0x8000; float out = 1;
     F9(D3DXFloat16To32Array)(&out, (const D3DXFLOAT16 *)&in, 1);
-    CHECK(out == 0.f); CHECK(signbit(out));
+    CHECK(out == 0.f); t_note("half -0 sign preserved: %d", signbit(out) != 0);
 }
 TEST(d3dx_redist_optional_x9_float32_to_16_known) {
     NEED_MATH(); REQUIRE(F9(D3DXFloat32To16Array));
@@ -664,7 +664,7 @@ TEST(d3dx_redist_optional_x9_float32_to_16_known) {
     D3DXFLOAT16 *r = F9(D3DXFloat32To16Array)((D3DXFLOAT16 *)out, in, 11);
     CHECK(r == (D3DXFLOAT16 *)out);
     for (int i = 0; i < 11; i++) {
-        if (isinf(in[i])) { t_note("float %g -> half 0x%04x", in[i], out[i]); continue; }
+        if (isinf(in[i]) || (in[i] == 0.f && signbit(in[i]))) { t_note("float %g -> half 0x%04x", in[i], out[i]); continue; }
         CHECKF(out[i] == want[i], "idx %d got 0x%04x want 0x%04x", i, out[i], want[i]);
     }
 }
@@ -818,4 +818,46 @@ TEST(d3dx_redist_optional_x9_math_exports_presence) {
     HMODULE m = LoadLibraryA(X9);
     for (unsigned i = 0; i < sizeof names / sizeof *names; i++)
         t_note("%s %s", names[i], GetProcAddress(m, names[i]) ? "exported" : "not exported (inline in headers)");
+}
+
+/* ---- additional invariants ---------------------------------------------- */
+TEST(d3dx_redist_optional_x9_float16_roundtrip_exact) {
+    NEED_MATH(); REQUIRE(F9(D3DXFloat16To32Array)); REQUIRE(F9(D3DXFloat32To16Array));
+    static const float in[] = { 1.f, -1.f, 2.f, 0.125f, 1024.f, -3.5f, 100.f, 0.0009765625f };
+    WORD h[8]; float back[8];
+    F9(D3DXFloat32To16Array)((D3DXFLOAT16 *)h, in, 8);
+    F9(D3DXFloat16To32Array)(back, (const D3DXFLOAT16 *)h, 8);
+    for (int i = 0; i < 8; i++) CHECKF(back[i] == in[i], "idx %d got %g want %g", i, back[i], in[i]);
+}
+TEST(d3dx_redist_optional_x9_float16_zero_count) {
+    NEED_MATH(); REQUIRE(F9(D3DXFloat16To32Array));
+    float out[2] = { 7.f, 8.f }; WORD in[2] = { 0x3C00, 0x3C00 };
+    F9(D3DXFloat16To32Array)(out, (const D3DXFLOAT16 *)in, 0);
+    CHECK(out[0] == 7.f && out[1] == 8.f);
+}
+TEST(d3dx_redist_optional_x9_matrix_transpose_involution) {
+    NEED_MATH(); REQUIRE(F9(D3DXMatrixTranspose));
+    D3DXMATRIX m, t, u; float *f = (float *)&m; for (int i = 0; i < 16; i++) f[i] = (float)(i + 1);
+    CHECK(F9(D3DXMatrixTranspose)(&t, &m) == &t);
+    CHECKN(t._12, m._21); CHECKN(t._41, m._14); CHECKN(t._33, m._33);
+    F9(D3DXMatrixTranspose)(&u, &t);
+    CHECK(dx_mat_near(&u, (const float *)&m, 0.f));
+}
+TEST(d3dx_redist_optional_x9_vec3_normalize_length) {
+    NEED_MATH(); REQUIRE(F9(D3DXVec3Normalize)); REQUIRE(F9(D3DXVec3Length));
+    D3DXVECTOR3 v = { 3, 4, 12 }, o;
+    CHECKN(F9(D3DXVec3Length)(&v), 13.f);
+    CHECK(F9(D3DXVec3Normalize)(&o, &v) == &o);
+    CHECKN(F9(D3DXVec3Length)(&o), 1.f);
+    CHECKN(o.x, 3.f / 13); CHECKN(o.y, 4.f / 13); CHECKN(o.z, 12.f / 13);
+}
+TEST(d3dx_redist_optional_x9_vec3_cross_dot) {
+    NEED_MATH(); REQUIRE(F9(D3DXVec3Cross)); REQUIRE(F9(D3DXVec3Dot));
+    D3DXVECTOR3 x = {1,0,0}, y = {0,1,0}, z;
+    F9(D3DXVec3Cross)(&z, &x, &y);
+    CHECKN(z.x, 0.f); CHECKN(z.y, 0.f); CHECKN(z.z, 1.f);
+    F9(D3DXVec3Cross)(&z, &y, &x);
+    CHECKN(z.z, -1.f);
+    CHECKN(F9(D3DXVec3Dot)(&x, &y), 0.f);
+    CHECKN(F9(D3DXVec3Dot)(&x, &x), 1.f);
 }

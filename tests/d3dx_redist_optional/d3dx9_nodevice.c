@@ -385,7 +385,8 @@ TEST(d3dx_redist_optional_x9_assemble_vs11) {
     EXPECT_EQ(F9(D3DXGetShaderVersion)(code), 0xFFFE0101);
     EXPECT_EQ(code[sz / 4 - 1], 0x0000FFFF);   /* END token */
     EXPECT_EQ(F9(D3DXGetShaderSize)(code), sz);
-    ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_assemble_ps20) {
     NEED_DLL(X9); REQUIRE(F9(D3DXAssembleShader)); REQUIRE(F9(D3DXGetShaderVersion));
@@ -429,7 +430,8 @@ TEST(d3dx_redist_optional_x9_assemble_null_source) {
     ID3DXBuffer *sh = NULL, *err = NULL;
     HRESULT hr = F9(D3DXAssembleShader)(NULL, 0, NULL, NULL, 0, &sh, &err);
     CHECK(FAILED(hr)); t_note("AssembleShader(NULL, 0) -> %s", d3dh_hr_name(hr));
-    if (sh) ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    if (sh) ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_assemble_defines) {
     NEED_DLL(X9); REQUIRE(F9(D3DXAssembleShader));
@@ -508,7 +510,8 @@ TEST(d3dx_redist_optional_x9_compile_shader_constant_table) {
         t_note("col register %u", cd.RegisterIndex);
     }
     CHECK(ID3DXConstantTable_GetConstantByName(ct, NULL, "nosuchconstant") == NULL);
-    ID3DXConstantTable_Release(ct); if (sh) ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    ID3DXConstantTable_Release(ct); if (sh) ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_get_shader_constant_table_matches_compile) {
     NEED_DLL(X9); REQUIRE(F9(D3DXCompileShader)); REQUIRE(F9(D3DXGetShaderConstantTable));
@@ -519,7 +522,8 @@ TEST(d3dx_redist_optional_x9_get_shader_constant_table_matches_compile) {
         D3DXCONSTANTTABLE_DESC d; EXPECT_HR(ID3DXConstantTable_GetDesc(ct2, &d), S_OK); EXPECT_EQ(d.Constants, 2);
         ID3DXConstantTable_Release(ct2);
     }
-    if (ct) ID3DXConstantTable_Release(ct); ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    if (ct) ID3DXConstantTable_Release(ct); ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_get_shader_constant_table_none) {
     NEED_DLL(X9); REQUIRE(F9(D3DXAssembleShader)); REQUIRE(F9(D3DXGetShaderConstantTable));
@@ -559,7 +563,8 @@ TEST(d3dx_redist_optional_x9_compile_shader_null_args) {
     ID3DXBuffer *sh = NULL, *err = NULL;
     HRESULT hr = F9(D3DXCompileShader)(NULL, 0, NULL, NULL, "main", "vs_2_0", 0, &sh, &err, NULL);
     CHECK(FAILED(hr)); t_note("CompileShader(NULL source) -> %s", d3dh_hr_name(hr));
-    if (sh) ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    if (sh) ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_compile_shader_ps_profiles) {
     NEED_DLL(X9); REQUIRE(F9(D3DXCompileShader)); REQUIRE(F9(D3DXGetShaderVersion));
@@ -570,7 +575,8 @@ TEST(d3dx_redist_optional_x9_compile_shader_ps_profiles) {
         HRESULT hr = F9(D3DXCompileShader)(src, sizeof src - 1, NULL, NULL, "main", t[i].prof, 0, &sh, &err, &ct);
         CHECKF(SUCCEEDED(hr), "%s hr %s", t[i].prof, d3dh_hr_name(hr));
         if (sh) { t_note("%s version token 0x%08lx", t[i].prof, F9(D3DXGetShaderVersion)(ID3DXBuffer_GetBufferPointer(sh))); ID3DXBuffer_Release(sh); }
-        if (ct) ID3DXConstantTable_Release(ct); if (err) ID3DXBuffer_Release(err);
+        if (ct) ID3DXConstantTable_Release(ct);
+        if (err) ID3DXBuffer_Release(err);
     }
 }
 TEST(d3dx_redist_optional_x9_compile_shader_defines_and_flags) {
@@ -579,10 +585,12 @@ TEST(d3dx_redist_optional_x9_compile_shader_defines_and_flags) {
     D3DXMACRO defs[] = { { "SCALE", "2.0" }, { NULL, NULL } };
     ID3DXBuffer *sh = NULL, *err = NULL;
     EXPECT_HR(F9(D3DXCompileShader)(src, sizeof src - 1, defs, NULL, "main", "vs_2_0", D3DXSHADER_SKIPVALIDATION, &sh, &err, NULL), S_OK);
-    if (sh) ID3DXBuffer_Release(sh); if (err) { ID3DXBuffer_Release(err); err = NULL; }
+    if (sh) ID3DXBuffer_Release(sh);
+    if (err) { ID3DXBuffer_Release(err); err = NULL; }
     HRESULT hr = F9(D3DXCompileShader)(src, sizeof src - 1, NULL, NULL, "main", "vs_2_0", 0, &sh, &err, NULL);   /* SCALE undefined */
     CHECK(FAILED(hr));
-    if (SUCCEEDED(hr) && sh) ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    if (SUCCEEDED(hr) && sh) ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_compile_shader_disassemble) {
     NEED_DLL(X9); REQUIRE(F9(D3DXCompileShader)); REQUIRE(F9(D3DXDisassembleShader));
@@ -594,7 +602,8 @@ TEST(d3dx_redist_optional_x9_compile_shader_disassemble) {
         CHECK(strstr(txt, "vs_2_0") != NULL); CHECK(strstr(txt, "dp4") != NULL || strstr(txt, "mul") != NULL);
         ID3DXBuffer_Release(dis);
     }
-    ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
 TEST(d3dx_redist_optional_x9_find_shader_comment_ctab) {
     NEED_DLL(X9); REQUIRE(F9(D3DXCompileShader)); REQUIRE(F9(D3DXFindShaderComment));
@@ -606,5 +615,6 @@ TEST(d3dx_redist_optional_x9_find_shader_comment_ctab) {
     if (data && size >= 28) EXPECT_EQ(*(const DWORD *)data, 28);   /* CTAB header size */
     HRESULT hr2 = F9(D3DXFindShaderComment)(ID3DXBuffer_GetBufferPointer(sh), MAKEFOURCC('N','O','P','E'), &data, &size);
     t_note("FindShaderComment for an absent fourcc -> %s", d3dh_hr_name(hr2));
-    ID3DXBuffer_Release(sh); if (err) ID3DXBuffer_Release(err);
+    ID3DXBuffer_Release(sh);
+    if (err) ID3DXBuffer_Release(err);
 }
