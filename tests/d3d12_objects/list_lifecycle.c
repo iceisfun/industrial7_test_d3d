@@ -53,7 +53,7 @@ TEST(d3d12_objects_list_create_invalid_type_and_node) {
 }
 TEST(d3d12_objects_list_create_allocator_busy) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12GraphicsCommandList *l2 = NULL;
     HRESULT hr = ID3D12Device_CreateCommandList(dev, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, c.al, NULL, &IID_ID3D12GraphicsCommandList, (void **)&l2);
     CHECKF(FAILED(hr), "allocator in use by a recording list: %s", d3dh_hr_name(hr));
@@ -107,7 +107,7 @@ out:
 }
 TEST(d3d12_objects_list_close_twice) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), E_FAIL);
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), E_FAIL);
@@ -127,14 +127,14 @@ TEST(d3d12_objects_list_close_twice_all_types) {
 }
 TEST(d3d12_objects_list_reset_while_recording) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     EXPECT_HR(ID3D12GraphicsCommandList_Reset(c.cl, c.al, NULL), E_FAIL);
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);   /* still recording after the failed Reset */
     d12_ctx_free(&c);
 }
 TEST(d3d12_objects_list_reset_after_close) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     for (int i = 0; i < 4; i++) {
         EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);
         EXPECT_HR(ID3D12CommandAllocator_Reset(c.al), S_OK);
@@ -145,7 +145,7 @@ TEST(d3d12_objects_list_reset_after_close) {
 TEST(d3d12_objects_list_reset_without_allocator_reset) {
     NEED_DEV();
     /* Reset of a list may reuse an allocator without resetting it first (the allocator keeps growing) */
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);
     EXPECT_HR(ID3D12GraphicsCommandList_Reset(c.cl, c.al, NULL), S_OK);
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);
@@ -153,7 +153,7 @@ TEST(d3d12_objects_list_reset_without_allocator_reset) {
 }
 TEST(d3d12_objects_list_reset_other_allocator) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12CommandAllocator *a2 = NULL;
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&a2), S_OK);
     if (a2) {
@@ -168,7 +168,7 @@ TEST(d3d12_objects_list_reset_other_allocator) {
 }
 TEST(d3d12_objects_list_reset_wrong_allocator_type) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12CommandAllocator *a2 = NULL;
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_COMPUTE, &IID_ID3D12CommandAllocator, (void **)&a2), S_OK);
     if (a2) {
@@ -180,7 +180,7 @@ TEST(d3d12_objects_list_reset_wrong_allocator_type) {
 }
 TEST(d3d12_objects_list_reset_allocator_in_use_by_other_list) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12GraphicsCommandList *l2 = NULL; ID3D12CommandAllocator *a2 = NULL;
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&a2), S_OK);
     if (a2) {
@@ -196,7 +196,7 @@ TEST(d3d12_objects_list_reset_allocator_in_use_by_other_list) {
 }
 TEST(d3d12_objects_list_reset_null_allocator) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);
     HRESULT hr = ID3D12GraphicsCommandList_Reset(c.cl, NULL, NULL);
     CHECKF(FAILED(hr), "Reset(NULL allocator): %s", d3dh_hr_name(hr));
@@ -205,7 +205,7 @@ TEST(d3d12_objects_list_reset_null_allocator) {
 TEST(d3d12_objects_list_reset_while_executing) {
     NEED_DEV();
     /* ID3D12GraphicsCommandList::Reset may be called immediately after ExecuteCommandLists (with an allocator that is not in flight). */
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12CommandAllocator *a2 = NULL;
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&a2), S_OK);
     if (a2) {
@@ -222,7 +222,7 @@ TEST(d3d12_objects_list_reset_while_executing) {
 }
 TEST(d3d12_objects_list_execute_twice) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *up = NULL, *dst = NULL; static const unsigned char pat[16] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
     EXPECT_HR(d12_make_upload(dev, pat, 16, 256, &up), S_OK);
     EXPECT_HR(d12_make_buffer(dev, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_NONE, &dst), S_OK);
@@ -246,7 +246,7 @@ TEST(d3d12_objects_list_execute_twice) {
 }
 TEST(d3d12_objects_list_qi_interfaces) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     void *o; HRESULT hr;
     o = NULL; EXPECT_HR(ID3D12GraphicsCommandList_QueryInterface(c.cl, &IID_ID3D12CommandList, &o), S_OK); if (o) { CHECK(o == (void *)c.cl); ((IUnknown *)o)->lpVtbl->Release(o); }
     o = NULL; EXPECT_HR(ID3D12GraphicsCommandList_QueryInterface(c.cl, &IID_ID3D12DeviceChild, &o), S_OK); if (o) ((IUnknown *)o)->lpVtbl->Release(o);
@@ -266,7 +266,7 @@ TEST(d3d12_objects_list_qi_interfaces) {
 }
 TEST(d3d12_objects_list_getdevice) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COMPUTE))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COMPUTE))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Device *d = NULL;
     EXPECT_HR(ID3D12GraphicsCommandList_GetDevice(c.cl, &IID_ID3D12Device, (void **)&d), S_OK);
     CHECK(d == dev); if (d) ID3D12Device_Release(d);
@@ -295,7 +295,7 @@ static void fill_pattern(unsigned char *p, size_t n, unsigned seed) { for (size_
 
 TEST(d3d12_objects_copy_buffer_region_basic) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     unsigned char src[1024]; fill_pattern(src, sizeof src, 3);
     ID3D12Resource *up = NULL, *dst = NULL;
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, sizeof src, &up), S_OK);
@@ -321,7 +321,7 @@ TEST(d3d12_objects_copy_buffer_region_basic) {
 TEST(d3d12_objects_copy_buffer_implicit_promotion) {
     NEED_DEV();
     /* Buffers in COMMON are promoted to COPY_DEST / COPY_SOURCE on first use and decay back after ExecuteCommandLists. */
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     unsigned char src[256]; fill_pattern(src, sizeof src, 11);
     ID3D12Resource *up = NULL, *mid = NULL, *rb = NULL;
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, sizeof src, &up), S_OK);
@@ -341,7 +341,7 @@ TEST(d3d12_objects_copy_buffer_implicit_promotion) {
 }
 TEST(d3d12_objects_copy_resource_buffer) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     unsigned char src[4096]; fill_pattern(src, sizeof src, 5);
     ID3D12Resource *up = NULL, *dst = NULL;
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, sizeof src, &up), S_OK);
@@ -358,7 +358,7 @@ TEST(d3d12_objects_copy_resource_buffer) {
 }
 TEST(d3d12_objects_copy_on_copy_queue) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COPY))) { t_skip("no copy queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COPY))) { t_skip("no copy queue"); d12_ctx_free(&c); return; }
     unsigned char src[512]; fill_pattern(src, sizeof src, 21);
     ID3D12Resource *up = NULL, *dst = NULL;
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, sizeof src, &up), S_OK);
@@ -374,7 +374,7 @@ TEST(d3d12_objects_copy_on_copy_queue) {
 }
 TEST(d3d12_objects_copy_on_compute_queue) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COMPUTE))) { t_skip("no compute queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COMPUTE))) { t_skip("no compute queue"); d12_ctx_free(&c); return; }
     unsigned char src[512]; fill_pattern(src, sizeof src, 31);
     ID3D12Resource *up = NULL, *dst = NULL;
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, sizeof src, &up), S_OK);
@@ -390,7 +390,7 @@ TEST(d3d12_objects_copy_on_compute_queue) {
 }
 TEST(d3d12_objects_copy_to_readback_directly) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     unsigned char src[128]; fill_pattern(src, sizeof src, 77);
     ID3D12Resource *up = NULL, *rb = NULL;
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, sizeof src, &up), S_OK);
@@ -408,7 +408,7 @@ TEST(d3d12_objects_copy_to_readback_directly) {
 /* ---- barriers ---------------------------------------------------------------------------- */
 TEST(d3d12_objects_barrier_transition_all_subresources) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *t = NULL;
     EXPECT_HR(d12_make_tex2d(dev, 16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 3, 2, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON, NULL, &t), S_OK);
     if (t) {
@@ -421,7 +421,7 @@ TEST(d3d12_objects_barrier_transition_all_subresources) {
 }
 TEST(d3d12_objects_barrier_transition_per_subresource) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *t = NULL;
     EXPECT_HR(d12_make_tex2d(dev, 16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 3, 2, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON, NULL, &t), S_OK);
     if (t) {
@@ -434,7 +434,7 @@ TEST(d3d12_objects_barrier_transition_per_subresource) {
 }
 TEST(d3d12_objects_barrier_batch_array) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *a = NULL, *b = NULL;
     EXPECT_HR(d12_make_buffer(dev, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, &a), S_OK);
     EXPECT_HR(d12_make_buffer(dev, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, &b), S_OK);
@@ -454,7 +454,7 @@ TEST(d3d12_objects_barrier_batch_array) {
 }
 TEST(d3d12_objects_barrier_split) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *t = NULL;
     EXPECT_HR(d12_make_tex2d(dev, 8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON, NULL, &t), S_OK);
     if (t) {
@@ -472,7 +472,7 @@ TEST(d3d12_objects_barrier_split) {
 }
 TEST(d3d12_objects_barrier_aliasing) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     D3D12_HEAP_DESC hd; memset(&hd, 0, sizeof hd); hd.SizeInBytes = 64 * KB; hd.Properties = d12_heap_props(D3D12_HEAP_TYPE_DEFAULT); hd.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
     ID3D12Heap *h = NULL; ID3D12Resource *a = NULL, *b = NULL;
     if (FAILED(ID3D12Device_CreateHeap(dev, &hd, &IID_ID3D12Heap, (void **)&h))) { t_skip("no heap"); d12_ctx_free(&c); return; }
@@ -499,7 +499,7 @@ TEST(d3d12_objects_barrier_aliasing) {
 }
 TEST(d3d12_objects_barrier_same_state_note) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *a = NULL;
     EXPECT_HR(d12_make_buffer(dev, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_NONE, &a), S_OK);
     if (a) {
@@ -511,7 +511,7 @@ TEST(d3d12_objects_barrier_same_state_note) {
 }
 TEST(d3d12_objects_barrier_on_copy_list) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COPY))) { t_skip("no copy queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_COPY))) { t_skip("no copy queue"); d12_ctx_free(&c); return; }
     ID3D12Resource *a = NULL, *up = NULL;
     unsigned char src[64]; fill_pattern(src, sizeof src, 5);
     EXPECT_HR(d12_make_upload(dev, src, sizeof src, 64, &up), S_OK);
@@ -528,7 +528,7 @@ TEST(d3d12_objects_barrier_on_copy_list) {
 /* ---- markers / misc recording calls ------------------------------------------------------------ */
 TEST(d3d12_objects_list_markers_and_events) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     static const char ascii[] = "marker"; static const WCHAR wide[] = L"wide marker";
     ID3D12GraphicsCommandList_SetMarker(c.cl, 0, NULL, 0);
     ID3D12GraphicsCommandList_SetMarker(c.cl, 1, ascii, sizeof ascii);
@@ -541,7 +541,7 @@ TEST(d3d12_objects_list_markers_and_events) {
 }
 TEST(d3d12_objects_list_clearstate_and_state_calls) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     D3D12_VIEWPORT vp = { 0, 0, 16, 16, 0, 1 }; D3D12_RECT sc = { 0, 0, 16, 16 }; float bf[4] = { 1, 1, 1, 1 };
     ID3D12GraphicsCommandList_RSSetViewports(c.cl, 1, &vp);
     ID3D12GraphicsCommandList_RSSetScissorRects(c.cl, 1, &sc);
@@ -555,7 +555,7 @@ TEST(d3d12_objects_list_clearstate_and_state_calls) {
 }
 TEST(d3d12_objects_list_set_descriptor_heaps) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12DescriptorHeap *hv = NULL, *hs = NULL;
     EXPECT_HR(d12_make_dheap(dev, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 8, 1, &hv), S_OK);
     EXPECT_HR(d12_make_dheap(dev, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 4, 1, &hs), S_OK);
@@ -588,7 +588,7 @@ TEST(d3d12_objects_bundle_lifecycle) {
 }
 TEST(d3d12_objects_bundle_execute_draw) {
     NEED_DEV();
-    d12draw dr; d12ctx c; d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    d12draw dr; d12ctx c = {0}; d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT);
     if (!c.cl || FAILED(d12_draw_init(dev, &dr))) { t_skip("cannot build draw state"); d12_draw_free(&dr); d12_ctx_free(&c); return; }
     ID3D12CommandAllocator *ba = NULL; ID3D12GraphicsCommandList *bl = NULL;
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_BUNDLE, &IID_ID3D12CommandAllocator, (void **)&ba), S_OK);
@@ -626,7 +626,7 @@ TEST(d3d12_objects_bundle_execute_draw) {
 }
 TEST(d3d12_objects_bundle_not_executable_on_queue_note) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     /* A bundle can only be executed from a direct list. Submitting it to the queue directly is invalid and only recorded as a note. */
     ID3D12GraphicsCommandList *bl = NULL; ID3D12CommandAllocator *ba = NULL;
     ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_BUNDLE, &IID_ID3D12CommandAllocator, (void **)&ba);
@@ -640,7 +640,7 @@ TEST(d3d12_objects_bundle_not_executable_on_queue_note) {
 /* ---- multiple threads recording --------------------------------------------------------------- */
 typedef struct { ID3D12Device *dev; HRESULT hr; unsigned char *pat; ID3D12Resource *up, *dst; } thr_arg;
 static DWORD WINAPI rec_thread(LPVOID p) {
-    thr_arg *a = p; d12ctx c;
+    thr_arg *a = p; d12ctx c = {0};
     a->hr = d12_ctx_init(&c, a->dev, D3D12_COMMAND_LIST_TYPE_DIRECT);
     if (SUCCEEDED(a->hr)) {
         for (int i = 0; i < 20 && SUCCEEDED(a->hr); i++) {

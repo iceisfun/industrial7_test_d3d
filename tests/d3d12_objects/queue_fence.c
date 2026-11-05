@@ -134,7 +134,7 @@ TEST(d3d12_objects_queue_iids) {
 }
 TEST(d3d12_objects_queue_exec_zero_lists) {
     NEED_DEV();
-    d12ctx c;
+    d12ctx c = {0};
     EXPECT_HR(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT), S_OK);
     if (c.q) {
         ID3D12CommandList *dummy = NULL;
@@ -148,7 +148,7 @@ TEST(d3d12_objects_queue_exec_zero_lists) {
 TEST(d3d12_objects_queue_exec_empty_list_all_types) {
     NEED_DEV();
     for (unsigned i = 0; i < 3; i++) {
-        d12ctx c;
+        d12ctx c = {0};
         HRESULT hr = d12_ctx_init(&c, dev, qtypes[i].t);
         EXPECT_HR(hr, S_OK);
         if (SUCCEEDED(hr)) {
@@ -160,7 +160,7 @@ TEST(d3d12_objects_queue_exec_empty_list_all_types) {
 }
 TEST(d3d12_objects_queue_exec_multiple_lists) {
     NEED_DEV();
-    d12ctx c; EXPECT_HR(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT), S_OK);
+    d12ctx c = {0}; EXPECT_HR(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT), S_OK);
     if (!c.cl) { d12_ctx_free(&c); return; }
     ID3D12CommandAllocator *al2 = NULL; ID3D12GraphicsCommandList *cl2 = NULL;
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&al2), S_OK);
@@ -192,7 +192,7 @@ TEST(d3d12_objects_queue_timestamp_frequency) {
 }
 TEST(d3d12_objects_queue_timestamp_frequency_consistent) {
     NEED_DEV();
-    d12ctx a, b; UINT64 fa = 0, fb = 0;
+    d12ctx a = {0}, b = {0}; UINT64 fa = 0, fb = 0;
     if (FAILED(d12_ctx_init(&a, dev, D3D12_COMMAND_LIST_TYPE_DIRECT)) || FAILED(d12_ctx_init(&b, dev, D3D12_COMMAND_LIST_TYPE_COMPUTE))) { t_skip("no queues"); d12_ctx_free(&a); d12_ctx_free(&b); return; }
     EXPECT_HR(ID3D12CommandQueue_GetTimestampFrequency(a.q, &fa), S_OK);
     EXPECT_HR(ID3D12CommandQueue_GetTimestampFrequency(a.q, &fb), S_OK);
@@ -204,7 +204,7 @@ TEST(d3d12_objects_queue_timestamp_frequency_consistent) {
 }
 TEST(d3d12_objects_queue_clock_calibration) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
     UINT64 gpu1 = 0, cpu1 = 0, gpu2 = 0, cpu2 = 0, freq = 0;
     LARGE_INTEGER qpc, qpf; QueryPerformanceFrequency(&qpf); QueryPerformanceCounter(&qpc);
     HRESULT hr = ID3D12CommandQueue_GetClockCalibration(c.q, &gpu1, &cpu1);
@@ -223,7 +223,7 @@ TEST(d3d12_objects_queue_clock_calibration) {
 }
 TEST(d3d12_objects_queue_signal_fence_values) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
     EXPECT_EQ(ID3D12Fence_GetCompletedValue(c.fence), 0);
     for (UINT64 v = 1; v <= 4; v++) {
         EXPECT_HR(ID3D12CommandQueue_Signal(c.q, c.fence, v * 10), S_OK);
@@ -234,7 +234,7 @@ TEST(d3d12_objects_queue_signal_fence_values) {
 }
 TEST(d3d12_objects_queue_signal_null_fence) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
     HRESULT hr = ID3D12CommandQueue_Signal(c.q, NULL, 1);
     CHECKF(FAILED(hr), "Signal(NULL fence): %s", d3dh_hr_name(hr));
     hr = ID3D12CommandQueue_Wait(c.q, NULL, 1);
@@ -243,7 +243,7 @@ TEST(d3d12_objects_queue_signal_null_fence) {
 }
 TEST(d3d12_objects_queue_wait_already_signalled) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
     ID3D12Fence *f2 = NULL;
     EXPECT_HR(ID3D12Device_CreateFence(dev, 5, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&f2), S_OK);
     if (f2) {
@@ -258,7 +258,7 @@ TEST(d3d12_objects_queue_wait_already_signalled) {
 }
 TEST(d3d12_objects_queue_wait_blocks_until_cpu_signal) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
     ID3D12Fence *gate = NULL;
     EXPECT_HR(ID3D12Device_CreateFence(dev, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&gate), S_OK);
     if (gate) {
@@ -278,7 +278,7 @@ TEST(d3d12_objects_queue_wait_blocks_until_cpu_signal) {
 }
 TEST(d3d12_objects_queue_cross_queue_sync) {
     NEED_DEV();
-    d12ctx a, b;
+    d12ctx a = {0}, b = {0};
     if (FAILED(d12_ctx_init(&a, dev, D3D12_COMMAND_LIST_TYPE_DIRECT)) || FAILED(d12_ctx_init(&b, dev, D3D12_COMMAND_LIST_TYPE_COMPUTE))) { t_skip("no queues"); d12_ctx_free(&a); d12_ctx_free(&b); return; }
     ID3D12Fence *shared = NULL;
     EXPECT_HR(ID3D12Device_CreateFence(dev, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&shared), S_OK);
@@ -296,7 +296,7 @@ TEST(d3d12_objects_queue_cross_queue_sync) {
 }
 TEST(d3d12_objects_queue_getdevice) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no queue"); d12_ctx_free(&c); return; }
     ID3D12Device *d2 = NULL;
     ULONG before = d3dh_refcount(dev);
     EXPECT_HR(ID3D12CommandQueue_GetDevice(c.q, &IID_ID3D12Device, (void **)&d2), S_OK);
@@ -357,7 +357,7 @@ TEST(d3d12_objects_alloc_reset_idle) {
 }
 TEST(d3d12_objects_alloc_reset_while_list_recording) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     HRESULT hr = ID3D12CommandAllocator_Reset(c.al);   /* the list is still recording */
     EXPECT_HR(hr, E_FAIL);
     EXPECT_HR(ID3D12GraphicsCommandList_Close(c.cl), S_OK);
@@ -366,7 +366,7 @@ TEST(d3d12_objects_alloc_reset_while_list_recording) {
 }
 TEST(d3d12_objects_alloc_reset_after_execute) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     for (int i = 0; i < 5; i++) {
         EXPECT_HR(d12_run(&c), S_OK);
         EXPECT_HR(d12_rerecord(&c), S_OK);
@@ -557,7 +557,7 @@ TEST(d3d12_objects_fence_event_autoreset_consumed) {
 }
 TEST(d3d12_objects_fence_event_signalled_by_gpu) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     HANDLE ev = CreateEventA(NULL, TRUE, FALSE, NULL);
     EXPECT_HR(ID3D12Fence_SetEventOnCompletion(c.fence, 9, ev), S_OK);
     EXPECT_HR(ID3D12CommandQueue_Signal(c.q, c.fence, 9), S_OK);
@@ -568,7 +568,7 @@ TEST(d3d12_objects_fence_event_signalled_by_gpu) {
 }
 TEST(d3d12_objects_fence_completed_value_only_after_prior_work) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     /* A gate holds back a Signal; completed value must stay at the old value until the queue is released. */
     ID3D12Fence *gate = NULL;
     EXPECT_HR(ID3D12Device_CreateFence(dev, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&gate), S_OK);
@@ -612,7 +612,7 @@ TEST(d3d12_objects_fence_creation_flags_roundtrip) {
 }
 TEST(d3d12_objects_fence_gpu_signal_cpu_event_many) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     for (UINT64 v = 1; v <= 50; v++) {
         EXPECT_HR(ID3D12CommandQueue_Signal(c.q, c.fence, v), S_OK);
     }
@@ -794,7 +794,7 @@ TEST(d3d12_objects_private_data_allocator) {
 }
 TEST(d3d12_objects_private_data_list) {
     NEED_DEV();
-    d12ctx c; if (SUCCEEDED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) object_protocol(dev, (ID3D12Object *)c.cl, "list");
+    d12ctx c = {0}; if (SUCCEEDED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) object_protocol(dev, (ID3D12Object *)c.cl, "list");
     d12_ctx_free(&c);
 }
 TEST(d3d12_objects_private_data_fence) {

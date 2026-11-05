@@ -1094,7 +1094,7 @@ TEST(d3d12_objects_map_pointer_not_offset_by_range) {
 }
 TEST(d3d12_objects_map_persistent_while_gpu_copies) {
     NEED_DEV();
-    d12ctx c; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
+    d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12Resource *up = NULL, *rb = NULL;
     EXPECT_HR(d12_make_buffer(dev, D3D12_HEAP_TYPE_UPLOAD, 1024, 0, &up), S_OK);
     EXPECT_HR(d12_make_buffer(dev, D3D12_HEAP_TYPE_READBACK, 1024, 0, &rb), S_OK);
