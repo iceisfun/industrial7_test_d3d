@@ -139,24 +139,29 @@ static void rb_dxbc_rehash(BYTE *data, size_t total)
     }
     memcpy(data + 4, st, 16);
 }
-/* Assemble a container from chunks (data copied, each chunk padded to 4 bytes). Returns malloc'd buffer. */
-static BYTE *rb_dxbc_build(const rb_chunk *c, int n, size_t *out_size)
+/* Assemble a container from chunks. The container format requires chunks to be packed back to back, so a chunk size
+ * that is not a multiple of 4 is padded with zero bytes and the padded size is stored. gap = bytes of slack inserted
+ * before chunk number gap_at (gap_at < 0: none); the container reader rejects slack between chunks. */
+static BYTE *rb_dxbc_build_gap(const rb_chunk *c, int n, int gap_at, DWORD gap, size_t *out_size)
 {
     size_t total = 0x20 + (size_t)n * 4, pos; BYTE *b;
-    for (int i = 0; i < n; i++) total += 8 + ((c[i].size + 3) & ~3u);
+    for (int i = 0; i < n; i++) total += 8 + ((c[i].size + 3) & ~3u) + (i == gap_at ? gap : 0);
     b = calloc(1, total); if (!b) return NULL;
     memcpy(b, "DXBC", 4); *(WORD *)(b + 0x14) = 1; *(DWORD *)(b + 0x18) = (DWORD)total; *(DWORD *)(b + 0x1c) = n;
     pos = 0x20 + (size_t)n * 4;
     for (int i = 0; i < n; i++) {
+        DWORD psz = (c[i].size + 3) & ~3u;
+        if (i == gap_at) pos += gap;
         *(DWORD *)(b + 0x20 + i * 4) = (DWORD)pos;
-        *(DWORD *)(b + pos) = c[i].fourcc; *(DWORD *)(b + pos + 4) = c[i].size;
+        *(DWORD *)(b + pos) = c[i].fourcc; *(DWORD *)(b + pos + 4) = psz;
         if (c[i].size) memcpy(b + pos + 8, c[i].data, c[i].size);
-        pos += 8 + ((c[i].size + 3) & ~3u);
+        pos += 8 + psz;
     }
     rb_dxbc_rehash(b, total);
     if (out_size) *out_size = total;
     return b;
 }
+static BYTE *rb_dxbc_build(const rb_chunk *c, int n, size_t *out_size) { return rb_dxbc_build_gap(c, n, -1, 0, out_size); }
 /* Copy of a container with the chunk(s) of one fourcc removed (0 = keep all), optionally replaced by new data. */
 static BYTE *rb_dxbc_edit(const void *src, size_t n, DWORD drop, DWORD add_fcc, const void *add, DWORD add_size, size_t *out_size)
 {
