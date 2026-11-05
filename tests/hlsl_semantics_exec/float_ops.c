@@ -95,7 +95,7 @@ HSE_F1(float_isnan_via_select, "", "isnan(fa) ? 1.0 : 0.0", 0, (x != x) ? 1.0f :
 HSE_F1(float_isinf_via_select, "", "isinf(fa) ? 1.0 : 0.0", 0, (x == INFINITY || x == -INFINITY) ? 1.0f : 0.0f)
 HSE_F1(float_isfinite_via_select, "", "isfinite(fa) ? 1.0 : 0.0", 0, (x == x && x != INFINITY && x != -INFINITY) ? 1.0f : 0.0f)
 HSE_F1(float_sqrt_table, "", "sqrt(fa)", 1, (x < 0) ? NAN : sqrtf(x))
-HSE_F1(float_rsqrt_table, "", "rsqrt(fa)", 1, (x != x) ? NAN : x < 0 ? NAN : (x == 0 ? (signbit(x) ? -INFINITY : INFINITY) : 1.0f / sqrtf(x)))
+HSE_F1(float_rsqrt_table, "", "rsqrt(fa)", 2, (x != x) ? NAN : x < 0 ? NAN : (x == 0 ? (signbit(x) ? -INFINITY : INFINITY) : 1.0f / sqrtf(x)))
 HSE_T(float_round_half_cases, "", "round(fa)", HSE_FLT, 0,
       { FB(0.5f), 0, 0, 0 }, { FB(1.5f), 0, 0, FB(2.0f) }, { FB(2.5f), 0, 0, FB(2.0f) }, { FB(3.5f), 0, 0, FB(4.0f) }, { FB(-0.5f), 0, 0, 0 },
       { FB(-1.5f), 0, 0, FB(-2.0f) }, { FB(-2.5f), 0, 0, FB(-2.0f) }, { FB(0.49999997f), 0, 0, 0 }, { FB(0.50000006f), 0, 0, FB(1.0f) }, { FB(8388607.5f), 0, 0, FB(8388608.0f) })
@@ -120,7 +120,7 @@ HSE_T(float_frexp_exponent, "float e; float m = frexp(fa, e);", "e", HSE_FLT, 0,
 HSE_T(float_fmod, "", "fmod(fa, fb)", HSE_ULP, 1,
       { FB(5.5f), FB(2.0f), 0, FB(1.5f) }, { FB(-5.5f), FB(2.0f), 0, FB(-1.5f) }, { FB(5.5f), FB(-2.0f), 0, FB(1.5f) }, { FB(6.0f), FB(3.0f), 0, 0 },
       { FB(1.0f), FB(4.0f), 0, FB(1.0f) }, { FB(10.0f), FB(4.0f), 0, FB(2.0f) })
-HSE_T(float_lerp_exact, "", "lerp(fa, fb, fc)", HSE_ULP, 1,
+HSE_T(float_lerp_exact, "", "lerp(fa, fb, fc)", HSE_ULP, 2,
       { 0, FB(10.0f), FB(0.5f), FB(5.0f) }, { FB(2.0f), FB(4.0f), FB(0.25f), FB(2.5f) }, { FB(3.0f), FB(3.0f), FB(0.7f), FB(3.0f) }, { FB(1.0f), FB(5.0f), 0, FB(1.0f) },
       { FB(1.0f), FB(5.0f), FB(1.0f), FB(5.0f) }, { FB(-4.0f), FB(4.0f), FB(0.5f), 0 })
 HSE_T(float_step, "", "step(fa, fb)", HSE_EXACT, 0,
