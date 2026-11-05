@@ -825,6 +825,7 @@ typedef HRESULT (WINAPI *pp_fn)(const char *, SIZE_T, const char *, const D3D10_
 #define PP(dll) ((pp_fn)t_proc_in(dll, "D3D10PreprocessShader"))
 TEST(d3d10_utils_effects_preprocess_null_args)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
     REQUIRE(PP("d3d10.dll"));
     ID3D10Blob *t = NULL, *e = NULL;
     EXPECT_HR(PP("d3d10.dll")(NULL, 10, "x.hlsl", NULL, NULL, &t, &e), E_INVALIDARG_);
@@ -834,6 +835,7 @@ TEST(d3d10_utils_effects_preprocess_null_args)
 }
 TEST(d3d10_utils_effects_preprocess_macro_expansion)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
     REQUIRE(PP("d3d10.dll"));
     const char *src = "#define TWICE(x) ((x)+(x))\nfloat v = TWICE(3);\n#define K 42\nint w = K;\n";
     ID3D10Blob *t = NULL, *e = NULL;
@@ -846,6 +848,7 @@ TEST(d3d10_utils_effects_preprocess_macro_expansion)
 }
 TEST(d3d10_utils_effects_preprocess_conditionals)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
     REQUIRE(PP("d3d10.dll"));
     const char *src = "#if A_VALUE > 2\nint taken = 1;\n#else\nint skipped = 2;\n#endif\n#ifdef NOT_DEFINED\nint hidden;\n#endif\n";
     D3D10_SHADER_MACRO defs[] = { { "A_VALUE", "5" }, { NULL, NULL } };
@@ -858,6 +861,7 @@ TEST(d3d10_utils_effects_preprocess_conditionals)
 }
 TEST(d3d10_utils_effects_preprocess_error_directive)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
     REQUIRE(PP("d3d10.dll"));
     const char *src = "int a;\n#error stop here please\nint b;\n";
     ID3D10Blob *t = NULL, *e = NULL;
@@ -869,6 +873,7 @@ TEST(d3d10_utils_effects_preprocess_error_directive)
 }
 TEST(d3d10_utils_effects_preprocess_include)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
     REQUIRE(PP("d3d10.dll"));
     inc_t inc = { &k_incvtbl, 0, 0, (D3D_INCLUDE_TYPE)-1, "", NULL, NULL, NULL, "int from_include = 7;\n", S_OK };
     const char *src = "#include \"x.h\"\nint after;\n";
@@ -882,6 +887,7 @@ TEST(d3d10_utils_effects_preprocess_include)
 }
 TEST(d3d10_utils_effects_preprocess_null_error_out_ok)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
     REQUIRE(PP("d3d10.dll"));
     ID3D10Blob *t = NULL;
     EXPECT_HR(PP("d3d10.dll")("int a;\n", 7, "pp.hlsl", NULL, NULL, &t, NULL), S_OK);
@@ -890,6 +896,8 @@ TEST(d3d10_utils_effects_preprocess_null_error_out_ok)
 }
 TEST(d3d10_utils_effects_preprocess_via_d3d10_1)
 {
+    NOWINE("D3D10PreprocessShader is a stub");
+    NOWINE("D3D10PreprocessShader of d3d10_1 is a stub");
     REQUIRE(PP("d3d10_1.dll"));
     ID3D10Blob *t = NULL, *e = NULL;
     EXPECT_HR(PP("d3d10_1.dll")("#define Q 9\nint z = Q;\n", 23, "pp.hlsl", NULL, NULL, &t, &e), S_OK);
