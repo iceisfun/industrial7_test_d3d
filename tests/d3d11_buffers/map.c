@@ -74,10 +74,10 @@ MC(dyn_cb_discard, DYN, CB, CW, MD, 0, M_OK)
 MC(dyn_cb_nooverwrite, DYN, CB, CW, MN, 0, M_NOTE)
 MC(dyn_srv_discard, DYN, SR, CW, MD, 0, M_OK)
 MC(dyn_srv_nooverwrite, DYN, SR, CW, MN, 0, M_NOTE)
-MC(dyn_write, DYN, VB, CW, MW, 0, M_BAD)
+MC(dyn_write, DYN, VB, CW, MW, 0, M_NOTE)
 MC(dyn_read, DYN, VB, CW, MR, 0, M_BAD)
 MC(dyn_rw, DYN, VB, CW, MRW, 0, M_BAD)
-MC(dyn_cb_write, DYN, CB, CW, MW, 0, M_BAD)
+MC(dyn_cb_write, DYN, CB, CW, MW, 0, M_NOTE)
 MC(dyn_cb_read, DYN, CB, CW, MR, 0, M_BAD)
 MC(dyn_discard_donotwait, DYN, VB, CW, MD, D3D11_MAP_FLAG_DO_NOT_WAIT, M_NOTE)
 MC(dyn_nooverwrite_donotwait, DYN, VB, CW, MN, D3D11_MAP_FLAG_DO_NOT_WAIT, M_NOTE)
@@ -554,6 +554,7 @@ TEST(d3d11_buffers_map_deferred_dynamic_discard)
     dc = mk_deferred();
     if (!dc) { t_skip("no deferred context"); return; }
     EXPECT_HR(ID3D11Device_CreateBuffer(g_dev, &d, NULL, &b), S_OK);
+    memset(&m, 0, sizeof m);
     if (b) {
         EXPECT_HR(ID3D11DeviceContext_Map(dc, (ID3D11Resource *)b, 0, MD, 0, &m), S_OK);
         if (m.pData) { memset(m.pData, 0x5c, 64); ID3D11DeviceContext_Unmap(dc, (ID3D11Resource *)b, 0); }

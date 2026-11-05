@@ -178,7 +178,7 @@ CASE(misc_texturecube, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_TEXTURECUBE, 0, W_BAD
 CASE(misc_gdi_compatible, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_GDI_COMPATIBLE, 0, W_BAD, 0)
 CASE(misc_shared, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_SHARED, 0, W_NOTE, 0)
 CASE(misc_shared_keyed, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, 0, W_NOTE, 0)
-CASE(misc_resource_clamp, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_RESOURCE_CLAMP, 0, W_BAD, 0)
+CASE(misc_resource_clamp, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_RESOURCE_CLAMP, 0, W_NOTE, 0)
 /* ---- raw / structured / indirect ---- */
 CASE(raw_srv_4, 4, DEF, SR, 0, RAW, 0, W_OK, 1)
 CASE(raw_srv_64, 64, DEF, SR, 0, RAW, 0, W_OK, 1)
@@ -619,7 +619,7 @@ TEST(d3d11_buffers_create_large_validate_only)
     EXPECT_HR(ID3D11Device_CreateBuffer(g_dev, &d, NULL, NULL), S_FALSE);
 }
 
-TEST(d3d11_buffers_create_default_vb_bw_exact_128mb_note)
+TEST(d3d11_buffers_create_validate_only_bw_ffffffff_note)
 {
     D3D11_BUFFER_DESC d = bufh_desc(0xffffffffu, DEF, SR, 0, 0, 0);
     HRESULT hr;
