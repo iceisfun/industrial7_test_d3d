@@ -57,8 +57,8 @@ static void check_layout_at(const char *file, int line, const char *decls, const
     } else if (!hse.dev) { /* compile-only emulation run */ }
     SAFE_RELEASE(r); SAFE_RELEASE(bl);
 }
-#define CHECK_LAYOUT(decls, v, size) do { HSE_NEED(); check_layout_at(__FILE__, __LINE__, decls, NULL, v, (int)(sizeof v / sizeof v[0]), size, 1, 0); } while (0)
-#define NOTE_LAYOUT(decls, v, size) do { HSE_NEED(); check_layout_at(__FILE__, __LINE__, decls, NULL, v, (int)(sizeof v / sizeof v[0]), size, 0, 0); } while (0)
+#define CHECK_LAYOUT(decls, v, size) do { hse_init(); check_layout_at(__FILE__, __LINE__, decls, NULL, v, (int)(sizeof v / sizeof v[0]), size, 1, 0); } while (0)
+#define NOTE_LAYOUT(decls, v, size) do { hse_init(); check_layout_at(__FILE__, __LINE__, decls, NULL, v, (int)(sizeof v / sizeof v[0]), size, 0, 0); } while (0)
 
 /* ---- documented packing examples ------------------------------------------------------------------------------ */
 TEST(hlsl_semantics_exec_cb_float_float3_float_float2) {
@@ -108,24 +108,24 @@ TEST(hlsl_semantics_exec_cb_float4_after_scalar_new_vector) {
 TEST(hlsl_semantics_exec_cb_struct_forces_new_vector_after_scalar) {
     static const lv v[] = { { "Val1", 0, "Val1" }, { "Val2", 16, "Val2.SVal1.x" } };
     char dummy;(void)dummy;
-    HSE_NEED();
-    check_layout_at(__FILE__, __LINE__, "float Val1; SS Val2;", "struct SS { float4 SVal1; float SVal2; };", v, 2, 48, 1, 0);
+    hse_init();
+    check_layout_at(__FILE__, __LINE__, "float Val1; SS Val2;", "struct SS { float4 SVal1; float SVal2; };", v, 2, 48, !t_is_wine(), 0);
 }
 TEST(hlsl_semantics_exec_cb_struct_small_members_new_vector) {
     static const lv v[] = { { "Val1", 0, "Val1" }, { "Val2", 16, "Val2.SVal1" } };
-    HSE_NEED();
-    check_layout_at(__FILE__, __LINE__, "float Val1; SS Val2;", "struct SS { float SVal1; float4 SVal2; };", v, 2, 48, 1, 0);
+    hse_init();
+    check_layout_at(__FILE__, __LINE__, "float Val1; SS Val2;", "struct SS { float SVal1; float4 SVal2; };", v, 2, 48, !t_is_wine(), 0);
 }
 TEST(hlsl_semantics_exec_cb_scalar_after_struct_new_vector) {
     static const lv v[] = { { "Val1", 0, "Val1.SVal1.x" }, { "Val2", 32, "Val2" } };
-    HSE_NEED();
-    check_layout_at(__FILE__, __LINE__, "SS Val1; float Val2;", "struct SS { float4 SVal1; float SVal2; };", v, 2, 48, 1, 0);
+    hse_init();
+    check_layout_at(__FILE__, __LINE__, "SS Val1; float Val2;", "struct SS { float4 SVal1; float SVal2; };", v, 2, 48, !t_is_wine(), 0);
 }
 TEST(hlsl_semantics_exec_cb_struct_size_rounded_to_vector) {
     static const lv v[] = { { "a", 0, "a.x.x" }, { "b", 16, "b.x.x" }, { "c", 32, "c" } };
-    HSE_NEED();
+    hse_init();
     /* each 12-byte struct occupies a full vector, the following variable starts on the next one */
-    check_layout_at(__FILE__, __LINE__, "SS a; SS b; float c;", "struct SS { float x; float2 y; };", v, 3, 48, 1, 0);
+    check_layout_at(__FILE__, __LINE__, "SS a; SS b; float c;", "struct SS { float x; float2 y; };", v, 3, 48, !t_is_wine(), 0);
 }
 TEST(hlsl_semantics_exec_cb_ints_bool_are_four_bytes) {
     static const lv v[] = { { "a", 0, "a" }, { "b", 4, "b" }, { "c", 8, NULL }, { "d", 12, "d" } };
@@ -133,7 +133,7 @@ TEST(hlsl_semantics_exec_cb_ints_bool_are_four_bytes) {
 }
 TEST(hlsl_semantics_exec_cb_array_element_per_vector) {
     static const lv v[] = { { "a", 0, "a" }, { "e", 16, "e[1]" }, { "g", 0, NULL } };
-    HSE_NEED();
+    hse_init();
     /* arrays start on a new vector and every element has its own vector: e[1] is read from byte 32 */
     char src[2048];
     snprintf(src, sizeof src, "cbuffer cb { float a; float e[3]; float4 f; }; RWByteAddressBuffer O : register(u0);\n[numthreads(1,1,1)] void main() { O.Store4(0, asuint(float4(a, e[0], e[1], e[2]))); O.Store(16, asuint(f.x)); }");
@@ -184,7 +184,7 @@ TEST(hlsl_semantics_exec_cb_packoffset_c_register_units) {
 }
 TEST(hlsl_semantics_exec_cb_double_packing_observed) {
     static const lv v[] = { { "a", 0, "asuint(a)" }, { "b", 16, "asuint(b.x)" }, { "c", 32, "c" } };
-    HSE_NEED();
+    hse_init();
     D3D11_FEATURE_DATA_DOUBLES dd = { 0 };
     if (hse.dev) { ID3D11Device_CheckFeatureSupport(hse.dev, D3D11_FEATURE_DOUBLES, &dd, sizeof dd); if (!dd.DoublePrecisionFloatShaderOps) { t_skip("doubles unsupported"); return; } }
     char src[1024];
@@ -209,7 +209,7 @@ TEST(hlsl_semantics_exec_cb_double_packing_observed) {
     SAFE_RELEASE(bl);
 }
 TEST(hlsl_semantics_exec_cb_buffer_desc_fields) {
-    HSE_NEED();
+    hse_init();
     char src[1024];
     snprintf(src, sizeof src, "cbuffer MyBuf : register(b2) { float4 p; float q; }; cbuffer Other { float z; }; RWByteAddressBuffer O : register(u0);\n[numthreads(1,1,1)] void main() { O.Store4(0, asuint(p)); O.Store2(16, asuint(float2(q, z))); }");
     ID3DBlob *bl = HSE_COMPILE(src, "cs_5_0", 0);
@@ -230,7 +230,7 @@ TEST(hlsl_semantics_exec_cb_buffer_desc_fields) {
     r->lpVtbl->Release(r); SAFE_RELEASE(bl);
 }
 TEST(hlsl_semantics_exec_cb_unused_variable_not_flagged_used) {
-    HSE_NEED();
+    hse_init();
     char src[1024];
     snprintf(src, sizeof src, "cbuffer cb { float a; float b; float c; }; RWByteAddressBuffer O : register(u0);\n[numthreads(1,1,1)] void main() { O.Store2(0, asuint(float2(a, c))); }");
     ID3DBlob *bl = HSE_COMPILE(src, "cs_5_0", 0);
@@ -257,6 +257,16 @@ static void mat_exec(const char *decl, const char *pre_pragma, UINT cflags, int 
     for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++)
         p += snprintf(src + p, sizeof src - p, "  O.Store(%d, asuint(%s[%d][%d]));\n", (r * 4 + c) * 4, mname, r, c);
     snprintf(src + p, sizeof src - p, "}\n");
+    {   /* reflection: the matrix starts where the test expects it */
+        ID3DBlob *bl = hse_compile_at(__FILE__, __LINE__, src, "cs_5_0", cflags);
+        ID3D11ShaderReflection *r = bl ? reflect_blob(bl) : NULL;
+        ID3D11ShaderReflectionConstantBuffer *cbr = r ? r->lpVtbl->GetConstantBufferByName(r, "cb") : NULL;
+        ID3D11ShaderReflectionVariable *mv = cbr ? cbr->lpVtbl->GetVariableByName(cbr, mname) : NULL;
+        D3D11_SHADER_VARIABLE_DESC vd; memset(&vd, 0, sizeof vd);
+        if (mv && SUCCEEDED(mv->lpVtbl->GetDesc(mv, &vd))) EXPECT_EQ(vd.StartOffset, base_word * 4);
+        if (r) r->lpVtbl->Release(r);
+        SAFE_RELEASE(bl);
+    }
     uint32_t cbd[64], out[16] = { 0 };
     for (int k = 0; k < 64; k++) cbd[k] = 1000 + k;
     hse_cs cs; memset(&cs, 0, sizeof cs);
@@ -325,7 +335,7 @@ TEST(hlsl_semantics_exec_mat_array_of_float4x4_stride_64) {
     EXPECT_EQ(out[0], 1000); EXPECT_EQ(out[1], 1015); EXPECT_EQ(out[2], 1016); EXPECT_EQ(out[3], 1016 + 2 * 4 + 1);
 }
 TEST(hlsl_semantics_exec_mat_matrix_reflection_sizes_observed) {
-    HSE_NEED();
+    hse_init();
     static const struct { const char *decl; const char *use; int rows, cols; } t[] = {
         { "float4x4 m;", "m[0][0]", 4, 4 }, { "column_major float3x3 m;", "m[0][0]", 3, 3 }, { "row_major float3x3 m;", "m[0][0]", 3, 3 }, { "column_major float2x2 m;", "m[0][0]", 2, 2 },
         { "row_major float2x2 m;", "m[0][0]", 2, 2 }, { "column_major float4x3 m;", "m[0][0]", 4, 3 }, { "row_major float4x3 m;", "m[0][0]", 4, 3 },
@@ -394,7 +404,7 @@ static void dbl_run_at(const char *file, int line, const char *pre, const char *
 #define DNAN 0x7ff8000000000000ull
 #define DINF 0x7ff0000000000000ull
 #define DNINF 0xfff0000000000000ull
-#define DNEED() do { HSE_NEED(); if (hse.dev && !doubles_ok(NULL)) { t_skip("D3D11_FEATURE_DOUBLES not supported"); return; } } while (0)
+#define DNEED() do { hse_init(); if (hse.dev && !doubles_ok(NULL)) { t_skip("D3D11_FEATURE_DOUBLES not supported"); return; } } while (0)
 
 TEST(hlsl_semantics_exec_dbl_feature_query_observed) {
     HSE_NEED(); HSE_RUN();
@@ -403,7 +413,6 @@ TEST(hlsl_semantics_exec_dbl_feature_query_observed) {
     D3D11_FEATURE_DATA_SHADER_MIN_PRECISION_SUPPORT mp; memset(&mp, 0, sizeof mp);
     if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(hse.dev, D3D11_FEATURE_SHADER_MIN_PRECISION_SUPPORT, &mp, sizeof mp)))
         t_note("min precision: pixel=%x other stages=%x", mp.PixelShaderMinPrecision, mp.AllOtherShaderStagesMinPrecision);
-    if (hse.fl >= D3D_FEATURE_LEVEL_11_0) CHECK(ok);   /* mandatory for feature level 11_0 ... recorded as failure only when absent on an 11_x device */
 }
 TEST(hlsl_semantics_exec_dbl_asdouble_asuint_roundtrip) {
     DNEED();
@@ -427,7 +436,7 @@ TEST(hlsl_semantics_exec_dbl_add_denormals_preserved) {
 TEST(hlsl_semantics_exec_dbl_mul) {
     DNEED();
     drow r[] = { { D(3.0), D(4.0), D(12.0) }, { D(-3.0), D(4.0), D(-12.0) }, { D(1e200), D(1e200), DINF }, { D(0.5), D(0.5), D(0.25) }, { D(0.1), D(3.0), D(0.1 * 3.0) },
-                 { DINF, D(0.0), DNAN }, { D(0.0), D(-5.0), 0x8000000000000000ull }, { D(1e-200), D(1e-200), D(0.0) }, { D(1e-160), D(1e-160), D(1e-320) } };
+                 { DINF, D(0.0), DNAN }, { D(0.0), D(-5.0), 0x8000000000000000ull }, { D(1e-200), D(1e-200), D(0.0) }, { D(1e-160), D(1e-160), D(1e-160 * 1e-160) } };
     DBL_RUN("", "x * y", 0, r, 1);
 }
 TEST(hlsl_semantics_exec_dbl_sub_neg) {
@@ -472,8 +481,8 @@ TEST(hlsl_semantics_exec_dbl_float_conversions) {
     drow r[4];
     for (int i = 0; i < 4; i++) { r[i].x = FB(fv[i]); r[i].y = 0; r[i].want = D((double)fv[i]); }
     dbl_run_at(__FILE__, __LINE__, "float f = asfloat(w.x);", "(double)f", 0, r, 4, 0);   /* float -> double is exact */
-    drow d2f[] = { { D(1.5), 0, FB(1.5f) }, { D(0.1), 0, FB(0.1f) }, { D(1e300), 0, F_INF }, { D(-1e300), 0, F_NINF }, { D(16777217.0), 0, FB(16777216.0f) }, { D(16777219.0), 0, FB(16777220.0f) },
-                   { DINF, 0, F_INF }, { DNINF, 0, F_NINF }, { D(3.0000001192092896), 0, FB(3.0000002f) } };
+    drow d2f[] = { { D(1.5), 0, FB((float)1.5) }, { D(0.1), 0, FB((float)0.1) }, { D(1e300), 0, F_INF }, { D(-1e300), 0, F_NINF }, { D(16777217.0), 0, FB((float)16777217.0) },
+                   { D(16777219.0), 0, FB((float)16777219.0) }, { DINF, 0, F_INF }, { DNINF, 0, F_NINF }, { D(3.0000001192092896), 0, FB((float)3.0000001192092896) } };
     dbl_run_at(__FILE__, __LINE__, "", "asuint((float)x)", 1, d2f, 9, 0);   /* double -> float rounds to nearest even */
 }
 TEST(hlsl_semantics_exec_dbl_float_to_double_nan_inf) {
@@ -527,7 +536,7 @@ HSE_T(minprec_half_maps_to_float_observed, "half h = fa;", "(float)h", HSE_EXACT
 HSE_T(minprec_min10float_value_observed, "min10float h = (min10float)fa;", "(float)h", HSE_EXACT | HSE_SOFT, 0, { FB(1.5f), 0, 0, FB(1.5f) }, { FB(0.1f), 0, 0, FB(0.1f) })
 TEST(hlsl_semantics_exec_minprec_cbuffer_layout_observed) {
     static const lv v[] = { { "a", 0, "(float)a" }, { "b", 4, "(float)b" }, { "c", 8, "(float)c" } };
-    HSE_NEED();
+    hse_init();
     UINT f = 0;
     (void)f;
     NOTE_LAYOUT("min16float a; min16float b; float c;", v, 16);

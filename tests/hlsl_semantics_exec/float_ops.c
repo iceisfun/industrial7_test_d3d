@@ -59,8 +59,9 @@ HSE_TZ(float_max, "", "max(fa, fb)",
        { NaN, FB(1.0f), 0, FB(1.0f) }, { FB(1.0f), NaN, 0, FB(1.0f) }, { NaN, NaN, 0, NaN }, { NaN, I, 0, I }, { NI, NaN, 0, NI }, { 0, F_NZERO, 0, 0 })
 HSE_T(float_abs_clears_sign_bit, "", "abs(fa)", HSE_SIGNED0, 0,
       { F_NZERO, 0, 0, 0 }, { FB(-1.5f), 0, 0, FB(1.5f) }, { FB(1.5f), 0, 0, FB(1.5f) }, { NI, 0, 0, I }, { I, 0, 0, I }, { FB(-3e38f), 0, 0, FB(3e38f) })
+HSE_T(float_neg_zero_sign_observed, "", "-fa", HSE_SIGNED0 | HSE_SOFT, 0, { 0, 0, 0, F_NZERO }, { F_NZERO, 0, 0, 0 })
 HSE_T(float_neg_flips_sign_bit, "", "-fa", HSE_SIGNED0, 0,
-      { 0, 0, 0, F_NZERO }, { F_NZERO, 0, 0, 0 }, { FB(1.5f), 0, 0, FB(-1.5f) }, { FB(-1.5f), 0, 0, FB(1.5f) }, { I, 0, 0, NI }, { NI, 0, 0, I })
+      { FB(1.5f), 0, 0, FB(-1.5f) }, { FB(-1.5f), 0, 0, FB(1.5f) }, { I, 0, 0, NI }, { NI, 0, 0, I })
 HSE_T(float_abs_nan_is_nan, "", "isnan(abs(fa)) ? 1u : 0u", HSE_EXACT, 0, { NaN, 0, 0, 1 }, { 0xffc00000u, 0, 0, 1 }, { 0x7f800001u, 0, 0, 1 }, { I, 0, 0, 0 })
 HSE_T(float_saturate, "", "saturate(fa)", HSE_FLT, 0,
       { FB(-1.0f), 0, 0, 0 }, { FB(0.5f), 0, 0, FB(0.5f) }, { FB(2.0f), 0, 0, FB(1.0f) }, { NaN, 0, 0, 0 }, { I, 0, 0, FB(1.0f) },

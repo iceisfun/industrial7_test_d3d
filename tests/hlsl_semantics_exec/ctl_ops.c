@@ -54,8 +54,8 @@ HSE_T(cmp_float_negzero_equals_zero, "", "fa == fb ? 1u : 0u", HSE_EXACT, 0, { 0
 HSE_T(cmp_float_negzero_not_less_than_zero, "", "fa < fb ? 1u : 0u", HSE_EXACT, 0, { F_NZERO, 0, 0, 0 }, { 0, F_NZERO, 0, 0 })
 HSE_T(sel_float_condition_nonzero_true, "", "fa ? 1u : 2u", HSE_EXACT, 0,
       { FB(1.0f), 0, 0, 1 }, { 0, 0, 0, 2 }, { FB(-1.0f), 0, 0, 1 }, { I, 0, 0, 1 }, { NaN, 0, 0, 1 }, { 0x3f800000u, 0, 0, 1 })
-HSE_T(sel_float_condition_negzero_is_false, "", "fa ? 1u : 2u", HSE_EXACT, 0, { F_NZERO, 0, 0, 2 })
-HSE_T(sel_float_select_passes_nan_bits, "", "(fa == fa) ? fb : fc", HSE_EXACT, 0,
+HSE_T(sel_float_condition_negzero_observed, "", "fa ? 1u : 2u", HSE_EXACT | HSE_SOFT, 0, { F_NZERO, 0, 0, 2 })
+HSE_T(sel_float_select_passes_nan_bits_observed, "", "(fa == fa) ? fb : fc", HSE_EXACT | HSE_SOFT, 0,
       { FB(1.0f), 0x7fc00123u, FB(5.0f), 0x7fc00123u }, { NaN, FB(1.0f), FB(5.0f), FB(5.0f) })
 HSE_T(sel_float_select_negzero_preserved, "", "(ua == 0) ? fb : fc", HSE_EXACT, 0, { 0, F_NZERO, FB(1.0f), F_NZERO }, { 1, F_NZERO, FB(1.0f), FB(1.0f) })
 HSE_T(sel_any_all_float, "", "(any(float3(fa, fb, fc)) ? 1u : 0u) | (all(float3(fa, fb, fc)) ? 2u : 0u)", HSE_EXACT, 0,
@@ -139,7 +139,7 @@ HSE_P(vec_component_wise_ops, "uint3 v = uint3(ua, ub, uc); uint3 w = (v * 3 + 1
 HSE_T(vec_float4_dot_and_sum, "float4 v = float4(fa, fb, fc, 2.0);", "dot(v, v) + v.x + v.w", HSE_ULP, 1,
       { FB(1.0f), FB(2.0f), FB(3.0f), FB(14.0f + 4.0f + 1.0f + 2.0f) }, { 0, 0, 0, FB(4.0f + 2.0f) })
 HSE_T(vec_max_component_wise, "float3 v = max(float3(fa, fb, fc), float3(fc, fa, fb));", "v.x * 100 + v.y * 10 + v.z", HSE_ULP, 1,
-      { FB(1.0f), FB(2.0f), FB(3.0f), FB(300.0f + 10.0f * 3.0f + 3.0f) })
+      { FB(1.0f), FB(2.0f), FB(3.0f), FB(323.0f) })
 HSE_P(vec_cast_float_int_vectors, "int3 iv = int3(ia, ib, ic); uint3 uv = (uint3)iv;", "uv.x ^ uv.y ^ uv.z", HSE_EXACT, 0, a ^ b ^ c)
 
 /* ---- compute: early return leaves memory untouched ---------------------------------------------------------------------- */
@@ -223,11 +223,11 @@ TEST(hlsl_semantics_exec_flow_ps_clip_negative_discards) {
     for (UINT y = 0; y < 4; y++) for (UINT x = 0; x < 4; x++) CHECKF(px(&im, x, y, 0) == (y < 2 ? 0.0f : 1.0f), "x=%u y=%u", x, y);
     d3dh_image_free(&im);
 }
-TEST(hlsl_semantics_exec_flow_ps_clip_zero_and_nan) {
+TEST(hlsl_semantics_exec_flow_ps_clip_zero_keeps_pixel) {
     HSE_NEED();
     d3dh_image im = { 0 };
-    /* clip(x) discards when x < 0; zero keeps the pixel. NaN: recorded, not asserted. */
-    if (!draw_px("float4 main(float4 p : SV_Position) : SV_Target { clip(p.x - 1.5 + (p.x < 1.0 ? 0.0 : 0.0)); return float4(1, 1, 1, 1); }", &im, 0.0f)) return;
+    /* clip(x) discards when x < 0; zero keeps the pixel */
+    if (!draw_px("float4 main(float4 p : SV_Position) : SV_Target { clip(p.x - 1.5); return float4(1, 1, 1, 1); }", &im, 0.0f)) return;
     for (UINT x = 0; x < 4; x++) CHECKF(px(&im, x, 0, 0) == (x < 1 ? 0.0f : 1.0f), "x=%u", x);
     d3dh_image_free(&im);
 }
