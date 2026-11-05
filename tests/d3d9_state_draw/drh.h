@@ -82,6 +82,15 @@ static inline int dr_read(DR *r, DWORD *px) { return sd_rt_read(&r->d, &r->rt, p
 /* assert (x,y) holds colour c (exact) */
 #define PXEQ(px, x, y, c) do { DWORD g_ = SD_PX(px, DW, x, y); t_check(g_ == (DWORD)(c), __FILE__, __LINE__, "pixel", "(%d,%d) got 0x%08lx want 0x%08lx", (int)(x), (int)(y), (unsigned long)g_, (unsigned long)(DWORD)(c)); } while (0)
 #define PXNEAR(px, x, y, c, tol) do { DWORD g_ = SD_PX(px, DW, x, y); t_check(sd_rgb_near(g_, (DWORD)(c), tol), __FILE__, __LINE__, "pixel", "(%d,%d) got 0x%08lx want ~0x%08lx", (int)(x), (int)(y), (unsigned long)g_, (unsigned long)(DWORD)(c)); } while (0)
+static const D3DCMPFUNC g_cmp_fn[8] = { D3DCMP_NEVER, D3DCMP_LESS, D3DCMP_EQUAL, D3DCMP_LESSEQUAL, D3DCMP_GREATER, D3DCMP_NOTEQUAL, D3DCMP_GREATEREQUAL, D3DCMP_ALWAYS };
+/* comparison  "a FUNC b" */
+static inline int cmp_pass2(D3DCMPFUNC f, int a, int b)
+{
+    switch (f) {
+    case D3DCMP_NEVER: return 0; case D3DCMP_LESS: return a < b; case D3DCMP_EQUAL: return a == b; case D3DCMP_LESSEQUAL: return a <= b;
+    case D3DCMP_GREATER: return a > b; case D3DCMP_NOTEQUAL: return a != b; case D3DCMP_GREATEREQUAL: return a >= b; default: return 1;
+    }
+}
 #define BLACK 0xff000000u
 #define WHITE 0xffffffffu
 #define RED   0xffff0000u
