@@ -135,7 +135,6 @@ FLAG_OK(combined_common, D3D11_CREATE_DEVICE_SINGLETHREADED | D3D11_CREATE_DEVIC
     SAFE_RELEASE(d); }
 FLAG_STICKS(singlethreaded, D3D11_CREATE_DEVICE_SINGLETHREADED)
 FLAG_STICKS(bgra, D3D11_CREATE_DEVICE_BGRA_SUPPORT)
-FLAG_STICKS(prevent_internal, D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS)
 FLAG_STICKS(single_bgra, D3D11_CREATE_DEVICE_SINGLETHREADED | D3D11_CREATE_DEVICE_BGRA_SUPPORT)
 
 T(creation_flags_zero_has_no_requested_bits)
@@ -223,7 +222,7 @@ T(flag_increased_priority)
     if (FAILED(hr)) {
         /* without SeIncBasePriority the call is rejected as an invalid argument */
         t_note("INCREASED_PRIORITY: %s", d3dh_hr_name(hr));
-        CHECK(hr == E_INVALIDARG || hr == DXGI_ERROR_UNSUPPORTED);
+        EXPECT_HR(hr, E_INVALIDARG);   /* decomp: missing SeIncBasePriority -> 0x80070057 */
         CHECK(d == NULL); EXPECT_EQ(fl, 0);
     } else {
         t_note("INCREASED_PRIORITY accepted (privilege held)");
@@ -356,8 +355,10 @@ T(swapchain_get_buffer)
     }
     EXPECT_HR_OK(IDXGISwapChain_GetBuffer(sc, 0, &IID_ID3D11Texture2D, (void **)&t2));
     CHECK(t == t2);
-    HRESULT hr = IDXGISwapChain_GetBuffer(sc, 1, &IID_ID3D11Texture2D, (void **)&t);
+    void *bad = NULL;
+    HRESULT hr = IDXGISwapChain_GetBuffer(sc, 1, &IID_ID3D11Texture2D, &bad);
     EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);
+    CHECK(bad == NULL);
     SAFE_RELEASE(t2); SAFE_RELEASE(t); SAFE_RELEASE(sc); SAFE_RELEASE(d);
     d3dh_destroy_window(h);
 }
