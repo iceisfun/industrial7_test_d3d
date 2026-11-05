@@ -344,4 +344,31 @@ static HRESULT d12_make_dheap(ID3D12Device *dev, D3D12_DESCRIPTOR_HEAP_TYPE t, U
     hd.Flags = visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     return ID3D12Device_CreateDescriptorHeap(dev, &hd, &IID_ID3D12DescriptorHeap, (void **)out);
 }
+/* Upload tightly-packed rows (src_rowbytes each, `rows` rows, `depth` slices) into one subresource of a texture that is in COPY_DEST. */
+static HRESULT tex_upload(ID3D12Device *dev, ID3D12Resource *tex, UINT sub, const void *data, UINT src_rowbytes, UINT rows, UINT depth) {
+    D3D12_RESOURCE_DESC d = d12_res_desc(tex);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp; UINT nrows; UINT64 rowsize, total;
+    ID3D12Device_GetCopyableFootprints(dev, &d, sub, 1, 0, &fp, &nrows, &rowsize, &total);
+    ID3D12Resource *up = NULL; d12ctx c = {0};
+    HRESULT hr = d12_make_buffer(dev, D3D12_HEAP_TYPE_UPLOAD, total, 0, &up);
+    if (FAILED(hr)) return hr;
+    unsigned char *p = NULL; D3D12_RANGE none = { 0, 0 };
+    hr = ID3D12Resource_Map(up, 0, &none, (void **)&p);
+    if (FAILED(hr) || !p) { ID3D12Resource_Release(up); return FAILED(hr) ? hr : E_FAIL; }
+    memset(p, 0, (size_t)total);
+    for (UINT z = 0; z < depth; z++) for (UINT y = 0; y < rows; y++)
+        memcpy(p + (size_t)z * nrows * fp.Footprint.RowPitch + (size_t)y * fp.Footprint.RowPitch, (const unsigned char *)data + ((size_t)z * rows + y) * src_rowbytes, src_rowbytes);
+    ID3D12Resource_Unmap(up, 0, NULL);
+    hr = d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    if (SUCCEEDED(hr)) {
+        D3D12_TEXTURE_COPY_LOCATION dl, sl; memset(&dl, 0, sizeof dl); memset(&sl, 0, sizeof sl);
+        dl.pResource = tex; dl.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dl.SubresourceIndex = sub;
+        sl.pResource = up; sl.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; sl.PlacedFootprint = fp;
+        ID3D12GraphicsCommandList_CopyTextureRegion(c.cl, &dl, 0, 0, 0, &sl, NULL);
+        hr = d12_run(&c);
+    }
+    d12_ctx_free(&c);
+    ID3D12Resource_Release(up);
+    return hr;
+}
 #endif
