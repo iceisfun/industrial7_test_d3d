@@ -149,9 +149,11 @@ static int row_ok(int mode, int ulps, uint32_t got, uint32_t want) {
     return 0;
 }
 
+const char *hse_prelude;
 int hse_rows_at(const char *file, int line, const char *pre, const char *expr, const hse_row *r, int n, int mode, int ulps, UINT cflags) {
     char src[8192];
-    snprintf(src, sizeof src, "%s  %s\n  O.Store(id.x * 4, asuint(%s));\n}\n", k_row_tmpl_a, pre ? pre : "", expr);
+    const char *pl = hse_prelude ? hse_prelude : ""; hse_prelude = NULL;
+    snprintf(src, sizeof src, "%s\n%s  %s\n  O.Store(id.x * 4, asuint(%s));\n}\n", pl, k_row_tmpl_a, pre ? pre : "", expr);
     int groups = (n + 63) / 64;
     hse_row *in = calloc(groups * 64, sizeof *in);
     uint32_t *out = calloc(groups * 64, 4);

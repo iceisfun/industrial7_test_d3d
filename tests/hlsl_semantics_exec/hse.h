@@ -73,6 +73,8 @@ enum { HSE_EXACT = 0,   /* bit-exact */
        HSE_ULP,         /* within `ulps` ULP; NaN must match NaN, inf exact */
        HSE_SIGNED0,     /* bit-exact, except any NaN == any NaN (sign of zero is checked) */
        HSE_SOFT = 0x100 /* OR-ed in: mismatches are reported with t_note, never fail */ };
+extern const char *hse_prelude;   /* set by HSE_PRELUDE: HLSL text (functions, constants) placed before the kernel in the next hse_rows_at call */
+#define HSE_PRELUDE(s) (hse_prelude = (s))
 int hse_rows_at(const char *file, int line, const char *pre, const char *expr, const hse_row *r, int n, int mode, int ulps, UINT cflags);
 #define HSE_ROWS(pre, expr, rows, n, mode, ulps) hse_rows_at(__FILE__, __LINE__, pre, expr, rows, n, mode, ulps, 0)
 
