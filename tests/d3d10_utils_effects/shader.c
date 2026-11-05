@@ -905,3 +905,14 @@ TEST(d3d10_utils_effects_preprocess_via_d3d10_1)
     UE_REL(t); UE_REL(e);
     EXPECT_HR(PP("d3d10_1.dll")(NULL, 0, "pp.hlsl", NULL, NULL, &t, &e), E_INVALIDARG_);
 }
+
+/* Decomp: bit 0 (debug) asks for the debug d3d10 runtime; if it is not installed the call fails with E_NOTIMPL, otherwise it is forwarded. */
+TEST(d3d10_utils_effects_shader_compile_debug_flag_not_invalid)
+{
+    REQUIRE(CS("d3d10.dll"));
+    ID3D10Blob *b = NULL, *e = NULL;
+    HRESULT hr = CS("d3d10.dll")(UE_VS_SRC, strlen(UE_VS_SRC), "ue.hlsl", NULL, NULL, "main", "vs_4_0", 1, &b, &e);
+    CHECK(hr == E_NOTIMPL || SUCCEEDED(hr));
+    t_note("compile with flag 0x1: %s", d3dh_hr_name(hr));
+    UE_REL(b); UE_REL(e);
+}
