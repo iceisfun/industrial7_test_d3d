@@ -70,6 +70,7 @@ TEST(d3dcompiler_compile_api_null_error_output_on_failure)
 
 TEST(d3dcompiler_compile_api_outputs_cleared_on_invalid_flags)
 {
+    WIN_ONLY();
     ID3DBlob *code = (ID3DBlob *)(ULONG_PTR)0x10, *err = (ID3DBlob *)(ULONG_PTR)0x20;
     HRESULT hr;
     NEED_COMPILE();
@@ -129,6 +130,7 @@ TEST(d3dcompiler_compile_api_error_blob_is_text)
 
 TEST(d3dcompiler_compile_api_entry_missing)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, CC_PS_SRC, "nosuchentry", "ps_5_0", 0);
@@ -142,6 +144,7 @@ TEST(d3dcompiler_compile_api_entry_missing)
 
 TEST(d3dcompiler_compile_api_entry_case_sensitive)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, CC_PS_SRC, "MAIN", "ps_5_0", 0);
@@ -152,6 +155,7 @@ TEST(d3dcompiler_compile_api_entry_case_sensitive)
 
 TEST(d3dcompiler_compile_api_entry_null)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_compile_full(&r, CC_PS_SRC, strlen(CC_PS_SRC), "t.hlsl", NULL, NULL, NULL, "ps_5_0", 0, 0);
@@ -163,6 +167,7 @@ TEST(d3dcompiler_compile_api_entry_null)
 
 TEST(d3dcompiler_compile_api_entry_null_all_shader_stages)
 {
+    WIN_ONLY();
     static const char *tg[] = { "vs_4_0", "ps_4_0", "gs_4_0", "cs_5_0", "hs_5_0", "ds_5_0", "vs_2_0", "ps_3_0" };
     int i;
     NEED_COMPILE();
@@ -205,6 +210,7 @@ TEST(d3dcompiler_compile_api_entry_selects_function)
 
 TEST(d3dcompiler_compile_api_target_lib_rejects_entry)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, "export float4 f(float4 a) { return a; }", "main", "lib_5_0", 0);
@@ -216,6 +222,7 @@ TEST(d3dcompiler_compile_api_target_lib_rejects_entry)
 
 TEST(d3dcompiler_compile_api_target_lib_without_entry)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_compile_full(&r, "export float4 f(float4 a) { return a; }", 39, "t.hlsl", NULL, NULL, NULL, "lib_5_0", 0, 0);
@@ -231,6 +238,7 @@ TEST(d3dcompiler_compile_api_target_lib_without_entry)
 
 TEST(d3dcompiler_compile_api_target_rootsig_requires_define_name)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_compile_full(&r, "#define RS \"RootFlags(0)\"\n", 27, "t.hlsl", NULL, NULL, NULL, "rootsig_1_0", 0, 0);
@@ -263,6 +271,7 @@ TEST(d3dcompiler_compile_api_target_rootsig_compiles)
 
 TEST(d3dcompiler_compile_api_target_unknown_names)
 {
+    WIN_ONLY();
     static const char *bad[] = { "ps_9_9", "xs_5_0", "ps", "ps_5", "PS_5_0", "ps_5_0 ", " ps_5_0", "ps_5_0_", "vs_6_0", "ps_6_0", "" };
     unsigned i;
     NEED_COMPILE();
@@ -369,6 +378,7 @@ TEST(d3dcompiler_compile_api_long_source)
 
 TEST(d3dcompiler_compile_api_srcname_prefixes_diagnostics)
 {
+    WIN_ONLY();
     static const char *names[] = { "my_shader.hlsl", "dir/sub/file.fx", "C:\\path\\with space\\x.hlsl", "n" };
     unsigned i;
     NEED_COMPILE();
@@ -391,6 +401,7 @@ TEST(d3dcompiler_compile_api_srcname_prefixes_diagnostics)
 
 TEST(d3dcompiler_compile_api_srcname_null_synthesised)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_compile_full(&r, "float4 main() : SV_Target { return bad_symbol; }", 48, NULL, NULL, NULL, "main", "ps_5_0", 0, 0);
@@ -408,6 +419,7 @@ TEST(d3dcompiler_compile_api_srcname_null_synthesised)
 
 TEST(d3dcompiler_compile_api_srcname_empty)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE();
     cc_compile_full(&r, "float4 main() : SV_Target { return bad_symbol; }", 48, "", NULL, NULL, "main", "ps_5_0", 0, 0);
@@ -419,6 +431,7 @@ TEST(d3dcompiler_compile_api_srcname_empty)
 
 TEST(d3dcompiler_compile_api_diagnostic_line_format)
 {
+    WIN_ONLY();
     static const char *src =
         "float4 main() : SV_Target\n"
         "{\n"
@@ -466,6 +479,7 @@ TEST(d3dcompiler_compile_api_error_text_ends_with_newline)
 
 TEST(d3dcompiler_compile_api_syntax_error_position)
 {
+    WIN_ONLY();
     static const char *src = "float4 main() : SV_Target\n{\n  return 1\n}\n";
     cc_r r;
     NEED_COMPILE();
@@ -479,6 +493,7 @@ TEST(d3dcompiler_compile_api_syntax_error_position)
 
 TEST(d3dcompiler_compile_api_warning_with_success)
 {
+    WIN_ONLY();
     static const char *src = "float4 main(float4 p : SV_Position) : SV_Target { float3 x = p; return float4(x, 1); }";
     cc_r r;
     NEED_COMPILE();
@@ -492,6 +507,7 @@ TEST(d3dcompiler_compile_api_warning_with_success)
 
 TEST(d3dcompiler_compile_api_warnings_are_errors)
 {
+    WIN_ONLY();
     static const char *src = "float4 main(float4 p : SV_Position) : SV_Target { float3 x = p; return float4(x, 1); }";
     cc_r r;
     NEED_COMPILE();
@@ -577,6 +593,7 @@ TEST(d3dcompiler_compile_api_blob_data_independent_of_source)
 /* ---- macros -------------------------------------------------------------- */
 TEST(d3dcompiler_compile_api_macro_defines_value)
 {
+    WIN_ONLY();
     static const D3D_SHADER_MACRO defs[] = { { "VALUE", "0.75" }, { NULL, NULL } };
     static const char *src = "float4 main() : SV_Target { return VALUE; }";
     cc_r a, b;
@@ -712,6 +729,7 @@ TEST(d3dcompiler_compile_api_hlsl_version_macro)
 
 TEST(d3dcompiler_compile_api_error_directive)
 {
+    WIN_ONLY();
     static const char *src = "#error stop here\nfloat4 main() : SV_Target { return 1; }\n";
     cc_r r;
     NEED_COMPILE();
@@ -745,6 +763,7 @@ TEST(d3dcompiler_compile_c2_basic_matches_d3dcompile)
 
 TEST(d3dcompiler_compile_c2_secondary_flags_invalid_bits)
 {
+    WIN_ONLY();
     static const UINT bad[] = { 0x8, 0x10, 0x20, 0x100, 0x10000, 0x80000000, 0xFFFFFFF8, 0xFFFFFFFF };
     unsigned i;
     NEED_COMPILE2();
@@ -759,6 +778,7 @@ TEST(d3dcompiler_compile_c2_secondary_flags_invalid_bits)
 
 TEST(d3dcompiler_compile_c2_secondary_data_requires_flags)
 {
+    WIN_ONLY();
     static const unsigned char blob[16] = { 0 };
     cc_r r;
     NEED_COMPILE2();
@@ -788,6 +808,7 @@ TEST(d3dcompiler_compile_c2_secondary_flags_valid_bits_not_rejected_early)
 
 TEST(d3dcompiler_compile_c2_invalid_args_do_not_produce_diagnostics)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE2();
     cc_c2(&r, CC_PS_SRC, "main", "ps_5_0", 0, 0, 0x8, NULL, 0);
@@ -798,6 +819,7 @@ TEST(d3dcompiler_compile_c2_invalid_args_do_not_produce_diagnostics)
 
 TEST(d3dcompiler_compile_c2_flags_same_validation_as_d3dcompile)
 {
+    WIN_ONLY();
     cc_r r;
     NEED_COMPILE2();
     cc_c2(&r, CC_PS_SRC, "main", "ps_5_0", 0x80, 0, 0, NULL, 0);

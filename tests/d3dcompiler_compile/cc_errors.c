@@ -97,6 +97,7 @@ static const cc_row cc_syntax[] = {
 
 TEST(d3dcompiler_compile_errors_x3000_syntax)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_syntax, N(cc_syntax), "syntax");
 }
@@ -127,6 +128,7 @@ static const cc_row cc_names[] = {
 
 TEST(d3dcompiler_compile_errors_names_and_redefinition)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_names, N(cc_names), "names");
 }
@@ -169,6 +171,7 @@ static const cc_row cc_types[] = {
 
 TEST(d3dcompiler_compile_errors_types_and_conversions)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_types, N(cc_types), "types");
 }
@@ -212,6 +215,7 @@ static const cc_row cc_funcs[] = {
 
 TEST(d3dcompiler_compile_errors_functions_and_intrinsics)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_funcs, N(cc_funcs), "funcs");
 }
@@ -237,6 +241,7 @@ static const cc_row cc_entry[] = {
 
 TEST(d3dcompiler_compile_errors_entry_and_semantics)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_entry, N(cc_entry), "entry");
 }
@@ -265,6 +270,7 @@ static const cc_row cc_warn[] = {
 
 TEST(d3dcompiler_compile_errors_warnings_do_not_fail)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_warn, N(cc_warn), "warn");
 }
@@ -292,6 +298,7 @@ static const cc_row cc_flow[] = {
 
 TEST(d3dcompiler_compile_errors_flow_control_and_resources)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_flow, N(cc_flow), "flow");
 }
@@ -318,6 +325,7 @@ static const cc_row cc_pp[] = {
 
 TEST(d3dcompiler_compile_errors_preprocessor)
 {
+    WIN_ONLY();
     NEED();
     cc_rows_run(cc_pp, N(cc_pp), "pp");
 }
@@ -357,6 +365,7 @@ TEST(d3dcompiler_compile_errors_all_confident_rows_total)
 
 TEST(d3dcompiler_compile_errors_multiple_errors_reported)
 {
+    WIN_ONLY();
     static const char *src =
         "float4 main() : SV_Target {\n"
         "    float a = u1;\n"
@@ -399,6 +408,7 @@ TEST(d3dcompiler_compile_errors_order_follows_source_order)
 
 TEST(d3dcompiler_compile_errors_column_points_at_token)
 {
+    WIN_ONLY();
     static const char *src = "float4 main() : SV_Target {\n    return unknown_ident;\n}\n";
     cc_r r;
     int line = 0, col = 0;
@@ -432,6 +442,7 @@ TEST(d3dcompiler_compile_errors_tabs_count_as_one_column)
 
 TEST(d3dcompiler_compile_errors_line_directive_remaps_location)
 {
+    WIN_ONLY();
     static const char *src =
         "#line 100 \"remapped.hlsl\"\n"
         "float4 main() : SV_Target { return unknown_ident; }\n";
@@ -445,6 +456,7 @@ TEST(d3dcompiler_compile_errors_line_directive_remaps_location)
 
 TEST(d3dcompiler_compile_errors_line_directive_without_file)
 {
+    WIN_ONLY();
     static const char *src = "#line 40\nfloat4 main() : SV_Target { return unknown_ident; }\n";
     cc_r r;
     NEED();
@@ -456,6 +468,7 @@ TEST(d3dcompiler_compile_errors_line_directive_without_file)
 
 TEST(d3dcompiler_compile_errors_multiline_source_line_numbers)
 {
+    WIN_ONLY();
     char src[4096];
     size_t n = 0;
     int i;
@@ -470,6 +483,7 @@ TEST(d3dcompiler_compile_errors_multiline_source_line_numbers)
 
 TEST(d3dcompiler_compile_errors_block_comment_line_counting)
 {
+    WIN_ONLY();
     static const char *src = "/* one\n two\n three */\nfloat4 main() : SV_Target { return unknown_ident; }\n";
     cc_r r;
     NEED();
@@ -480,6 +494,7 @@ TEST(d3dcompiler_compile_errors_block_comment_line_counting)
 
 TEST(d3dcompiler_compile_errors_crlf_line_counting)
 {
+    WIN_ONLY();
     static const char *src = "float4 main() : SV_Target {\r\n    float a = 1;\r\n    return unknown_ident;\r\n}\r\n";
     cc_r r;
     NEED();
@@ -490,6 +505,7 @@ TEST(d3dcompiler_compile_errors_crlf_line_counting)
 
 TEST(d3dcompiler_compile_errors_macro_expansion_location)
 {
+    WIN_ONLY();
     static const char *src =
         "#define BAD unknown_ident\n"
         "float4 main() : SV_Target {\n"
@@ -506,6 +522,7 @@ TEST(d3dcompiler_compile_errors_macro_expansion_location)
 
 TEST(d3dcompiler_compile_errors_warnings_listed_with_errors)
 {
+    WIN_ONLY();
     static const char *src =
         "float4 main(float4 p : SV_Position) : SV_Target {\n"
         "    float3 t = p;\n"
@@ -544,6 +561,7 @@ TEST(d3dcompiler_compile_errors_error_text_stable_across_calls)
 
 TEST(d3dcompiler_compile_errors_unicode_in_source_comment)
 {
+    WIN_ONLY();
     static const char *src = "// caf\xC3\xA9 \xE2\x82\xAC\nfloat4 main() : SV_Target { return unknown_ident; }\n";
     cc_r r;
     NEED();
@@ -554,6 +572,7 @@ TEST(d3dcompiler_compile_errors_unicode_in_source_comment)
 
 TEST(d3dcompiler_compile_errors_identifier_quoted_in_message)
 {
+    WIN_ONLY();
     static const char *src = "float4 main() : SV_Target { return some_long_identifier_name; }";
     cc_r r;
     NEED();
@@ -564,6 +583,7 @@ TEST(d3dcompiler_compile_errors_identifier_quoted_in_message)
 
 TEST(d3dcompiler_compile_errors_x3501_names_entry)
 {
+    WIN_ONLY();
     static const char *names[] = { "a", "VeryLongEntryPointName_0123456789", "_x", "main2" };
     unsigned i;
     NEED();

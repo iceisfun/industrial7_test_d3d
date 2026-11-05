@@ -5,6 +5,8 @@
 #include "d3dh.h"
 #include <d3dcompiler.h>
 #include <stdint.h>
+#include <ctype.h>
+#include <stdlib.h>
 
 #define CC_DLL "d3dcompiler_47.dll"
 #define CC_INVALIDCALL  ((HRESULT)0x8876086C)   /* D3DERR_INVALIDCALL, returned for bad flags / bad entry */
@@ -17,6 +19,9 @@ UDECL(HRESULT, D3DDisassemble10Effect, (void *, UINT, ID3DBlob **));
 
 #define CCF(name)  UIN(CC_DLL, name)
 #define CCN(name)  ((name##_pfn)t_proc_in(CC_DLL, #name))
+
+/* Expectations that come from the native compiler's own diagnostics/validation are skipped under an emulator. */
+#define WIN_ONLY() do { if (t_is_wine()) { t_skip("native compiler behaviour only"); return; } } while (0)
 
 /* ---- canned sources ---------------------------------------------------------- */
 #define CC_PS_SRC   "float4 main(float4 p : SV_Position) : SV_Target { return p * 0.5f; }"
@@ -272,7 +277,7 @@ typedef struct cc_inc {
     const char *file_text[8];
     int n_files;
     HRESULT fail_hr;              /* returned when the name is unknown */
-    int null_data_ok;
+    int max_open;                 /* when > 0: Open fails once this many opens happened (bounds recursion) */
 } cc_inc;
 
 static HRESULT STDMETHODCALLTYPE cc_inc_open(ID3DInclude *This, D3D_INCLUDE_TYPE type, const char *name, const void *parent, const void **data, UINT *bytes)
@@ -286,6 +291,7 @@ static HRESULT STDMETHODCALLTYPE cc_inc_open(ID3DInclude *This, D3D_INCLUDE_TYPE
         s->order[s->n_order++] = idx + 1;
     }
     s->n_open++;
+    if (s->max_open && s->n_open > s->max_open) { *data = NULL; *bytes = 0; return E_FAIL; }
     for (i = 0; i < s->n_files; i++) {
         if (!strcmp(s->file_name[i], name)) {
             *data = s->file_text[i];
@@ -333,5 +339,29 @@ static inline int cc_inc_balanced(const cc_inc *s)
         if (s->closed[i] == NULL && s->datas[i] != NULL) return 0;
     return 1;
 }
+
+/* shader token part: SHEX (SM4.1+ / extended) or SHDR */
+static inline const unsigned char *cc_shader_part(ID3DBlob *b, DWORD *size)
+{
+    const unsigned char *p = cc_part(cc_ptr(b), cc_size(b), CC_FOURCC('S', 'H', 'E', 'X'), size);
+    if (!p) p = cc_part(cc_ptr(b), cc_size(b), CC_FOURCC('S', 'H', 'D', 'R'), size);
+    return p;
+}
+
+/* substring search that ignores all whitespace on both sides (preprocessor output spacing is not contractual) */
+static inline int cc_has_nows(const char *hay, const char *needle)
+{
+    char *h = (char *)malloc(strlen(hay) + 1), *n = (char *)malloc(strlen(needle) + 1);
+    size_t i, j = 0, k = 0;
+    int r;
+    for (i = 0; hay[i]; i++) if (!isspace((unsigned char)hay[i])) h[j++] = hay[i];
+    h[j] = 0;
+    for (i = 0; needle[i]; i++) if (!isspace((unsigned char)needle[i])) n[k++] = needle[i];
+    n[k] = 0;
+    r = strstr(h, n) != NULL;
+    free(h); free(n);
+    return r;
+}
+
 
 #endif

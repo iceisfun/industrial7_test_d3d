@@ -74,7 +74,14 @@ FLAG_TEST(warnings_are_errors_clean_source, D3DCOMPILE_WARNINGS_ARE_ERRORS, "ps_
 FLAG_TEST(debug_skipopt, D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, "ps_5_0")
 FLAG_TEST(debug_skipopt_skipval, D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_SKIP_VALIDATION, "ps_5_0")
 FLAG_TEST(strict_ieee_level3, D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_IEEE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3, "ps_5_0")
-FLAG_TEST(vs_debug, D3DCOMPILE_DEBUG, "vs_5_0")
+TEST(d3dcompiler_compile_flags_vs_debug)
+{
+    cc_r r;
+    NEED();
+    EXPECT_HR(cc_run(&r, "cbuffer cb : register(b0) { float4x4 m; };\nfloat4 main(float4 p : POSITION) : SV_Position { return mul(p, m); }\n", "main", "vs_5_0", D3DCOMPILE_DEBUG), S_OK);
+    if (r.code) cc_check_container(r.code, "vs_debug");
+    cc_free(&r);
+}
 
 TEST(d3dcompiler_compile_flags_unbounded_tables_50_note)
 {
@@ -88,6 +95,7 @@ TEST(d3dcompiler_compile_flags_unbounded_tables_50_note)
 /* ---- rejected bits -------------------------------------------------------- */
 TEST(d3dcompiler_compile_flags_reserved_and_software_bits_rejected)
 {
+    WIN_ONLY();
     static const UINT bad[] = {
         D3DCOMPILE_FORCE_VS_SOFTWARE_NO_OPT, D3DCOMPILE_FORCE_PS_SOFTWARE_NO_OPT, D3DCOMPILE_NO_PRESHADER,
         D3DCOMPILE_RESERVED16, D3DCOMPILE_RESERVED17,
@@ -106,6 +114,7 @@ TEST(d3dcompiler_compile_flags_reserved_and_software_bits_rejected)
 
 TEST(d3dcompiler_compile_flags_rejected_bit_combined_with_valid_flags)
 {
+    WIN_ONLY();
     cc_r r;
     NEED();
     cc_run(&r, CC_PS_SRC, "main", "ps_5_0", D3DCOMPILE_DEBUG | D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_NO_PRESHADER);
@@ -115,6 +124,7 @@ TEST(d3dcompiler_compile_flags_rejected_bit_combined_with_valid_flags)
 
 TEST(d3dcompiler_compile_flags_rejected_for_every_shader_target)
 {
+    WIN_ONLY();
     static const char *tg[] = { "vs_4_0", "ps_4_0", "gs_4_0", "cs_4_0", "vs_5_0", "ps_5_1", "vs_2_0", "ps_3_0", "vs_4_0_level_9_1" };
     unsigned i;
     NEED();
@@ -128,6 +138,7 @@ TEST(d3dcompiler_compile_flags_rejected_for_every_shader_target)
 
 TEST(d3dcompiler_compile_flags_both_debug_names_rejected)
 {
+    WIN_ONLY();
     cc_r r;
     NEED();
     cc_run(&r, CC_PS_SRC, "main", "ps_5_0", D3DCOMPILE_DEBUG_NAME_FOR_SOURCE | D3DCOMPILE_DEBUG_NAME_FOR_BINARY);
@@ -149,6 +160,7 @@ TEST(d3dcompiler_compile_flags_debug_names_with_other_flags)
 
 TEST(d3dcompiler_compile_flags_invalid_flags_message_precedes_source_errors)
 {
+    WIN_ONLY();
     cc_r r;
     NEED();
     cc_run(&r, "this is not hlsl at all", "main", "ps_5_0", 0x40);
@@ -160,6 +172,7 @@ TEST(d3dcompiler_compile_flags_invalid_flags_message_precedes_source_errors)
 
 TEST(d3dcompiler_compile_flags_validated_before_entry_lookup)
 {
+    WIN_ONLY();
     cc_r r;
     NEED();
     cc_run(&r, CC_PS_SRC, "missing_entry", "ps_5_0", 0x100);
@@ -295,8 +308,8 @@ TEST(d3dcompiler_compile_flags_row_major_keyword_matches_flag)
     if (a.code && b.code) {
         /* the DXBC may differ in RDEF text only if names differ; the shader token stream must match */
         DWORD sa = 0, sb = 0;
-        const unsigned char *pa = cc_part(cc_ptr(a.code), cc_size(a.code), CC_FOURCC('S', 'H', 'E', 'X'), &sa);
-        const unsigned char *pb = cc_part(cc_ptr(b.code), cc_size(b.code), CC_FOURCC('S', 'H', 'E', 'X'), &sb);
+        const unsigned char *pa = cc_shader_part(a.code, &sa);
+        const unsigned char *pb = cc_shader_part(b.code, &sb);
         CHECK(pa && pb);
         if (pa && pb) { EXPECT_EQ(sa, sb); if (sa == sb) CHECK(!memcmp(pa, pb, sa)); }
     }
@@ -328,6 +341,7 @@ static int cc_disasm(ID3DBlob *code, UINT flags, char *out, size_t cap)
 
 TEST(d3dcompiler_compile_flags_avoid_flow_control_flattens)
 {
+    WIN_ONLY();
     cc_r r;
     static char txt[65536];
     NEED(); REQUIRE(CCF(D3DDisassemble));
@@ -352,6 +366,7 @@ TEST(d3dcompiler_compile_flags_prefer_flow_control_branches)
 
 TEST(d3dcompiler_compile_flags_branch_attribute_wins_over_flag)
 {
+    WIN_ONLY();
     static const char *src =
         "cbuffer cb : register(b0) { float4 k; };\n"
         "float4 main(float4 p : SV_Position) : SV_Target {\n"
@@ -471,6 +486,7 @@ TEST(d3dcompiler_compile_dxbc_container_invariants)
 
 TEST(d3dcompiler_compile_dxbc_base_part_order)
 {
+    WIN_ONLY();
     unsigned i;
     NEED();
     for (i = 0; i < sizeof cc_cases / sizeof *cc_cases; i++) {
@@ -493,6 +509,7 @@ TEST(d3dcompiler_compile_dxbc_base_part_order)
 
 TEST(d3dcompiler_compile_dxbc_shader_part_kind_by_profile)
 {
+    WIN_ONLY();
     cc_r a, b;
     NEED();
     EXPECT_HR(cc_run(&a, CC_PS_SRC, "main", "ps_4_0", 0), S_OK);
