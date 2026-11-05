@@ -375,6 +375,7 @@ TEST(dxgi_factory_compat_value_long_value_rejected) {
     int r = cv("long", &v);
     t_note("CompatValue with a 120 digit value: ret %d value %llu", r, v);
     CHECK(r == 1);
+    EXPECT_EQ(v, 0x55);   /* size 121 exceeds the 100 byte scratch buffer: the number is not stored */
     clear_compat();
 }
 TEST(dxgi_factory_compat_value_hex_not_parsed) {
@@ -614,4 +615,69 @@ TEST(dxgi_factory_declare_removal_support_after_factory_child) {
     DWORD rc = t_run_child("declare_removal_after_factory", "", 30000);
     CHECKF(rc != 0xDEAD0000 && rc != 0xDEAD0001 && rc != 90, "child failed to run: %#lx", (unsigned long)rc);
     t_note("declaration after a factory exists: class %lu", (unsigned long)rc);
+}
+
+/* ---------------- additional decomp-verified cases ---------------- */
+TEST(dxgi_factory_compat_value_size_boundary_99_vs_100_chars) {
+    NEED_COMPAT();
+    char s[256]; unsigned long long v;
+    strcpy(s, "z="); memset(s + 2, '0', 99); s[101] = 0;   /* 99 digits: size 100 fits the 100 byte scratch buffer */
+    set_compat(s);
+    v = 0x55; EXPECT_EQ(cv("z", &v), 1); EXPECT_EQ(v, 0);
+    strcpy(s, "z="); memset(s + 2, '0', 100); s[102] = 0;  /* 100 digits: size 101, value not stored */
+    set_compat(s);
+    v = 0x55; EXPECT_EQ(cv("z", &v), 1); EXPECT_EQ(v, 0x55);
+    clear_compat();
+}
+TEST(dxgi_factory_compat_string_zero_length_pointer_registers_nothing) {
+    NEED_COMPAT();
+    set_compat("keep=1");
+    sp(0, "a=1");                 /* declared length 0: nothing is copied */
+    char buf[8] = "junk"; unsigned long long n = sizeof(buf);
+    EXPECT_EQ(cs("a", &n, buf, 0), 0);
+    EXPECT_EQ(buf[0], 0);
+    clear_compat();
+}
+TEST(dxgi_factory_compat_string_value_stops_at_semicolon_not_equals) {
+    NEED_COMPAT();
+    set_compat("a=x=y;b=z");
+    char buf[16]; unsigned long long n = sizeof(buf);
+    EXPECT_EQ(cs("a", &n, buf, 0), 1); EXPECT_STR(buf, "x=y"); EXPECT_EQ(n, 4);
+    n = sizeof(buf);
+    EXPECT_EQ(cs("b", &n, buf, 0), 1); EXPECT_STR(buf, "z");
+    clear_compat();
+}
+TEST(dxgi_factory_compat_string_name_is_prefix_of_later_name) {
+    NEED_COMPAT();
+    set_compat("ab=1;a=2");
+    char buf[8]; unsigned long long n = sizeof(buf);
+    EXPECT_EQ(cs("a", &n, buf, 0), 1);
+    EXPECT_STR(buf, "2");
+    clear_compat();
+}
+TEST(dxgi_factory_cf2_unsupported_iid_is_nointerface) {
+    WINE_SKIP();
+    REQUIRE(fh_cf2());
+    /* 50c7f8e9-a63f-4035-9801-b96e733347de is rejected up front by CreateDXGIFactory2 */
+    static const GUID g = { 0x50c7f8e9, 0xa63f, 0x4035, { 0x98, 0x01, 0xb9, 0x6e, 0x73, 0x33, 0x47, 0xde } };
+    void *p = POISON;
+    EXPECT_HR(fh_cf2()(0, &g, &p), E_NOINTERFACE);
+    CHECK(p == NULL);
+}
+TEST(dxgi_factory_debug_interface_out_cleared_first) {
+    WINE_SKIP();
+    pfn_dbg1 d = (pfn_dbg1)DX("DXGIGetDebugInterface1");
+    REQUIRE(d);
+    void *p = POISON;
+    HRESULT hr = d(0xffffffffu, &IID_IDXGIDebug, &p);
+    CHECKF(FAILED(hr), "nonzero flags returned %s", d3dh_hr_name(hr));
+    CHECK(p == NULL);
+}
+TEST(dxgi_factory_journal_line_format) {
+    pfn_Journal j = (pfn_Journal)DX("DXGIDumpJournal");
+    REQUIRE(j);
+    g_jn = g_jbad = 0; g_jfirst[0] = 0;
+    j(jcb);
+    CHECK(!strncmp(g_jfirst, "DXGI Error ", 11));
+    EXPECT_EQ(g_jbad, 0);
 }
