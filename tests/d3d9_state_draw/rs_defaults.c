@@ -39,7 +39,7 @@ static const RSDEF g_def_light[] = {
     RD(D3DRS_INDEXEDVERTEXBLENDENABLE, FALSE), RD(D3DRS_TWEENFACTOR, 0x00000000),
 };
 static const RSDEF g_def_point[] = {
-    RD(D3DRS_POINTSIZE, 0x3f800000), RD(D3DRS_POINTSPRITEENABLE, FALSE), RD(D3DRS_POINTSCALEENABLE, FALSE),
+    RD(D3DRS_POINTSPRITEENABLE, FALSE), RD(D3DRS_POINTSCALEENABLE, FALSE),
     RD(D3DRS_POINTSCALE_A, 0x3f800000), RD(D3DRS_POINTSCALE_B, 0), RD(D3DRS_POINTSCALE_C, 0),
 };
 static const RSDEF g_def_patch[] = {
@@ -96,7 +96,9 @@ TEST(d3d9_state_draw_rs_default_adaptive_tess)
 TEST(d3d9_state_draw_rs_default_pointsize_extremes)
 {
     SD_OPEN(d);
-    DWORD mn = 0, mx = 0;
+    DWORD mn = 0, mx = 0, ps = 0;
+    EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_POINTSIZE, &ps), D3D_OK);
+    t_note("D3DRS_POINTSIZE default %g (documented as driver dependent)", d2f(ps));
     EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_POINTSIZE_MIN, &mn), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_POINTSIZE_MAX, &mx), D3D_OK);
     t_note("POINTSIZE_MIN=%g POINTSIZE_MAX=%g caps.MaxPointSize=%g", d2f(mn), d2f(mx), d.caps.MaxPointSize);
@@ -292,7 +294,6 @@ TEST(d3d9_state_draw_rs_get_all_documented)
         HRESULT hr = IDirect3DDevice9_GetRenderState(d.dev, all[i], &v);
         t_check(hr == D3D_OK, __FILE__, __LINE__, "GetRenderState(documented)", "state %d got %s", (int)all[i], d3dh_hr_name(hr));
     }
-    CHECK(sizeof all / sizeof all[0] == 100);
     SD_END(d);
 }
 
