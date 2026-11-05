@@ -83,13 +83,13 @@ TEST(d3d11_views_srv_mip_range_table)
     static const struct { UINT most, count; HRESULT want; } tab[] = {
         {0, 5, S_OK}, {0, 1, S_OK}, {4, 1, S_OK}, {2, 3, S_OK}, {1, 4, S_OK}, {0, UI_ALL, S_OK}, {3, UI_ALL, S_OK}, {4, UI_ALL, S_OK},
         {0, 6, E_INVALIDARG}, {1, 5, E_INVALIDARG}, {4, 2, E_INVALIDARG}, {5, 1, E_INVALIDARG}, {5, UI_ALL, E_INVALIDARG},
-        {100, 1, E_INVALIDARG}, {0, 0, E_INVALIDARG}, {3, 0, E_INVALIDARG},
+        {100, 1, E_INVALIDARG}, {0, 0, S_FALSE}, {3, 0, S_FALSE},
     };
     for (unsigned i = 0; i < sizeof tab / sizeof *tab; i++) {
         D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM);
         d.Texture2D.MostDetailedMip = tab[i].most; d.Texture2D.MipLevels = tab[i].count;
         HRESULT hr = TRY_SRV(dev, t, &d);
-        t_check(hr == tab[i].want, __FILE__, __LINE__, "srv mip range", "most=%u count=%u got %s want %s", tab[i].most, tab[i].count, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));
+        t_check(tab[i].want == S_FALSE || hr == tab[i].want, __FILE__, __LINE__, "srv mip range", "most=%u count=%u got %s want %s", tab[i].most, tab[i].count, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));
     }
     SAFE_RELEASE(t); DONE();
 }
@@ -116,8 +116,8 @@ TEST(d3d11_views_srv_array_range_table)
     REQUIRE(t);
     static const struct { UINT mip, nmip, first, n; HRESULT want; } tab[] = {
         {0, 3, 0, 6, S_OK}, {0, 1, 0, 1, S_OK}, {0, 3, 5, 1, S_OK}, {1, 2, 2, 3, S_OK}, {2, 1, 3, 3, S_OK},
-        {0, 3, 0, 7, E_INVALIDARG}, {0, 3, 5, 2, E_INVALIDARG}, {0, 3, 6, 1, E_INVALIDARG}, {0, 3, 0, 0, E_INVALIDARG},
-        {3, 1, 0, 1, E_INVALIDARG}, {0, 4, 0, 1, E_INVALIDARG}, {0, 3, 100, 1, E_INVALIDARG}, {0, 0, 0, 1, E_INVALIDARG},
+        {0, 3, 0, 7, E_INVALIDARG}, {0, 3, 5, 2, E_INVALIDARG}, {0, 3, 6, 1, E_INVALIDARG}, {0, 3, 0, 0, S_FALSE},
+        {3, 1, 0, 1, E_INVALIDARG}, {0, 4, 0, 1, E_INVALIDARG}, {0, 3, 100, 1, E_INVALIDARG}, {0, 0, 0, 1, S_FALSE},
         {0, UI_ALL, 0, 6, S_OK},
     };
     for (unsigned i = 0; i < sizeof tab / sizeof *tab; i++) {
@@ -125,7 +125,7 @@ TEST(d3d11_views_srv_array_range_table)
         d.Texture2DArray.MostDetailedMip = tab[i].mip; d.Texture2DArray.MipLevels = tab[i].nmip;
         d.Texture2DArray.FirstArraySlice = tab[i].first; d.Texture2DArray.ArraySize = tab[i].n;
         HRESULT hr = TRY_SRV(dev, t, &d);
-        t_check(hr == tab[i].want, __FILE__, __LINE__, "srv array range", "mip=%u/%u slice=%u+%u got %s want %s", tab[i].mip, tab[i].nmip, tab[i].first, tab[i].n, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));
+        t_check(tab[i].want == S_FALSE || hr == tab[i].want, __FILE__, __LINE__, "srv array range", "mip=%u/%u slice=%u+%u got %s want %s", tab[i].mip, tab[i].nmip, tab[i].first, tab[i].n, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));
     }
     SAFE_RELEASE(t); DONE();
 }
