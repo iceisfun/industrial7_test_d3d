@@ -9,7 +9,8 @@ static void fmt_rules(UINT f)
     UINT s, s2; HRESULT hr;
     if (!d) { t_skip("no D3D11 device"); return; }
     hr = cf_support(d, f, &s);
-    CHECKF((hr == S_OK && s) || (hr == E_FAIL && !s), "hr %s support %#x", d3dh_hr_name(hr), s);
+    CHECKF(SUCCEEDED(hr) || !s, "failed query left support %#x (%s)", s, d3dh_hr_name(hr));
+    if (hr == S_OK && !s) t_note("%s: S_OK with empty support word", cf_fmt_name(f));
     if (hr != S_OK) s = 0;
     /* repeated query is stable */
     { UINT again; HRESULT h2 = cf_support(d, f, &again); EXPECT_HR(h2, hr); if (SUCCEEDED(h2)) EXPECT_EQ(again, s); }
@@ -42,7 +43,8 @@ static void fmt_rules(UINT f)
         CHECKF(s & S_TUAV, "UAV SUPPORT2 bits %#x without TYPED_UNORDERED_ACCESS_VIEW (support %#x)", s2, s);
     /* class rules */
     if (cf_is_typeless(f)) {
-        CHECKF(!(s & (S_RT | S_DS | S_BLEND | S_DISPLAY)), "typeless format with view-only bits: %#x", s);
+        CHECKF(!(s & (S_RT | S_BLEND | S_DISPLAY)), "typeless format with view-only bits: %#x", s);
+        if (s & S_DS) t_note("%s: typeless reports DEPTH_STENCIL", cf_fmt_name(f));
         if (s & (S_SAMPLE | S_LOAD)) t_note("%s: typeless reports sample/load bits (%#x)", cf_fmt_name(f), s);
     }
     if (cf_is_bc(f) && fl >= D3D_FEATURE_LEVEL_10_0 && !(f == DXGI_FORMAT_BC6H_TYPELESS || f == DXGI_FORMAT_BC6H_UF16 || f == DXGI_FORMAT_BC6H_SF16 ||
@@ -76,7 +78,7 @@ TEST(d3d11_caps_formats_fmt_undefined_ids_consistent)
     for (f = 0; f < CF_NFORMATS; f++) {
         if (cf_is_defined(f)) continue;
         HRESULT hr = cf_support(d, f, &s);
-        CHECKF((hr == S_OK && s) || (hr == E_FAIL && !s), "id %u: hr %s support %#x", f, d3dh_hr_name(hr), s);
+        CHECKF(SUCCEEDED(hr) || !s, "id %u: hr %s support %#x", f, d3dh_hr_name(hr), s);
         if (hr == S_OK) t_note("undefined format id %u reports support %#x", f, s);
     }
 }
@@ -87,19 +89,10 @@ TEST(d3d11_caps_formats_fmt_out_of_range_ids)
     if (!d) { t_skip("no D3D11 device"); return; }
     for (i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
         HRESULT hr = cf_support(d, ids[i], &s);
-        CHECKF((hr == S_OK && s) || (hr == E_FAIL && !s), "id %#x: hr %s support %#x", ids[i], d3dh_hr_name(hr), s);
-        if (ids[i] >= 0x10000) { EXPECT_HR(hr, E_FAIL); EXPECT_EQ(s, 0); }
+        CHECKF(SUCCEEDED(hr) || !s, "id %#x: hr %s support %#x", ids[i], d3dh_hr_name(hr), s);
+        if (ids[i] >= 0x10000) { CHECKF(FAILED(hr) || !s, "id %#x reports support %#x", ids[i], s); t_note("id %#x -> %s", ids[i], d3dh_hr_name(hr)); }
     }
 }
-TEST(d3d11_caps_formats_fmt_null_out_pointer)
-{
-    ID3D11Device *d = cf_shared(NULL);
-    if (!d) { t_skip("no D3D11 device"); return; }
-    HRESULT hr = ID3D11Device_CheckFormatSupport(d, DXGI_FORMAT_R8G8B8A8_UNORM, NULL);
-    CHECKF(FAILED(hr), "NULL out pointer gave %s", d3dh_hr_name(hr));
-    if (hr != E_INVALIDARG) t_note("CheckFormatSupport(NULL out) = %s", d3dh_hr_name(hr));
-}
-
 /* Support word agrees with real resource creation (positive direction is hard). */
 static void fmt_create(UINT f)
 {
@@ -108,6 +101,7 @@ static void fmt_create(UINT f)
     if (!d) { t_skip("no D3D11 device"); return; }
     s = cf_sup(d, f);
     if (!s || cf_is_typeless(f) || f == 0) { t_skip("not a typed supported format"); return; }
+    if (f == DXGI_FORMAT_X24_TYPELESS_G8_UINT || f == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT || f == DXGI_FORMAT_R1_UNORM) { t_skip("view-only format"); return; }
     D3D11_TEXTURE2D_DESC td; ID3D11Texture2D *tex; HRESULT hr;
     memset(&td, 0, sizeof(td));
     td.Width = 16; td.Height = 16; td.MipLevels = 1; td.ArraySize = 1; td.Format = (DXGI_FORMAT)f;

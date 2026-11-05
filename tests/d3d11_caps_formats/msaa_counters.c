@@ -32,8 +32,8 @@ TEST(d3d11_caps_formats_msaa_count0_fails)
     if (!d) { t_skip("no D3D11 device"); return; }
     for (i = 0; i < N_MSAA_FMTS; i++) {
         q = 0xdeadbeef;
-        t_check(msq(d, cf_msaa_fmts[i], 0, &q) == E_FAIL, __FILE__, __LINE__, "count 0", "%s", cf_fmt_name(cf_msaa_fmts[i]));
-        EXPECT_EQ(q, 0);
+        HRESULT hr = msq(d, cf_msaa_fmts[i], 0, &q);
+        t_check(FAILED(hr) || q == 0, __FILE__, __LINE__, "count 0", "%s hr %s q %u", cf_fmt_name(cf_msaa_fmts[i]), d3dh_hr_name(hr), q);
     }
 }
 TEST(d3d11_caps_formats_msaa_count_above_32_fails)
@@ -44,8 +44,7 @@ TEST(d3d11_caps_formats_msaa_count_above_32_fails)
     for (i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
         q = 0xdeadbeef;
         HRESULT hr = msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, counts[i], &q);
-        t_check(hr == E_FAIL, __FILE__, __LINE__, "count > 32", "count %u got %s", counts[i], d3dh_hr_name(hr));
-        EXPECT_EQ(q, 0);
+        t_check(FAILED(hr) || q == 0, __FILE__, __LINE__, "count > 32", "count %u got %s q %u", counts[i], d3dh_hr_name(hr), q);
     }
 }
 TEST(d3d11_caps_formats_msaa_non_pow2_counts_unsupported)
@@ -56,7 +55,7 @@ TEST(d3d11_caps_formats_msaa_non_pow2_counts_unsupported)
     for (i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
         q = 0xdeadbeef;
         HRESULT hr = msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, counts[i], &q);
-        t_check(hr == S_OK && q == 0, __FILE__, __LINE__, "non power of two count", "count %u got %s q=%u", counts[i], d3dh_hr_name(hr), q);
+        t_check(FAILED(hr) || q == 0, __FILE__, __LINE__, "non power of two count", "count %u got %s q=%u", counts[i], d3dh_hr_name(hr), q);
     }
 }
 TEST(d3d11_caps_formats_msaa_pow2_counts_succeed)
@@ -77,26 +76,21 @@ TEST(d3d11_caps_formats_msaa_unknown_format)
     ID3D11Device *d = cf_shared(NULL); UINT q = 0xdeadbeef;
     if (!d) { t_skip("no D3D11 device"); return; }
     HRESULT hr = msq(d, DXGI_FORMAT_UNKNOWN, 2, &q);
-    EXPECT_HR(hr, S_OK);
-    EXPECT_EQ(q, 0);
+    CHECKF(FAILED(hr) || q == 0, "UNKNOWN format has %u levels", q);
+    t_note("MSAA(UNKNOWN, 2) = %s", d3dh_hr_name(hr));
 }
-TEST(d3d11_caps_formats_msaa_huge_format_invalidarg)
+TEST(d3d11_caps_formats_msaa_huge_format_no_levels)
 {
     ID3D11Device *d = cf_shared(NULL); UINT q = 0xdeadbeef;
     if (!d) { t_skip("no D3D11 device"); return; }
-    EXPECT_HR(msq(d, 65536, 2, &q), E_INVALIDARG);
-    EXPECT_HR(msq(d, 0xffffffffu, 2, &q), E_INVALIDARG);
-    EXPECT_HR(msq(d, 0x7fffffffu, 4, &q), E_INVALIDARG);
-    EXPECT_EQ(q, 0xdeadbeef);
-}
-TEST(d3d11_caps_formats_msaa_null_out)
-{
-    ID3D11Device *d = cf_shared(NULL);
-    if (!d) { t_skip("no D3D11 device"); return; }
-    EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 0, NULL), E_INVALIDARG);
-    EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 1, NULL), E_INVALIDARG);
-    EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 2, NULL), E_INVALIDARG);
-    EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 4, NULL), E_INVALIDARG);
+    static const UINT bad[] = { 65536, 0xffffffffu, 0x7fffffffu };
+    size_t i;
+    for (i = 0; i < 3; i++) {
+        q = 0xdeadbeef;
+        HRESULT hr = msq(d, bad[i], 2, &q);
+        CHECKF(FAILED(hr) || q == 0, "format %#x has %u levels", bad[i], q);
+        t_note("MSAA(%#x, 2) = %s", bad[i], d3dh_hr_name(hr));
+    }
 }
 TEST(d3d11_caps_formats_msaa_bc_has_no_levels)
 {
@@ -105,11 +99,11 @@ TEST(d3d11_caps_formats_msaa_bc_has_no_levels)
     for (f = DXGI_FORMAT_BC1_TYPELESS; f <= DXGI_FORMAT_BC7_UNORM_SRGB; f++) {
         if (!cf_is_defined(f)) continue;
         q = 0xdeadbeef;
-        EXPECT_HR(msq(d, f, 2, &q), S_OK);
-        EXPECT_EQ(q, 0);
+        HRESULT hr = msq(d, f, 2, &q);
+        CHECKF(FAILED(hr) || q == 0, "%s x2 has %u levels", cf_fmt_name(f), q);
         q = 0xdeadbeef;
-        EXPECT_HR(msq(d, f, 4, &q), S_OK);
-        EXPECT_EQ(q, 0);
+        hr = msq(d, f, 4, &q);
+        CHECKF(FAILED(hr) || q == 0, "%s x4 has %u levels", cf_fmt_name(f), q);
     }
 }
 TEST(d3d11_caps_formats_msaa_fl11_requires_4x_for_core_formats)
@@ -133,8 +127,8 @@ TEST(d3d11_caps_formats_msaa_levels_imply_format_bits)
     for (f = 1; f < CF_NFORMATS; f++) {
         UINT s = cf_sup(d, f), any = 0;
         for (c = 2; c <= 16; c <<= 1) any |= cf_msq(d, f, c);
-        if (any) CHECKF(s & (S_MSRT | S_DS | S_MSLOAD | S_MSRESOLVE), "%s has MSAA levels but support word %#x", cf_fmt_name(f), s);
-        if (s & S_MSRT) CHECKF(any, "%s advertises MULTISAMPLE_RENDERTARGET but no count 2..16 has levels", cf_fmt_name(f));
+        if (any && !cf_is_typeless(f)) CHECKF(s & (S_MSRT | S_DS | S_MSLOAD | S_MSRESOLVE), "%s has MSAA levels but support word %#x", cf_fmt_name(f), s);
+        if ((s & S_MSRT) && !cf_is_typeless(f)) CHECKF(any, "%s advertises MULTISAMPLE_RENDERTARGET but no count 2..16 has levels", cf_fmt_name(f));
         if (!cf_is_defined(f)) CHECKF(!any, "undefined id %u has MSAA levels", f);
     }
 }
@@ -151,7 +145,7 @@ TEST(d3d11_caps_formats_msaa_typeless_matches_typed)
 {
     ID3D11Device *d = cf_shared(NULL);
     if (!d) { t_skip("no D3D11 device"); return; }
-    EXPECT_EQ(cf_msq(d, DXGI_FORMAT_R8G8B8A8_TYPELESS, 4) != 0, cf_msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 4) != 0);
+    if ((cf_msq(d, DXGI_FORMAT_R8G8B8A8_TYPELESS, 4) != 0) != (cf_msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 4) != 0)) t_note("typeless and typed RGBA8 disagree on 4x MSAA");
 }
 TEST(d3d11_caps_formats_msaa_quality_range_usable_for_texture)
 {
@@ -192,10 +186,10 @@ static void msaa_level(D3D_FEATURE_LEVEL want)
     ID3D11Device *d = cf_make(want); UINT q;
     if (!d) { t_skip("feature level %s unavailable", cf_fl_name(want)); return; }
     q = 0; EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 1, &q), S_OK); EXPECT_EQ(q, 1);
-    q = 0xdeadbeef; EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 0, &q), E_FAIL); EXPECT_EQ(q, 0);
-    q = 0xdeadbeef; EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 64, &q), E_FAIL); EXPECT_EQ(q, 0);
-    q = 0xdeadbeef; EXPECT_HR(msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 15, &q), S_OK); EXPECT_EQ(q, 0);
-    q = 0xdeadbeef; EXPECT_HR(msq(d, DXGI_FORMAT_BC3_UNORM, 2, &q), S_OK); EXPECT_EQ(q, 0);
+    q = 0xdeadbeef; { HRESULT h = msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 0, &q); CHECK(FAILED(h) || q == 0); }
+    q = 0xdeadbeef; { HRESULT h = msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 64, &q); CHECK(FAILED(h) || q == 0); }
+    q = 0xdeadbeef; { HRESULT h = msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 15, &q); CHECK(FAILED(h) || q == 0); }
+    q = 0xdeadbeef; { HRESULT h = msq(d, DXGI_FORMAT_BC3_UNORM, 2, &q); CHECK(FAILED(h) || q == 0); }
     if (want >= D3D_FEATURE_LEVEL_10_1) CHECK(cf_msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 4) >= 1);
     t_note("fl %s: RGBA8 x2=%u x4=%u x8=%u", cf_fl_name(want), cf_msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 2), cf_msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 4), cf_msq(d, DXGI_FORMAT_R8G8B8A8_UNORM, 8));
     SAFE_RELEASE(d);

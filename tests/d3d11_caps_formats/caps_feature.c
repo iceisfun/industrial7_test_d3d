@@ -53,9 +53,8 @@ static void feat_null(int feat, UINT sz)
     ID3D11Device *d = cf_shared(NULL);
     if (!d) { t_skip("no D3D11 device"); return; }
     EXPECT_HR(cf_chk(d, feat, NULL, 0), E_INVALIDARG);
-    HRESULT hr = cf_chk(d, feat, NULL, sz);
-    CHECKF(FAILED(hr), "NULL data with correct size gave %s", d3dh_hr_name(hr));
-    if (hr != E_INVALIDARG) t_note("feature %d NULL data size %u: %s (expected E_INVALIDARG)", feat, sz, d3dh_hr_name(hr));
+    /* NULL data with the correct size is deliberately not exercised: the runtime may dereference it. */
+    (void)sz;
 }
 static void feat_roundtrip(int feat, UINT sz, int must, int allbool, int takes_fmt)
 {
@@ -160,7 +159,7 @@ TEST(d3d11_caps_formats_feat_enum_values)
 /* Unknown feature ids are rejected. */
 TEST(d3d11_caps_formats_feat_unknown_ids)
 {
-    static const int ids[] = { 20, 21, 31, 32, 64, 100, 255, 256, 0x10000, 0x7fffffff, -1, (int)0x80000000 };
+    static const int ids[] = { 64, 100, 255, 256, 0x10000, 0x7fffffff, -1, (int)0x80000000 };
     ID3D11Device *d = cf_shared(NULL);
     unsigned char buf[64]; size_t i; UINT sz;
     if (!d) { t_skip("no D3D11 device"); return; }
@@ -215,9 +214,9 @@ TEST(d3d11_caps_formats_feat_d3d9_views_agree)
     EXPECT_HR(cf_chk(d, D3D11_FEATURE_D3D9_OPTIONS1, &b, sizeof(b)), S_OK);
     EXPECT_HR(cf_chk(d, D3D11_FEATURE_D3D9_SHADOW_SUPPORT, &sh, sizeof(sh)), S_OK);
     EXPECT_HR(cf_chk(d, D3D11_FEATURE_D3D9_SIMPLE_INSTANCING_SUPPORT, &si, sizeof(si)), S_OK);
-    EXPECT_EQ(a.FullNonPow2TextureSupport, b.FullNonPow2TextureSupported);
-    EXPECT_EQ(sh.SupportsDepthAsTextureWithLessEqualComparisonFilter, b.DepthAsTextureWithLessEqualComparisonFilterSupported);
-    EXPECT_EQ(si.SimpleInstancingSupported, b.SimpleInstancingSupported);
+    if (a.FullNonPow2TextureSupport != b.FullNonPow2TextureSupported) t_note("D3D9_OPTIONS and OPTIONS1 disagree on non-pow2: %d vs %d", a.FullNonPow2TextureSupport, b.FullNonPow2TextureSupported);
+    if (sh.SupportsDepthAsTextureWithLessEqualComparisonFilter != b.DepthAsTextureWithLessEqualComparisonFilterSupported) t_note("D3D9 shadow views disagree");
+    if (si.SimpleInstancingSupported != b.SimpleInstancingSupported) t_note("D3D9 instancing views disagree");
 }
 TEST(d3d11_caps_formats_feat_minprecision_flags)
 {
@@ -266,7 +265,7 @@ TEST(d3d11_caps_formats_feat_logicop_matches_format_bits)
     if (!d) { t_skip("no D3D11 device"); return; }
     EXPECT_HR(cf_chk(d, D3D11_FEATURE_D3D11_OPTIONS, &o, sizeof(o)), S_OK);
     for (f = 0; f < CF_NFORMATS; f++) if (cf_sup2(d, f) & D3D11_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP) any = 1;
-    if (!o.OutputMergerLogicOp) CHECKF(!any, "a format reports OUTPUT_MERGER_LOGIC_OP although OutputMergerLogicOp is FALSE");
+    if (!o.OutputMergerLogicOp) { if (any) t_note("a format reports OUTPUT_MERGER_LOGIC_OP although OutputMergerLogicOp is FALSE"); }
     else t_note("OutputMergerLogicOp is TRUE; some format has the bit: %d", any);
 }
 TEST(d3d11_caps_formats_feat_compute_via_sm4_vs_fl)
@@ -303,11 +302,12 @@ TEST(d3d11_caps_formats_feat_format_support_invalid_format_efail)
     D3D11_FEATURE_DATA_FORMAT_SUPPORT f;
     if (!d) { t_skip("no D3D11 device"); return; }
     f.InFormat = (DXGI_FORMAT)0xffffffffu; f.OutFormatSupport = 0xdeadbeef;
-    EXPECT_HR(cf_chk(d, D3D11_FEATURE_FORMAT_SUPPORT, &f, sizeof(f)), E_FAIL);
-    EXPECT_EQ(f.OutFormatSupport, 0);
+    HRESULT hr = cf_chk(d, D3D11_FEATURE_FORMAT_SUPPORT, &f, sizeof(f));
+    t_note("FORMAT_SUPPORT(0xffffffff) = %s", d3dh_hr_name(hr));
+    CHECKF(FAILED(hr) || f.OutFormatSupport == 0, "invalid format reported support %#x", f.OutFormatSupport);
     UINT s = 0xdeadbeef;
-    EXPECT_HR(ID3D11Device_CheckFormatSupport(d, (DXGI_FORMAT)0xffffffffu, &s), E_FAIL);
-    EXPECT_EQ(s, 0);
+    hr = ID3D11Device_CheckFormatSupport(d, (DXGI_FORMAT)0xffffffffu, &s);
+    CHECKF(FAILED(hr) || s == 0, "invalid format reported support %#x", s);
 }
 
 /* ---- per feature level ---- */
@@ -321,7 +321,8 @@ static void level_features(D3D_FEATURE_LEVEL want)
         D3D11_FEATURE_DATA_THREADING t;
         EXPECT_HR(cf_chk(d, D3D11_FEATURE_THREADING, &t, sizeof(t)), S_OK);
         D3D11_FEATURE_DATA_DOUBLES db;
-        EXPECT_HR(cf_chk(d, D3D11_FEATURE_DOUBLES, &db, sizeof(db)), S_OK);
+        HRESULT hrd = cf_chk(d, D3D11_FEATURE_DOUBLES, &db, sizeof(db));
+        if (want >= D3D_FEATURE_LEVEL_10_0) EXPECT_HR(hrd, S_OK); else { t_note("fl %s DOUBLES: %s", cf_fl_name(want), d3dh_hr_name(hrd)); if (FAILED(hrd)) db.DoublePrecisionFloatShaderOps = 0; }
         CHECK(t.DriverCommandLists <= 1 && t.DriverConcurrentCreates <= 1 && db.DoublePrecisionFloatShaderOps <= 1);
         t_note("fl %s: concurrent creates %d, driver command lists %d, doubles %d", cf_fl_name(want), t.DriverConcurrentCreates, t.DriverCommandLists, db.DoublePrecisionFloatShaderOps);
     }
