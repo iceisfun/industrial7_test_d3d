@@ -126,7 +126,8 @@ static ID3D11DepthStencilState *cs_dss(csf *f, BOOL depth)
 /* ---- shaders ------------------------------------------------------------- */
 static const char CS_SRC_VS[] = "float4 main(float4 p : POSITION) : SV_Position { return p; }";
 static const char CS_SRC_VSID[] =
-    "float4 main(uint id : SV_VertexID) : SV_Position {"
+    "float4 main(uint vid : SV_VertexID) : SV_Position {"
+    " uint id = (vid == 1) ? 2 : ((vid == 2) ? 1 : 0);" /* clockwise winding: survives default back-face culling */
     " float2 p = float2((id << 1) & 2, id & 2); return float4(p * 2.0 - 1.0, 0, 1); }";
 static const char CS_SRC_PS[] = "float4 main() : SV_Target { return float4(1,1,1,1); }";
 static const char CS_SRC_CS[] = "[numthreads(1,1,1)] void main() { }";
