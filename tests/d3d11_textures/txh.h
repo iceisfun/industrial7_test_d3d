@@ -167,11 +167,13 @@ static HRESULT tx_fetch(tx_ctx *c, ID3D11Resource *res, UINT sub, tx_img *o) {
 /* 1 when the whole image equals tx_pat(seed, index) in tight order. *bad receives the first mismatching offset. */
 static int tx_img_is_pat(const tx_img *im, UINT seed, size_t *bad) {
     size_t n = (size_t)im->rowbytes * im->rows * im->d, i;
+    if (bad) *bad = 0;
     for (i = 0; i < n; i++) if (im->data[i] != tx_pat(seed, i)) { if (bad) *bad = i; return 0; }
     return 1;
 }
 static int tx_img_is_const(const tx_img *im, unsigned char v, size_t *bad) {
     size_t n = (size_t)im->rowbytes * im->rows * im->d, i;
+    if (bad) *bad = 0;
     for (i = 0; i < n; i++) if (im->data[i] != v) { if (bad) *bad = i; return 0; }
     return 1;
 }
