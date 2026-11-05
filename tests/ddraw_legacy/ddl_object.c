@@ -443,6 +443,7 @@ TEST(ddraw_legacy_mode_getdisplaymode_dd4_matches_dd7) {
     IDirectDraw_Release(dd1);
 }
 TEST(ddraw_legacy_mode_setdisplaymode_bad_flags) {
+    if (t_is_wine()) { t_skip("emulator accepts the flags and really switches the mode"); return; }
     DL_SKIP_IF_NO_DD7(dd);
     DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = sizeof d;
     if (FAILED(IDirectDraw7_GetDisplayMode(dd, &d))) { IDirectDraw7_Release(dd); return; }
@@ -455,6 +456,7 @@ TEST(ddraw_legacy_mode_setdisplaymode_bad_flags) {
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_mode_setdisplaymode_bad_flags_dd4) {
+    if (t_is_wine()) { t_skip("emulator accepts the flags and really switches the mode"); return; }
     DL_SKIP_IF_NO_DD1(dd1);
     IDirectDraw4 *dd = NULL;
     if (FAILED(IDirectDraw_QueryInterface(dd1, &IID_IDirectDraw4, (void **)&dd)) || !dd) { IDirectDraw_Release(dd1); return; }
