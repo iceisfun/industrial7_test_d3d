@@ -194,3 +194,47 @@ STAGE_TESTS(gs, ST_GS, "gs_tri", 0xa000)
 STAGE_TESTS(hs, ST_HS, "hs_tri_int", 0xb000)
 STAGE_TESTS(ds, ST_DS, "ds_tri", 0xb000)
 STAGE_TESTS(cs, ST_CS, "cs_basic", 0xb000)
+
+/* No API exposes the retained bytecode: shader objects only implement the device-child surface. */
+TEST(d3d11_shaders_objects_expose_no_bytecode_interfaces)
+{
+    SH_ENV(e, 0xb000);
+    static const char *const names[ST_COUNT] = { "vs_pass", "ps_const", "gs_tri", "hs_tri_int", "ds_tri", "cs_basic" };
+    const IID *foreign[] = { &IID_ID3D10Blob, &IID_ID3D11Buffer, &IID_ID3D11Resource, &IID_ID3D11View, &IID_ID3D11InputLayout, &IID_ID3D11Device,
+                             &IID_ID3D11DeviceContext, &IID_IDXGIObject, &IID_IDXGIDeviceSubObject, &IID_ID3D11Asynchronous };
+    for (int st = 0; st < ST_COUNT; st++) {
+        ID3DBlob *b = sh_blob(names[st]); if (!b) continue;
+        void *sh = NULL; if (FAILED(sh_create(e.dev, st, SH_BP(b), SH_BN(b), NULL, &sh))) { CHECK(0); continue; }
+        for (size_t i = 0; i < sizeof foreign / sizeof *foreign; i++) {
+            void *q = (void *)(ULONG_PTR)1; HRESULT hr = IUnknown_QueryInterface((IUnknown *)sh, foreign[i], &q);
+            t_check(hr == E_NOINTERFACE && q == NULL, __FILE__, __LINE__, "foreign interface refused", "%s iid#%d: %s", sh_stage_name[st], (int)i, d3dh_hr_name(hr)); SH_REL(q);
+        }
+        SH_REL(sh);
+    }
+    sh_env_free(&e);
+}
+TEST(d3d11_shaders_objects_distinct_identity_per_creation)
+{
+    SH_ENV(e, 0);
+    SH_BLOB(vb, "vs_pass"); SH_BLOB(pb, "ps_const");
+    ID3D11VertexShader *v1 = NULL, *v2 = NULL; ID3D11PixelShader *p1 = NULL;
+    EXPECT_HR(ID3D11Device_CreateVertexShader(e.dev, SH_BP(vb), SH_BN(vb), NULL, &v1), S_OK);
+    EXPECT_HR(ID3D11Device_CreateVertexShader(e.dev, SH_BP(vb), SH_BN(vb), NULL, &v2), S_OK);
+    EXPECT_HR(ID3D11Device_CreatePixelShader(e.dev, SH_BP(pb), SH_BN(pb), NULL, &p1), S_OK);
+    CHECK(v1 && v2 && p1 && (void *)v1 != (void *)v2 && (void *)v1 != (void *)p1);
+    SH_REL(v1); SH_REL(v2); SH_REL(p1); sh_env_free(&e);
+}
+TEST(d3d11_shaders_vs_and_gs_bindings_independent)
+{
+    /* Binding a shader returned by one creator through another stage's setter is a caller bug; the typed Get must still return
+     * the object that was bound last through the matching setter. */
+    SH_ENV(e, 0); SH_BLOB(vb, "vs_pass"); SH_BLOB(gb, "gs_tri");
+    ID3D11VertexShader *vs = NULL, *g = NULL; ID3D11GeometryShader *gs = NULL, *gg = NULL;
+    EXPECT_HR(ID3D11Device_CreateVertexShader(e.dev, SH_BP(vb), SH_BN(vb), NULL, &vs), S_OK);
+    EXPECT_HR(ID3D11Device_CreateGeometryShader(e.dev, SH_BP(gb), SH_BN(gb), NULL, &gs), S_OK);
+    ID3D11DeviceContext_VSSetShader(e.ctx, vs, NULL, 0); ID3D11DeviceContext_GSSetShader(e.ctx, gs, NULL, 0);
+    ID3D11DeviceContext_VSGetShader(e.ctx, &g, NULL, NULL); ID3D11DeviceContext_GSGetShader(e.ctx, &gg, NULL, NULL);
+    CHECK(g == vs && gg == gs); SH_REL(g); SH_REL(gg);
+    ID3D11DeviceContext_ClearState(e.ctx);
+    SH_REL(vs); SH_REL(gs); sh_env_free(&e);
+}

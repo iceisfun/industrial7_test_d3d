@@ -255,7 +255,5 @@ static const sh_ent sh_table[] = {
         "float4 main() : SV_Target { return float4(1, 0, 0, 1); }\n", 0xa000 },
   { "vs_noinput", "vs_4_0",
         "float4 main(uint id : SV_VertexID) : SV_Position { return float4(id == 1 ? 3.0f : -1.0f, id == 2 ? 3.0f : -1.0f, 0, 1); }\n", 0xa000 },
-  { "ps_cs_unused_placeholder", "ps_4_0",
-        "float4 main(float4 p : SV_Position) : SV_Target { return p; }\n", 0xa000 },
 };
 #define SH_NTABLE ((int)(sizeof(sh_table) / sizeof(sh_table[0])))

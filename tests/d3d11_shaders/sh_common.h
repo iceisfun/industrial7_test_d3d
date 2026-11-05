@@ -2,6 +2,7 @@
 #ifndef SH_COMMON_H
 #define SH_COMMON_H
 #include "d3dh.h"
+#include <math.h>
 #include "shtable.h"
 
 enum { ST_VS, ST_PS, ST_GS, ST_HS, ST_DS, ST_CS, ST_COUNT };
