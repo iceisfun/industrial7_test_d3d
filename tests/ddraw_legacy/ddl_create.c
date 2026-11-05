@@ -40,6 +40,7 @@ TEST(ddraw_legacy_export_missing_name) {
 /* ---------------- DirectDrawCreate ---------------- */
 TEST(ddraw_legacy_create_null_out) {
     dl_create_t f = DL_PROC(dl_create_t, "DirectDrawCreate"); REQUIRE(f);
+    if (t_is_wine()) { t_skip("emulator dereferences NULL"); return; }
     EXPECT_HR(f(NULL, NULL, NULL), DDERR_INVALIDPARAMS);
     EXPECT_HR(DDERR_INVALIDPARAMS, E_INVALIDARG);
 }
