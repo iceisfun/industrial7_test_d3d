@@ -193,19 +193,25 @@ static void rx_dss_default(D3D11_DEPTH_STENCIL_DESC *d)
     d->FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS; d->BackFace = d->FrontFace;
 }
 
-/* Draw an axis aligned pixel rectangle [x0,x1) x [y0,y1) of the current target at depth z with a flat colour. */
-static void rx_rect(rx *r, float x0, float y0, float x1, float y1, float z, const float col[4])
+/* Set up (but do not draw) an axis aligned pixel rectangle [x0,x1) x [y0,y1) of the current target at depth z: VS, cb, topology. */
+static void rx_rect_vs(rx *r, float x0, float y0, float x1, float y1, float z)
 {
     float vc[8];
     vc[0] = x0 / r->w * 2.0f - 1.0f; vc[1] = 1.0f - y0 / r->h * 2.0f;
     vc[2] = x1 / r->w * 2.0f - 1.0f; vc[3] = 1.0f - y1 / r->h * 2.0f;
     vc[4] = z; vc[5] = vc[6] = vc[7] = 0;
     ID3D11DeviceContext_UpdateSubresource(r->ctx, (ID3D11Resource *)r->cbv, 0, NULL, vc, 0, 0);
-    ID3D11DeviceContext_UpdateSubresource(r->ctx, (ID3D11Resource *)r->cbp, 0, NULL, col, 0, 0);
     ID3D11DeviceContext_IASetInputLayout(r->ctx, NULL);
     ID3D11DeviceContext_IASetPrimitiveTopology(r->ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     ID3D11DeviceContext_VSSetShader(r->ctx, r->vsq, NULL, 0);
     ID3D11DeviceContext_VSSetConstantBuffers(r->ctx, 0, 1, &r->cbv);
+}
+static void rx_full_vs(rx *r, float z) { rx_rect_vs(r, 0, 0, (float)r->w, (float)r->h, z); }
+/* Draw the rectangle with a flat colour. */
+static void rx_rect(rx *r, float x0, float y0, float x1, float y1, float z, const float col[4])
+{
+    rx_rect_vs(r, x0, y0, x1, y1, z);
+    ID3D11DeviceContext_UpdateSubresource(r->ctx, (ID3D11Resource *)r->cbp, 0, NULL, col, 0, 0);
     ID3D11DeviceContext_PSSetShader(r->ctx, r->psc, NULL, 0);
     ID3D11DeviceContext_PSSetConstantBuffers(r->ctx, 0, 1, &r->cbp);
     ID3D11DeviceContext_Draw(r->ctx, 4, 0);
