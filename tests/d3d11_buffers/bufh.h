@@ -2,6 +2,7 @@
 #ifndef BUFH_H
 #define BUFH_H
 #include "d3dh.h"
+#include <d3d11_1.h>
 
 /* Lazily created device shared by every test of this exe (released at exit). Returns 0 and skips when unavailable. */
 int bufh_init(void);
