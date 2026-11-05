@@ -4,12 +4,12 @@
 /* ---------------- DXCoreCreateAdapterFactory ---------------- */
 TEST(d3d_on12_dxcore_misc_dxcore_export_present) {
     HMODULE m = t_module("dxcore.dll");
-    if (!m) { t_skip("dxcore.dll missing"); return; }
+    if (!m || t_is_wine()) { t_skip("dxcore.dll missing or emulated"); return; }
     CHECK(GetProcAddress(m, "DXCoreCreateAdapterFactory") != NULL);
 }
 TEST(d3d_on12_dxcore_misc_dxcore_export_ordinal_211) {
     HMODULE m = t_module("dxcore.dll");
-    if (!m) { t_skip("dxcore.dll missing"); return; }
+    if (!m || t_is_wine()) { t_skip("dxcore.dll missing or emulated"); return; }
     FARPROC byname = GetProcAddress(m, "DXCoreCreateAdapterFactory");
     FARPROC byord  = GetProcAddress(m, MAKEINTRESOURCEA(211));
     REQUIRE(byname);
@@ -18,7 +18,7 @@ TEST(d3d_on12_dxcore_misc_dxcore_export_ordinal_211) {
 TEST(d3d_on12_dxcore_misc_dxcore_unnamed_exports_resolve_by_ordinal) {
     /* Everything below ordinal 211 except the gaps is exported by ordinal only (win32u forwarders and internal entry points). */
     HMODULE m = t_module("dxcore.dll");
-    if (!m) { t_skip("dxcore.dll missing"); return; }
+    if (!m || t_is_wine()) { t_skip("dxcore.dll missing or emulated"); return; }
     static const unsigned ords[] = {1, 2, 3, 9, 10, 11, 14, 18, 22, 34, 36, 40, 65, 95, 96, 133, 134, 135, 136, 165, 218};
     for (unsigned i = 0; i < sizeof ords / sizeof ords[0]; i++) {
         FARPROC p = GetProcAddress(m, MAKEINTRESOURCEA(ords[i]));
@@ -27,14 +27,14 @@ TEST(d3d_on12_dxcore_misc_dxcore_unnamed_exports_resolve_by_ordinal) {
 }
 TEST(d3d_on12_dxcore_misc_dxcore_ordinal_not_exported) {
     HMODULE m = t_module("dxcore.dll");
-    if (!m) { t_skip("dxcore.dll missing"); return; }
+    if (!m || t_is_wine()) { t_skip("dxcore.dll missing or emulated"); return; }
     SET_ERR(0);
     CHECK(GetProcAddress(m, MAKEINTRESOURCEA(0xFFF0)) == NULL);
     EXPECT_ERR(ERROR_PROC_NOT_FOUND);
 }
 TEST(d3d_on12_dxcore_misc_dxcore_forwarded_ordinals_are_win32u) {
     HMODULE m = t_module("dxcore.dll"), w = t_module("win32u.dll");
-    if (!m || !w) { t_skip("module missing"); return; }
+    if (!m || !w || t_is_wine()) { t_skip("module missing"); return; }
     /* ordinal 36 forwards to NtGdiDdDDICloseAdapter */
     FARPROC a = GetProcAddress(m, MAKEINTRESOURCEA(36)), b = GetProcAddress(w, "NtGdiDdDDICloseAdapter");
     REQUIRE(a); REQUIRE(b);
@@ -46,6 +46,7 @@ TEST(d3d_on12_dxcore_misc_dxcore_forwarded_ordinals_are_win32u) {
 }
 TEST(d3d_on12_dxcore_misc_factory_create_ok) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
+    if (t_is_wine()) { t_skip("emulated dxcore"); return; }
     void *f = (void *)1;
     HRESULT hr = c(&IID_IDXCoreAdapterFactory_, &f);
     EXPECT_HR(hr, S_OK);
@@ -54,10 +55,12 @@ TEST(d3d_on12_dxcore_misc_factory_create_ok) {
 }
 TEST(d3d_on12_dxcore_misc_factory_create_null_out) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
+    if (t_is_wine()) { t_skip("emulated dxcore"); return; }
     EXPECT_HR(c(&IID_IDXCoreAdapterFactory_, NULL), E_PTR);
 }
 TEST(d3d_on12_dxcore_misc_factory_create_unknown_iid) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
+    if (t_is_wine()) { t_skip("emulated dxcore"); return; }
     void *f = (void *)1;
     HRESULT hr = c(&DXC_ATTR_BOGUS, &f);
     EXPECT_HR(hr, E_NOIFACE);
@@ -65,6 +68,7 @@ TEST(d3d_on12_dxcore_misc_factory_create_unknown_iid) {
 }
 TEST(d3d_on12_dxcore_misc_factory_create_iid_iunknown) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
+    if (t_is_wine()) { t_skip("emulated dxcore"); return; }
     void *f = NULL;
     HRESULT hr = c(&IID_IUnknown, &f);
     EXPECT_HR(hr, S_OK);
@@ -72,6 +76,7 @@ TEST(d3d_on12_dxcore_misc_factory_create_iid_iunknown) {
 }
 TEST(d3d_on12_dxcore_misc_factory_create_wrong_interface_iids) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
+    if (t_is_wine()) { t_skip("emulated dxcore"); return; }
     const GUID *bad[] = {&IID_IDXCoreAdapterList_, &IID_IDXCoreAdapter_};
     for (int i = 0; i < 2; i++) {
         void *f = (void *)1;
@@ -109,6 +114,7 @@ TEST(d3d_on12_dxcore_misc_factory_qi_unsupported) {
 }
 TEST(d3d_on12_dxcore_misc_factory_two_creates_independent_release) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
+    if (t_is_wine()) { t_skip("emulated dxcore"); return; }
     void *a = NULL, *b = NULL;
     EXPECT_HR(c(&IID_IDXCoreAdapterFactory_, &a), S_OK);
     EXPECT_HR(c(&IID_IDXCoreAdapterFactory_, &b), S_OK);

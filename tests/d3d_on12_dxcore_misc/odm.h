@@ -97,7 +97,7 @@ static DXCoreCreateAdapterFactory_t odm_dxc_create(void) {
 /* Returns a factory (caller releases) or NULL after t_skip-worthy failure. */
 static void *odm_factory(void) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); void *f = NULL;
-    if (!c) return NULL;
+    if (!c || t_is_wine()) return NULL;
     if (FAILED(c(&IID_IDXCoreAdapterFactory_, &f))) return NULL;
     return f;
 }
@@ -123,6 +123,7 @@ static ID3D12CommandQueue *odm_queue(ID3D12Device *dev, D3D12_COMMAND_LIST_TYPE 
     return q;
 }
 static PFN_D3D11ON12_CREATE_DEVICE odm_on12_create(void) {
+    if (t_is_wine()) return NULL; /* emulated d3d11 only stubs this entry point */
     return (PFN_D3D11ON12_CREATE_DEVICE)d3dh_getproc("d3d11.dll", "D3D11On12CreateDevice");
 }
 #endif
