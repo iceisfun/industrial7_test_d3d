@@ -307,7 +307,7 @@ TEST(d3d12_objects_clear_rtv_rgba8_exact) {
     static const struct { float c[4]; UINT32 want; const char *n; } t[] = {
         { { 1, 0, 0, 1 }, 0xFF0000FF, "red" }, { { 0, 1, 0, 1 }, 0xFF00FF00, "green" }, { { 0, 0, 1, 1 }, 0xFFFF0000, "blue" },
         { { 0, 0, 0, 0 }, 0x00000000, "transparent" }, { { 1, 1, 1, 1 }, 0xFFFFFFFF, "white" }, { { 0, 0, 0, 1 }, 0xFF000000, "black" },
-        { { 2, -1, 5, 3 }, 0xFF00FFFF, "out-of-range values are clamped for UNORM" },
+        { { 2, -1, 5, 3 }, 0xFFFF00FF, "out-of-range values are clamped for UNORM" },
     };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) {
         d12_sub s;
@@ -543,8 +543,10 @@ TEST(d3d12_objects_clear_uav_uint_buffer) {
     UINT *rb = NULL; size_t sz = 0;
     EXPECT_HR(d3dh_readback_buffer12(dev, b, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, (void **)&rb, &sz), S_OK);
     if (rb) {
-        int ok = 1; for (int i = 0; i < 64; i++) { UINT want = (i >= 8 && i < 16) ? 0x12345678 : 0xDEADBEEF; if (rb[i] != want) ok = 0; }
-        CHECK(ok);
+        int ok = 1; for (int i = 0; i < 64; i++) if ((i < 8 || i >= 16) && rb[i] != 0xDEADBEEF) ok = 0;
+        CHECK(ok);   /* outside the rectangle the first clear survives */
+        int in = 0; for (int i = 8; i < 16; i++) if (rb[i] == 0x12345678) in++;
+        CHECKF(in == 8, "elements 8..15 cleared by the rectangle: %d of 8", in);
         free(rb);
     }
     d12_ctx_free(&c); uav_free(&u); SAFE_RELEASE(b);
