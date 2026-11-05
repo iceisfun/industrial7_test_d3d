@@ -1,0 +1,256 @@
+###vs_pass vs_4_0 10_0
+float4 main(float4 p : POSITION) : SV_Position { return p; }
+###vs_pass_50 vs_5_0 11_0
+float4 main(float4 p : POSITION) : SV_Position { return p; }
+###vs_pass_41 vs_4_1 10_1
+float4 main(float4 p : POSITION) : SV_Position { return p; }
+###vs_vertexid vs_4_0 10_0
+float4 main(uint id : SV_VertexID) : SV_Position { return float4((float)id, 0, 0, 1); }
+###vs_instanceid vs_4_0 10_0
+float4 main(float4 p : POSITION, uint inst : SV_InstanceID) : SV_Position { return p + float4((float)inst, 0, 0, 0); }
+###vs_cbuffer_mul vs_4_0 10_0
+cbuffer cb0 : register(b0) { float4 scale; };
+float4 main(float4 p : POSITION) : SV_Position { return p * scale; }
+###vs_cbuffer_array vs_4_0 10_0
+cbuffer cb0 : register(b0) { float4 c[16]; };
+float4 main(float4 p : POSITION, uint id : SV_VertexID) : SV_Position { return p + c[id & 15]; }
+###vs_texture_load vs_4_0 10_0
+Texture2D<float4> tex : register(t0);
+float4 main(uint id : SV_VertexID) : SV_Position { return tex.Load(int3(id & 3, 0, 0)); }
+###vs_sample_level vs_4_0 10_0
+Texture2D<float4> tex : register(t0);
+SamplerState smp : register(s0);
+float4 main(float2 uv : TEXCOORD0) : SV_Position { return tex.SampleLevel(smp, uv, 0); }
+###vs_many_outputs vs_4_0 10_0
+struct O { float4 p : SV_Position; float4 t0 : TEXCOORD0; float4 t1 : TEXCOORD1; float4 t2 : TEXCOORD2; float4 t3 : TEXCOORD3; float4 t4 : TEXCOORD4; float4 t5 : TEXCOORD5; float4 t6 : TEXCOORD6; float4 t7 : TEXCOORD7; };
+O main(float4 p : POSITION) { O o; o.p = p; o.t0 = p; o.t1 = p.yzwx; o.t2 = p.zwxy; o.t3 = p.wxyz; o.t4 = p; o.t5 = p; o.t6 = p; o.t7 = p; return o; }
+###vs_clipdist vs_4_0 10_0
+struct O { float4 p : SV_Position; float c : SV_ClipDistance0; };
+O main(float4 p : POSITION) { O o; o.p = p; o.c = p.x; return o; }
+###vs_culldist vs_4_0 10_0
+struct O { float4 p : SV_Position; float c : SV_CullDistance0; };
+O main(float4 p : POSITION) { O o; o.p = p; o.c = p.y; return o; }
+###vs_loop vs_4_0 10_0
+float4 main(float4 p : POSITION) : SV_Position { float4 a = p; [loop] for (int i = 0; i < 8; i++) a += p * 0.125f; return a; }
+###vs_branch vs_4_0 10_0
+float4 main(float4 p : POSITION) : SV_Position { if (p.x > 0.5f) return p * 2; else return p * 0.5f; }
+###vs_matrix vs_4_0 10_0
+cbuffer cb0 : register(b0) { float4x4 wvp; };
+float4 main(float4 p : POSITION) : SV_Position { return mul(p, wvp); }
+###vs_struct_in vs_4_0 10_0
+struct I { float3 p : POSITION; float3 n : NORMAL; float2 uv : TEXCOORD0; float4 c : COLOR0; };
+struct O { float4 p : SV_Position; float3 n : NORMAL; float2 uv : TEXCOORD0; float4 c : COLOR0; };
+O main(I i) { O o; o.p = float4(i.p, 1); o.n = i.n; o.uv = i.uv; o.c = i.c; return o; }
+###vs_int_ops vs_4_0 10_0
+float4 main(uint4 v : BLENDINDICES) : SV_Position { uint a = (v.x << 3) ^ (v.y >> 1) | (v.z & 0xff); return float4((float)a, (float)(v.w % 7u), 0, 1); }
+###vs_buffer_load vs_4_0 10_0
+Buffer<float4> buf : register(t0);
+float4 main(uint id : SV_VertexID) : SV_Position { return buf[id]; }
+###vs_bits_50 vs_5_0 11_0
+float4 main(uint4 v : BLENDINDICES) : SV_Position { return float4((float)countbits(v.x), (float)firstbithigh(v.y), (float)reversebits(v.z), (float)v.w); }
+###ps_const ps_4_0 10_0
+float4 main(float4 p : SV_Position) : SV_Target { return float4(0.25, 0.5, 0.75, 1.0); }
+###ps_color_in ps_4_0 10_0
+float4 main(float4 p : SV_Position, float4 c : COLOR0) : SV_Target { return c; }
+###ps_texture ps_4_0 10_0
+Texture2D<float4> tex : register(t0);
+SamplerState smp : register(s0);
+float4 main(float4 p : SV_Position, float2 uv : TEXCOORD0) : SV_Target { return tex.Sample(smp, uv); }
+###ps_depth ps_4_0 10_0
+float main(float4 p : SV_Position) : SV_Depth { return 0.5f; }
+###ps_mrt8 ps_4_0 10_0
+struct O { float4 c0 : SV_Target0; float4 c1 : SV_Target1; float4 c2 : SV_Target2; float4 c3 : SV_Target3; float4 c4 : SV_Target4; float4 c5 : SV_Target5; float4 c6 : SV_Target6; float4 c7 : SV_Target7; };
+O main(float4 p : SV_Position) { O o; o.c0 = 0; o.c1 = 1; o.c2 = 2; o.c3 = 3; o.c4 = 4; o.c5 = 5; o.c6 = 6; o.c7 = 7; return o; }
+###ps_discard ps_4_0 10_0
+float4 main(float4 p : SV_Position) : SV_Target { if (p.x < 2.0f) discard; return float4(1, 1, 1, 1); }
+###ps_clip ps_4_0 10_0
+float4 main(float4 p : SV_Position) : SV_Target { clip(p.y - 1.0f); return float4(1, 0, 0, 1); }
+###ps_ddx ps_4_0 10_0
+float4 main(float4 p : SV_Position, float2 uv : TEXCOORD0) : SV_Target { return float4(ddx(uv), ddy(uv)); }
+###ps_samplecmp ps_4_0 10_0
+Texture2D<float> tex : register(t0);
+SamplerComparisonState smp : register(s0);
+float4 main(float4 p : SV_Position, float2 uv : TEXCOORD0) : SV_Target { return tex.SampleCmp(smp, uv, 0.5f).xxxx; }
+###ps_loop ps_4_0 10_0
+float4 main(float4 p : SV_Position) : SV_Target { float a = 0; [loop] for (int i = 0; i < 16; i++) a += 0.0625f; return a.xxxx; }
+###ps_isfront ps_4_0 10_0
+float4 main(float4 p : SV_Position, bool f : SV_IsFrontFace) : SV_Target { return f ? float4(0, 1, 0, 1) : float4(1, 0, 0, 1); }
+###ps_primid ps_4_0 10_0
+float4 main(float4 p : SV_Position, uint id : SV_PrimitiveID) : SV_Target { return float4((float)id, 0, 0, 1); }
+###ps_sampleidx ps_4_1 10_1
+float4 main(float4 p : SV_Position, uint s : SV_SampleIndex) : SV_Target { return float4((float)s, 0, 0, 1); }
+###ps_gather ps_4_1 10_1
+Texture2D<float4> tex : register(t0);
+SamplerState smp : register(s0);
+float4 main(float4 p : SV_Position, float2 uv : TEXCOORD0) : SV_Target { return tex.Gather(smp, uv); }
+###ps_cov_in ps_5_0 11_0
+float4 main(float4 p : SV_Position, uint cov : SV_Coverage) : SV_Target { return float4((float)cov, 0, 0, 1); }
+###ps_cov_out ps_5_0 11_0
+struct O { float4 c : SV_Target; uint cov : SV_Coverage; };
+O main(float4 p : SV_Position) { O o; o.c = float4(1, 1, 1, 1); o.cov = 1; return o; }
+###ps_uav ps_5_0 11_0
+RWStructuredBuffer<uint> outbuf : register(u1);
+float4 main(float4 p : SV_Position) : SV_Target { uint n; InterlockedAdd(outbuf[0], 1, n); return float4(1, 1, 1, 1); }
+###ps_depthge ps_5_0 11_0
+struct O { float4 c : SV_Target; float d : SV_DepthGreaterEqual; };
+O main(float4 p : SV_Position) { O o; o.c = 1; o.d = p.z + 0.25f; return o; }
+###ps_bufinfo ps_5_0 11_0
+Texture2D<float4> tex : register(t0);
+float4 main(float4 p : SV_Position) : SV_Target { uint w, h, m; tex.GetDimensions(0, w, h, m); return float4((float)w, (float)h, (float)m, 1); }
+###ps_bits_50 ps_5_0 11_0
+float4 main(float4 p : SV_Position, uint4 v : TEXCOORD0) : SV_Target { return float4((float)countbits(v.x), (float)firstbitlow(v.y), (float)(v.z ^ v.w), 1); }
+###ps_interface ps_5_0 11_0
+interface iColor { float4 Get(); };
+class cRed : iColor { float4 Get() { return float4(1, 0, 0, 1); } };
+class cBlue : iColor { float4 Get() { return float4(0, 0, 1, 1); } };
+iColor g_color;
+cRed g_red;
+cBlue g_blue;
+float4 main(float4 p : SV_Position) : SV_Target { return g_color.Get(); }
+###gs_tri gs_4_0 10_0
+struct V { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+[maxvertexcount(3)] void main(triangle V i[3], inout TriangleStream<V> s) { for (int k = 0; k < 3; k++) s.Append(i[k]); s.RestartStrip(); }
+###gs_point gs_4_0 10_0
+struct V { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+[maxvertexcount(1)] void main(point V i[1], inout PointStream<V> s) { s.Append(i[0]); }
+###gs_line gs_4_0 10_0
+struct V { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+[maxvertexcount(2)] void main(line V i[2], inout LineStream<V> s) { s.Append(i[0]); s.Append(i[1]); }
+###gs_tri_adj gs_4_0 10_0
+struct V { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+[maxvertexcount(3)] void main(triangleadj V i[6], inout TriangleStream<V> s) { s.Append(i[0]); s.Append(i[2]); s.Append(i[4]); }
+###gs_line_adj gs_4_0 10_0
+struct V { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+[maxvertexcount(2)] void main(lineadj V i[4], inout LineStream<V> s) { s.Append(i[1]); s.Append(i[2]); }
+###gs_rtindex gs_4_0 10_0
+struct V { float4 p : SV_Position; };
+struct O { float4 p : SV_Position; uint rt : SV_RenderTargetArrayIndex; };
+[maxvertexcount(3)] void main(triangle V i[3], inout TriangleStream<O> s) { for (int k = 0; k < 3; k++) { O o; o.p = i[k].p; o.rt = 1; s.Append(o); } }
+###gs_vpindex gs_4_0 10_0
+struct V { float4 p : SV_Position; };
+struct O { float4 p : SV_Position; uint vp : SV_ViewportArrayIndex; };
+[maxvertexcount(3)] void main(triangle V i[3], inout TriangleStream<O> s) { for (int k = 0; k < 3; k++) { O o; o.p = i[k].p; o.vp = 1; s.Append(o); } }
+###gs_41 gs_4_1 10_1
+struct V { float4 p : SV_Position; };
+[maxvertexcount(3)] void main(triangle V i[3], inout TriangleStream<V> s) { for (int k = 0; k < 3; k++) s.Append(i[k]); }
+###gs_instanced gs_5_0 11_0
+struct V { float4 p : SV_Position; };
+[instance(4)][maxvertexcount(3)] void main(triangle V i[3], uint inst : SV_GSInstanceID, inout TriangleStream<V> s) { for (int k = 0; k < 3; k++) { V o = i[k]; o.p.x += inst; s.Append(o); } }
+###gs_stream gs_5_0 11_0
+struct A { float4 p : SV_Position; };
+struct B { float4 c : COLOR0; };
+[maxvertexcount(2)] void main(point A i[1], inout PointStream<A> s0, inout PointStream<B> s1) { s0.Append(i[0]); B b; b.c = i[0].p; s1.Append(b); }
+###gs_so_src gs_4_0 10_0
+struct V { float4 pos : SV_Position; float3 nrm : NORMAL; float2 uv : TEXCOORD0; float4 col : COLOR0; };
+[maxvertexcount(3)] void main(triangle V i[3], inout TriangleStream<V> s) { for (int k = 0; k < 3; k++) s.Append(i[k]); }
+###vs_so_src vs_4_0 10_0
+struct V { float4 pos : SV_Position; float3 nrm : NORMAL; float2 uv : TEXCOORD0; float4 col : COLOR0; };
+V main(float4 p : POSITION) { V o; o.pos = p; o.nrm = p.xyz; o.uv = p.xy; o.col = p; return o; }
+###gs_linestrip gs_4_0 10_0
+struct V { float4 p : SV_Position; };
+[maxvertexcount(4)] void main(triangle V i[3], inout LineStream<V> s) { s.Append(i[0]); s.Append(i[1]); s.Append(i[2]); s.Append(i[0]); }
+###hs_tri_int hs_5_0 11_0
+struct VI { float3 p : POSITION; };
+struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; };
+PC pcf(InputPatch<VI, 3> ip) { PC o; o.e[0] = 1; o.e[1] = 1; o.e[2] = 1; o.i = 1; return o; }
+[domain("tri")][partitioning("integer")][outputtopology("triangle_cw")][outputcontrolpoints(3)][patchconstantfunc("pcf")]
+VI main(InputPatch<VI, 3> ip, uint i : SV_OutputControlPointID) { return ip[i]; }
+###hs_tri_pow2 hs_5_0 11_0
+struct VI { float3 p : POSITION; };
+struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; };
+PC pcf(InputPatch<VI, 3> ip) { PC o; o.e[0] = 4; o.e[1] = 4; o.e[2] = 4; o.i = 4; return o; }
+[domain("tri")][partitioning("pow2")][outputtopology("triangle_ccw")][outputcontrolpoints(3)][patchconstantfunc("pcf")]
+VI main(InputPatch<VI, 3> ip, uint i : SV_OutputControlPointID) { return ip[i]; }
+###hs_quad_odd hs_5_0 11_0
+struct VI { float3 p : POSITION; };
+struct PC { float e[4] : SV_TessFactor; float i[2] : SV_InsideTessFactor; };
+PC pcf(InputPatch<VI, 4> ip) { PC o; o.e[0] = 2; o.e[1] = 2; o.e[2] = 2; o.e[3] = 2; o.i[0] = 3; o.i[1] = 3; return o; }
+[domain("quad")][partitioning("fractional_odd")][outputtopology("triangle_cw")][outputcontrolpoints(4)][patchconstantfunc("pcf")]
+VI main(InputPatch<VI, 4> ip, uint i : SV_OutputControlPointID) { return ip[i]; }
+###hs_quad_even hs_5_0 11_0
+struct VI { float3 p : POSITION; };
+struct PC { float e[4] : SV_TessFactor; float i[2] : SV_InsideTessFactor; };
+PC pcf(InputPatch<VI, 4> ip) { PC o; o.e[0] = 2; o.e[1] = 2; o.e[2] = 2; o.e[3] = 2; o.i[0] = 2; o.i[1] = 2; return o; }
+[domain("quad")][partitioning("fractional_even")][outputtopology("triangle_cw")][outputcontrolpoints(4)][patchconstantfunc("pcf")]
+VI main(InputPatch<VI, 4> ip, uint i : SV_OutputControlPointID) { return ip[i]; }
+###hs_isoline hs_5_0 11_0
+struct VI { float3 p : POSITION; };
+struct PC { float e[2] : SV_TessFactor; };
+PC pcf(InputPatch<VI, 2> ip) { PC o; o.e[0] = 1; o.e[1] = 4; return o; }
+[domain("isoline")][partitioning("integer")][outputtopology("line")][outputcontrolpoints(2)][patchconstantfunc("pcf")]
+VI main(InputPatch<VI, 2> ip, uint i : SV_OutputControlPointID) { return ip[i]; }
+###hs_tri_patchdata hs_5_0 11_0
+struct VI { float3 p : POSITION; };
+struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; float4 extra : TEXCOORD0; };
+PC pcf(InputPatch<VI, 3> ip, uint pid : SV_PrimitiveID) { PC o; o.e[0] = 1; o.e[1] = 1; o.e[2] = 1; o.i = 1; o.extra = float4((float)pid, 0, 0, 0); return o; }
+[domain("tri")][partitioning("integer")][outputtopology("triangle_cw")][outputcontrolpoints(3)][patchconstantfunc("pcf")][maxtessfactor(8.0)]
+VI main(InputPatch<VI, 3> ip, uint i : SV_OutputControlPointID) { return ip[i]; }
+###ds_tri ds_5_0 11_0
+struct HC { float3 p : POSITION; };
+struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; };
+struct O { float4 pos : SV_Position; };
+[domain("tri")] O main(PC pc, float3 uvw : SV_DomainLocation, const OutputPatch<HC, 3> patch) { O o; o.pos = float4(patch[0].p * uvw.x + patch[1].p * uvw.y + patch[2].p * uvw.z, 1); return o; }
+###ds_quad ds_5_0 11_0
+struct HC { float3 p : POSITION; };
+struct PC { float e[4] : SV_TessFactor; float i[2] : SV_InsideTessFactor; };
+struct O { float4 pos : SV_Position; };
+[domain("quad")] O main(PC pc, float2 uv : SV_DomainLocation, const OutputPatch<HC, 4> patch) { O o; float3 a = lerp(patch[0].p, patch[1].p, uv.x); float3 b = lerp(patch[2].p, patch[3].p, uv.x); o.pos = float4(lerp(a, b, uv.y), 1); return o; }
+###ds_isoline ds_5_0 11_0
+struct HC { float3 p : POSITION; };
+struct PC { float e[2] : SV_TessFactor; };
+struct O { float4 pos : SV_Position; };
+[domain("isoline")] O main(PC pc, float2 uv : SV_DomainLocation, const OutputPatch<HC, 2> patch) { O o; o.pos = float4(lerp(patch[0].p, patch[1].p, uv.x), 1); return o; }
+###cs_basic cs_5_0 11_0
+RWByteAddressBuffer outbuf : register(u0);
+[numthreads(8, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf.Store(id.x * 4, id.x); }
+###cs_40 cs_4_0 10_0
+RWByteAddressBuffer outbuf : register(u0);
+[numthreads(8, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf.Store(id.x * 4, id.x); }
+###cs_41 cs_4_1 10_1
+RWStructuredBuffer<uint> outbuf : register(u0);
+[numthreads(8, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf[id.x] = id.x * 3; }
+###cs_shared cs_5_0 11_0
+RWStructuredBuffer<uint> outbuf : register(u0);
+groupshared uint tile[64];
+[numthreads(64, 1, 1)] void main(uint3 gt : SV_GroupThreadID, uint3 id : SV_DispatchThreadID) { tile[gt.x] = id.x; GroupMemoryBarrierWithGroupSync(); outbuf[id.x] = tile[63 - gt.x]; }
+###cs_atomic cs_5_0 11_0
+RWStructuredBuffer<uint> outbuf : register(u0);
+[numthreads(32, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { uint o; InterlockedAdd(outbuf[0], 1, o); InterlockedMax(outbuf[1], id.x); }
+###cs_typed_uav cs_5_0 11_0
+RWTexture2D<float4> img : register(u0);
+[numthreads(4, 4, 1)] void main(uint3 id : SV_DispatchThreadID) { img[id.xy] = float4(1, 0, 0, 1); }
+###cs_append cs_5_0 11_0
+AppendStructuredBuffer<uint> outbuf : register(u0);
+[numthreads(16, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf.Append(id.x); }
+###cs_consume cs_5_0 11_0
+ConsumeStructuredBuffer<uint> inbuf : register(u0);
+RWStructuredBuffer<uint> outbuf : register(u1);
+[numthreads(1, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf[0] = inbuf.Consume(); }
+###cs_1024 cs_5_0 11_0
+RWStructuredBuffer<uint> outbuf : register(u0);
+[numthreads(1024, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf[id.x] = id.x; }
+###cs_3d cs_5_0 11_0
+RWStructuredBuffer<uint> outbuf : register(u0);
+[numthreads(4, 4, 4)] void main(uint gi : SV_GroupIndex, uint3 g : SV_GroupID) { outbuf[g.x * 64 + gi] = gi; }
+###cs_srv_load cs_5_0 11_0
+Buffer<uint> src : register(t0);
+RWBuffer<uint> dst : register(u0);
+[numthreads(8, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { dst[id.x] = src[id.x] + 1; }
+###cs_cb cs_5_0 11_0
+cbuffer cb0 : register(b0) { uint4 params; };
+RWStructuredBuffer<uint> outbuf : register(u0);
+[numthreads(1, 1, 1)] void main() { outbuf[0] = params.x + params.y; }
+###cs_768 cs_4_0 10_0
+RWByteAddressBuffer outbuf : register(u0);
+[numthreads(768, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { outbuf.Store(id.x * 4, id.x); }
+###ps_const_50 ps_5_0 11_0
+float4 main(float4 p : SV_Position) : SV_Target { return float4(0.25, 0.5, 0.75, 1.0); }
+###gs_tri_50 gs_5_0 11_0
+struct V { float4 p : SV_Position; };
+[maxvertexcount(3)] void main(triangle V i[3], inout TriangleStream<V> s) { for (int k = 0; k < 3; k++) s.Append(i[k]); }
+###ps_noinput ps_4_0 10_0
+float4 main() : SV_Target { return float4(1, 0, 0, 1); }
+###vs_noinput vs_4_0 10_0
+float4 main(uint id : SV_VertexID) : SV_Position { return float4(id == 1 ? 3.0f : -1.0f, id == 2 ? 3.0f : -1.0f, 0, 1); }
+###ps_cs_unused_placeholder ps_4_0 10_0
+float4 main(float4 p : SV_Position) : SV_Target { return p; }
