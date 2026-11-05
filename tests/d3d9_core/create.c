@@ -304,7 +304,7 @@ TEST(d3d9_core_on12_disabled_args) {
     IDirect3D9 *d = c(D3D_SDK_VERSION, &a, 1);
     t_note("Direct3DCreate9On12 with Enable9On12=FALSE: %p", (void *)d);
     if (d) {
-        CHECK(IDirect3D9_GetAdapterCount(d) >= 0);
+        t_note("adapter count with disabled 9On12 args: %u", IDirect3D9_GetAdapterCount(d));
         IDirect3D9_Release(d);
     }
 }

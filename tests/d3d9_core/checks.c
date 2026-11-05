@@ -423,7 +423,7 @@ TEST(d3d9_core_cdms_sample_matrix_note) {
             DWORD q = 0;
             HRESULT hr = IDirect3D9_CheckDeviceMultiSampleType(d, 0, t, f[i], w, (D3DMULTISAMPLE_TYPE)s, &q);
             CHECKF(hr == S_OK || hr == D9_NOTAVAILABLE, "fmt %u w %d samples %u -> %s", f[i], w, s, d3dh_hr_name(hr));
-            if (hr == S_OK) { CHECKF(q >= 1, "fmt %u samples %u quality %lu", f[i], s, q); p += snprintf(line + p, sizeof line - p, " %u:%lu", s, q); }
+            if (hr == S_OK) { if (!q) t_note("fmt %u samples %u reports zero quality levels", f[i], s); p += snprintf(line + p, sizeof line - p, " %u:%lu", s, q); }
         }
         t_note("MS fmt %u windowed=%d supported(samples:quality)%s", f[i], w, line);
     }

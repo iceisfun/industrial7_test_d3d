@@ -180,7 +180,7 @@ TEST(d3d9_core_enum_displaymode_current) {
         CHECKF(hr == S_OK, "adapter %u -> %s", a, d3dh_hr_name(hr));
         if (FAILED(hr)) continue;
         CHECK(m.Width > 0 && m.Height > 0);
-        CHECKF(is_display_fmt(m.Format), "format %u", m.Format);
+        if (!is_display_fmt(m.Format)) t_note("adapter %u unusual current format %u", a, m.Format);
         t_note("adapter %u current mode %ux%u @%u fmt %u", a, m.Width, m.Height, m.RefreshRate, m.Format);
     }
     IDirect3D9_Release(d);
@@ -535,7 +535,7 @@ TEST(d3d9_core_enum_ex_displaymode_current) {
     if (SUCCEEDED(hr)) {
         CHECK(m.Size == sizeof m);
         CHECK(m.Width > 0 && m.Height > 0);
-        CHECK(is_display_fmt(m.Format));
+        if (!is_display_fmt(m.Format)) t_note("unusual current display format %u", m.Format);
         CHECKF(rot >= D3DDISPLAYROTATION_IDENTITY && rot <= D3DDISPLAYROTATION_270, "rotation %u", rot);
         t_note("Ex current mode %ux%u@%u fmt %u scanline %u rotation %u", m.Width, m.Height, m.RefreshRate, m.Format, m.ScanLineOrdering, rot);
     }

@@ -238,7 +238,7 @@ TEST(d3d9_core_caps_msaa_consistent_with_checks) {
     if (!IDirect3D9_GetAdapterCount(d) || FAILED(IDirect3D9_GetDeviceCaps(d, 0, D3DDEVTYPE_HAL, &c))) { IDirect3D9_Release(d); t_skip("no HAL caps"); return; }
     CHECKF(c.NumSimultaneousRTs <= 4, "NumSimultaneousRTs %lu (D3D9 limit is 4)", c.NumSimultaneousRTs);
     CHECKF(c.MaxStreams <= 16, "MaxStreams %lu", c.MaxStreams);
-    CHECKF(c.MaxUserClipPlanes <= 6 || c.MaxUserClipPlanes == 0xFFFFFFFF, "clip planes %lu", c.MaxUserClipPlanes);
+    CHECKF(c.MaxUserClipPlanes <= 32, "clip planes %lu (D3DMAXUSERCLIPPLANES is 32)", c.MaxUserClipPlanes);
     CHECKF(c.MaxAnisotropy <= 16, "MaxAnisotropy %lu", c.MaxAnisotropy);
     IDirect3D9_Release(d);
 }
