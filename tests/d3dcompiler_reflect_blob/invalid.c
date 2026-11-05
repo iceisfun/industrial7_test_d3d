@@ -107,8 +107,15 @@ MCASE(chunk_size_field_wrong, {
         PUT32(c, off + 4, good + 4); sprintf(l, "chunk %d size +4", i); rb_probe_all(c, n, RB_INVALIDCALL, l);
         /* the last chunk is not followed by another offset, so a shorter size is only caught by the checksum */
         if (good >= 4) { PUT32(c, off + 4, good - 4); sprintf(l, "chunk %d size -4", i); rb_probe_all(c, n, i == cnt - 1 ? RB_E_FAIL : RB_INVALIDCALL, l); }
-        PUT32(c, off + 4, 0xffffff00u); sprintf(l, "chunk %d size huge", i); rb_probe_all(c, n, RB_INVALIDCALL, l);
-        PUT32(c, off + 4, 0xfffffffcu); sprintf(l, "chunk %d size wraps", i); rb_probe_all(c, n, RB_INVALIDCALL, l);
+        /* the end-of-chunk test is a 32-bit sum (offset + size + 7): a huge size can wrap into range, and then only the last chunk
+         * (no following offset to contradict it) survives structural validation and is rejected by the checksum instead */
+        {
+            static const DWORD huge[] = { 0xffffff00u, 0xfffffffcu };
+            for (int k = 0; k < 2; k++) {
+                DWORD wrapped = huge[k] + 7 + off; HRESULT want = (wrapped > (DWORD)n || i != cnt - 1) ? RB_INVALIDCALL : RB_E_FAIL;
+                PUT32(c, off + 4, huge[k]); sprintf(l, "chunk %d size 0x%08x", i, huge[k]); rb_probe_all(c, n, want, l);
+            }
+        }
         PUT32(c, off + 4, good);
     }
 })

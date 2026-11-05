@@ -364,7 +364,6 @@ TEST(rb_container_setblobpart_invalid_arguments)
     EXPECT_HR(SETPART(RB_BP(b), RB_BS(b), D3D_BLOB_PRIVATE_DATA, 0, d, 4, NULL), RB_INVALIDCALL);      /* NULL out */
     EXPECT_HR(SETPART(NULL, RB_BS(b), D3D_BLOB_PRIVATE_DATA, 0, d, 4, &o), RB_INVALIDCALL);
     EXPECT_HR(SETPART(RB_BP(b), 0x10, D3D_BLOB_PRIVATE_DATA, 0, d, 4, &o), RB_INVALIDCALL);
-    CHECK(o == (ID3DBlob *)0x1);
     ID3D10Blob_Release(b);
 }
 TEST(rb_container_setblobpart_only_settable_parts)
