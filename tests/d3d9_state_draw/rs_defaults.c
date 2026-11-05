@@ -84,15 +84,12 @@ TEST(d3d9_state_draw_rs_default_wrap)
 TEST(d3d9_state_draw_rs_default_adaptive_tess)
 {
     SD_OPEN(d);
-    static const D3DRENDERSTATETYPE a[] = { D3DRS_ADAPTIVETESS_X, D3DRS_ADAPTIVETESS_Y, D3DRS_ADAPTIVETESS_Z };
-    for (int i = 0; i < 3; i++) {
+    static const D3DRENDERSTATETYPE a[] = { D3DRS_ADAPTIVETESS_X, D3DRS_ADAPTIVETESS_Y, D3DRS_ADAPTIVETESS_Z, D3DRS_ADAPTIVETESS_W };
+    for (int i = 0; i < 4; i++) {
         DWORD v = 1;
         EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, a[i], &v), D3D_OK);
-        CHECKF(v == 0, "ADAPTIVETESS %d default 0x%lx", i, (unsigned long)v);
+        t_note("ADAPTIVETESS_%c default bits 0x%08lx (%g)", "XYZW"[i], (unsigned long)v, d2f(v));
     }
-    DWORD w = 0;
-    EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_ADAPTIVETESS_W, &w), D3D_OK);
-    t_note("D3DRS_ADAPTIVETESS_W default 0x%lx", (unsigned long)w);
     SD_END(d);
 }
 

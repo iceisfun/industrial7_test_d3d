@@ -261,7 +261,7 @@ TEST(d3d9_state_draw_vp_reset_by_set_render_target)
     CHECK(g.MinZ == 0.0f); CHECK(g.MaxZ == 1.0f);
     RECT sc;
     EXPECT_HR(IDirect3DDevice9_GetScissorRect(d.dev, &sc), D3D_OK);
-    t_note("scissor after SetRenderTarget(32x16): %ld,%ld,%ld,%ld", sc.left, sc.top, sc.right, sc.bottom);
+    EXPECT_EQ(sc.left, 0); EXPECT_EQ(sc.top, 0); EXPECT_EQ(sc.right, 32); EXPECT_EQ(sc.bottom, 16);
     EXPECT_HR(IDirect3DDevice9_SetRenderTarget(d.dev, 0, orig), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetViewport(d.dev, &g), D3D_OK);
     EXPECT_EQ(g.Width, SD_W); EXPECT_EQ(g.Height, SD_H);
@@ -270,7 +270,7 @@ TEST(d3d9_state_draw_vp_reset_by_set_render_target)
     SD_END(d);
 }
 
-TEST(d3d9_state_draw_vp_same_target_keeps_viewport)
+TEST(d3d9_state_draw_vp_same_target_resets_viewport)
 {
     SD_OPEN(d);
     IDirect3DSurface9 *orig = NULL;
@@ -279,7 +279,14 @@ TEST(d3d9_state_draw_vp_same_target_keeps_viewport)
     IDirect3DDevice9_SetViewport(d.dev, &vp);
     EXPECT_HR(IDirect3DDevice9_SetRenderTarget(d.dev, 0, orig), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetViewport(d.dev, &g), D3D_OK);
-    t_note("viewport after SetRenderTarget(same surface): %lux%lu at %lu,%lu", (unsigned long)g.Width, (unsigned long)g.Height, (unsigned long)g.X, (unsigned long)g.Y);
+    /* setting a render target resets viewport and scissor even when it is the surface already bound */
+    EXPECT_EQ(g.X, 0); EXPECT_EQ(g.Y, 0); EXPECT_EQ(g.Width, SD_W); EXPECT_EQ(g.Height, SD_H);
+    CHECK(g.MinZ == 0.0f && g.MaxZ == 1.0f);
+    RECT sc = { 50, 50, 60, 60 };
+    IDirect3DDevice9_SetScissorRect(d.dev, &sc);
+    EXPECT_HR(IDirect3DDevice9_SetRenderTarget(d.dev, 0, orig), D3D_OK);
+    EXPECT_HR(IDirect3DDevice9_GetScissorRect(d.dev, &sc), D3D_OK);
+    EXPECT_EQ(sc.left, 0); EXPECT_EQ(sc.top, 0); EXPECT_EQ(sc.right, SD_W); EXPECT_EQ(sc.bottom, SD_H);
     SAFE_RELEASE(orig);
     SD_END(d);
 }
