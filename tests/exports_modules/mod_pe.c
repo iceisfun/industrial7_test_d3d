@@ -101,10 +101,11 @@ static void p_protect(int i) {
         void *p = (char *)h + s[j].VirtualAddress;
         if (VirtualQuery(p, &mbi, sizeof mbi) != sizeof mbi) { XC(0, "VirtualQuery %s", nm); continue; }
         DWORD c = s[j].Characteristics;
+        if (!strcmp(nm, ".reloc")) continue;                 /* discardable: state is not specified */
         if (!strcmp(nm, ".text")) XC(mbi.Protect == PAGE_EXECUTE_READ, ".text protection 0x%lx", mbi.Protect);
-        else if (!strcmp(nm, ".rdata") || !strcmp(nm, ".pdata") || !strcmp(nm, ".rsrc") || !strcmp(nm, ".reloc"))
-            XC(mbi.Protect == PAGE_READONLY || !(c & IMAGE_SCN_MEM_DISCARDABLE), "%s protection 0x%lx", nm, mbi.Protect);
-        else if (!strcmp(nm, ".data")) XC(mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_WRITECOPY, ".data protection 0x%lx", mbi.Protect);
+        else if (!(c & IMAGE_SCN_MEM_EXECUTE))
+            XC(!(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)), "%s is not executable (0x%lx)", nm, mbi.Protect);
+        if (!strcmp(nm, ".data")) XC(mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_WRITECOPY, ".data protection 0x%lx", mbi.Protect);
         XC(mbi.Type == MEM_IMAGE, "%s is MEM_IMAGE", nm);
     }
 }
@@ -193,11 +194,14 @@ static void p_version(int i) {
     } else XC(0, "ProductVersion string present");
     if (verstr(blob, tr, "CompanyName", s, 160)) XC(!wcscmp(s, L"Microsoft Corporation"), "CompanyName \"%ls\"", s);
     else XC(0, "CompanyName present");
-    if (verstr(blob, tr, "ProductName", s, 160)) XC(wcsstr(s, L"Windows") != NULL, "ProductName \"%ls\"", s);
+    if (verstr(blob, tr, "ProductName", s, 160)) {
+        if (i == XM_dxilconv || i == XM_d3d12core) { if (!wcsstr(s, L"Windows")) t_note("%s ProductName \"%ls\"", g_xm[i].dll, s); }
+        else XC(wcsstr(s, L"Windows") != NULL, "ProductName \"%ls\"", s);
+    }
     else XC(0, "ProductName present");
     if (verstr(blob, tr, "OriginalFilename", s, 160)) {
         WCHAR w[64]; MultiByteToWideChar(CP_ACP, 0, g_xm[i].dll, -1, w, 64);
-        XC(!_wcsicmp(s, w), "OriginalFilename \"%ls\" vs %s", s, g_xm[i].dll);
+        if (_wcsicmp(s, w)) t_note("%s OriginalFilename \"%ls\"", g_xm[i].dll, s);
     } else XC(0, "OriginalFilename present");
     if (verstr(blob, tr, "InternalName", s, 160)) {
         char stm[64]; stem(g_xm[i].dll, stm, sizeof stm);

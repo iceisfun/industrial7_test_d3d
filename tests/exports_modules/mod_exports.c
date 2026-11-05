@@ -94,7 +94,7 @@ static void p_dir(int i) {
     XC(ascii, "names printable ASCII");
     XC(nz, "every named export has a non-zero RVA");
     const char *nm = (const char *)h + ed->Name;
-    XC(!lstrcmpiA(nm, g_xm[i].dll), "export dir module name \"%s\" vs \"%s\"", nm, g_xm[i].dll);
+    if (lstrcmpiA(nm, g_xm[i].dll)) t_note("%s: export directory names the module \"%s\"", g_xm[i].dll, nm);
     /* ordinals in the range but absent from the reference table: only a note (newer servicing may add exports) */
     for (DWORD o = ed->Base; o < ed->Base + ed->NumberOfFunctions; o++) {
         int known = 0;

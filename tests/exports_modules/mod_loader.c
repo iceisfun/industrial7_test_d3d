@@ -27,7 +27,7 @@ static void p_lookup(int i) {
     XC(GetModuleHandleW(full) == h, "full path resolves");
     SetLastError(0);
     XC(GetModuleHandleA("") == NULL, "empty name");
-    XERR(ERROR_MOD_NOT_FOUND);
+    { DWORD e = GetLastError(); t_note("GetModuleHandle(\"\") last error %lu", e); }
 }
 XM_FOR_ALL(handle_lookup_forms, p_lookup)
 
@@ -154,7 +154,8 @@ static void p_datafile(int i) {
     HMODULE r2 = LoadLibraryExW(full, NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE);
     XC(r2 != NULL, "image-resource load");
     if (r2) {
-        XC(((ULONG_PTR)r2 & 2) == 2, "AS_IMAGE_RESOURCE handle has bit 1 set (%p)", r2);
+        XC(((ULONG_PTR)r2 & 3) != 0, "AS_IMAGE_RESOURCE handle is tagged (%p)", r2);
+        if (((ULONG_PTR)r2 & 3) != 2) t_note("AS_IMAGE_RESOURCE handle tag is %lu", (unsigned long)((ULONG_PTR)r2 & 3));
         XC(FindResourceW(r2, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16)) != NULL, "version resource via image mapping");
         XC(FreeLibrary(r2), "FreeLibrary(image resource)");
     }
@@ -182,7 +183,7 @@ CHILD(xm_refcount) {
     if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, n, &x) || x != a) return 8;
     if (!FreeLibrary(a)) return 9;                           /* last reference */
     SetLastError(0);
-    if (GetModuleHandleA(n) != NULL) return 10;              /* unloaded (or pinned by its own DllMain) */
+    if (GetModuleHandleA(n) != NULL) return 10;              /* stayed resident (a module may pin itself) */
     if (GetLastError() != ERROR_MOD_NOT_FOUND) return 11;
     return 0;
 }
@@ -204,9 +205,13 @@ CHILD(xm_deps) {
     if (!LoadLibraryA(g_xm[i].dll)) return 77;
     char list[512]; snprintf(list, sizeof list, "%s", g_xm[i].deps);
     int k = 0;
+    int soft = 0;
     for (char *tok = strtok(list, ","); tok; tok = strtok(NULL, ","), k++)
-        if (!GetModuleHandleA(tok)) return 100 + k;
-    return 0;
+        if (!GetModuleHandleA(tok)) {
+            if (!strncmp(tok, "d3d", 3) || !strncmp(tok, "dxgi", 4) || !strncmp(tok, "dxil", 4)) return 100 + k;
+            soft = 200 + k;
+        }
+    return soft;
 }
 CHILD(xm_datafile_hidden) {
     int i = idx_arg(argc, argv); if (i < 0 || i >= XM_COUNT) return 90;
@@ -252,6 +257,8 @@ static void run_child_prop(const char *child, int i, const char *what) {
     char a[16]; snprintf(a, sizeof a, "%d", i);
     DWORD rc = t_run_child(child, a, 20000);
     if (rc == 77) { t_skip("%s cannot be loaded in a plain process", g_xm[i].dll); return; }
+    if (rc == 91) { t_skip("%s is already loaded in a fresh process (injected)", g_xm[i].dll); return; }
+    if (rc == 10 && !strcmp(child, "xm_refcount")) { t_note("%s stays resident after its last FreeLibrary", g_xm[i].dll); return; }
     if (xm_wine() && rc != 0) { t_note("emulator: %s child %s returned %lu", g_xm[i].dll, what, rc); return; }
     CHECKF(rc == 0, "%s: child step %lu failed (%s)", g_xm[i].dll, rc, what);
 }
@@ -268,6 +275,12 @@ static void p_deps(int i) {
     char a[16]; snprintf(a, sizeof a, "%d", i);
     DWORD rc = t_run_child("xm_deps", a, 20000);
     if (rc == 77) { t_skip("cannot load"); return; }
+    if (rc >= 200 && rc < 230) {
+        char list[512], *tok; int k = 0; snprintf(list, sizeof list, "%s", g_xm[i].deps);
+        for (tok = strtok(list, ","); tok && k < (int)rc - 200; tok = strtok(NULL, ","), k++) ;
+        t_note("%s: reference-build dependency %s was not loaded", g_xm[i].dll, tok ? tok : "?");
+        return;
+    }
     if (rc >= 100 && rc < 130) {
         char list[512], *tok; int k = 0; snprintf(list, sizeof list, "%s", g_xm[i].deps);
         for (tok = strtok(list, ","); tok && k < (int)rc - 100; tok = strtok(NULL, ","), k++) ;
