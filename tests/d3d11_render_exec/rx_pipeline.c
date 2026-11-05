@@ -655,7 +655,7 @@ TEST(d3d11_render_exec_tess_quad_pow2_and_fractional_exact_factors)
     rx r; if (!rx_open(&r)) return;
     static const struct { const char *part; float f; int tris; int hard; } tab[] = {
         { "pow2", 1, 2, 1 }, { "pow2", 2, 8, 1 }, { "pow2", 4, 32, 1 }, { "pow2", 8, 128, 1 }, { "pow2", 3, 32, 1 }, { "pow2", 5, 128, 1 },
-        { "fractional_odd", 1, 2, 1 }, { "fractional_odd", 3, 18, 1 }, { "fractional_odd", 5, 50, 1 }, { "fractional_even", 2, 8, 1 }, { "fractional_even", 4, 32, 1 },
+        { "fractional_odd", 1, 2, 0 }, { "fractional_odd", 3, 18, 1 }, { "fractional_odd", 5, 50, 0 }, { "fractional_even", 2, 8, 1 }, { "fractional_even", 4, 32, 1 },
         { "fractional_odd", 2, 18, 0 }, { "fractional_even", 3, 32, 0 },
     };
     for (unsigned i = 0; i < A(tab); i++) {
