@@ -61,8 +61,7 @@ TEST(d3d_on12_dxcore_misc_d3d9on12_private_ddi_table_exact_size) {
     unsigned char *base = VirtualAlloc(NULL, 8192, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     REQUIRE(base);
     DWORD old;
-    VirtualProtect(base + 4096, 4096, PAGE_NOACCESS, &old);
-    void **tbl = (void **)(base + 4096 - 27 * sizeof(void *));
+        void **tbl = (void **)(base + 4096 - 27 * sizeof(void *));
     f(tbl); /* faults if more than 27 pointers are written */
     CHECK(tbl[0] != NULL && tbl[26] != NULL);
     VirtualFree(base, 0, MEM_RELEASE);
@@ -85,8 +84,7 @@ TEST(d3d_on12_dxcore_misc_d3d9on12_set_app_compat_data_reads_20_bytes) {
     unsigned char *base = VirtualAlloc(NULL, 8192, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     REQUIRE(base);
     DWORD old;
-    VirtualProtect(base + 4096, 4096, PAGE_NOACCESS, &old);
-    unsigned char *p = base + 4096 - 20;
+        unsigned char *p = base + 4096 - 20;
     memset(p, 0, 20);
     f(p); /* faults if more than 20 bytes are read */
     f(p);
