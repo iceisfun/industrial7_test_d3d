@@ -21,6 +21,7 @@ static ID3D11Buffer *mk(UINT bw, D3D11_USAGE u, UINT bind, UINT cpu, UINT misc, 
 {
     D3D11_BUFFER_DESC d = bufh_desc(bw, u, bind, cpu, misc, stride);
     ID3D11Buffer *b = NULL;
+    if (!bufh_init()) return NULL;
     if (FAILED(bufh_create(&d, init, seed, &b))) return NULL;
     return b;
 }
