@@ -99,7 +99,8 @@ TEST(gap0_dbginfo_compiled_shader)
 
 /* ---- D3D10PreprocessShader ---- */
 
-static prep_t get_prep(const char *mod) { return (prep_t)t_proc_in(mod, "D3D10PreprocessShader"); }
+/* the emulated d3d10 only has an aborting stub for this export */
+static prep_t get_prep(const char *mod) { return t_is_wine() ? NULL : (prep_t)t_proc_in(mod, "D3D10PreprocessShader"); }
 
 static char *blob_str(ID3DBlob *b)
 {
