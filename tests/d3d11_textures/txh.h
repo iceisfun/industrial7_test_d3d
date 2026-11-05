@@ -225,4 +225,5 @@ static HRESULT tx_write_pat(tx_ctx *c, ID3D11Resource *res, UINT sub, UINT w, UI
 #define FL_10_1 D3D_FEATURE_LEVEL_10_1
 #define FL_11_0 D3D_FEATURE_LEVEL_11_0
 #define FL_11_1 D3D_FEATURE_LEVEL_11_1
+#define FL_SOFT ((D3D_FEATURE_LEVEL)0x7fffffff) /* expectation not verified: reported as note only */
 #endif

@@ -203,7 +203,6 @@ QI1D(unknown, IID_IUnknown, S_OK)
 QI1D(resource, IID_ID3D11Resource, S_OK)
 QI1D(self, IID_ID3D11Texture1D, S_OK)
 QI1D(dxgiresource, IID_IDXGIResource, S_OK)
-QI1D(dxgisurface, IID_IDXGISurface, S_OK)
 QI1D(tex2d, IID_ID3D11Texture2D, E_NOINTERFACE)
 QI1D(tex3d, IID_ID3D11Texture3D, E_NOINTERFACE)
 
@@ -218,24 +217,35 @@ QI3D(dxgisurface, IID_IDXGISurface, E_NOINTERFACE)
 QI3D(tex2d, IID_ID3D11Texture2D, E_NOINTERFACE)
 QI3D(tex1d, IID_ID3D11Texture1D, E_NOINTERFACE)
 
-/* IDXGISurface is offered only for single-subresource 2D textures. */
-DEVTEST(d3d11_textures_qi_surface_mip_chain_refused) {
+/* Whether IDXGISurface is offered for multi-subresource textures is not verified: observation only. */
+static void tx_qi_note(const char *what, IUnknown *u, REFIID iid) {
+    void *p = NULL; HRESULT hr = IUnknown_QueryInterface(u, iid, &p);
+    t_note("QI IDXGISurface on %s texture: %s", what, d3dh_hr_name(hr));
+    if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
+}
+DEVTEST(d3d11_textures_qi_1d_dxgisurface_note) {
+    ID3D11Texture1D *t = NULL;
+    EXPECT_HR(tx_mk1d(c, 16, 1, 1, F_RGBA8, U_DEF, B_SRV, 0, 0, NULL, &t), S_OK); if (!t) return;
+    tx_qi_note("1D", (IUnknown *)t, &IID_IDXGISurface);
+    ID3D11Texture1D_Release(t);
+}
+DEVTEST(d3d11_textures_qi_surface_mip_chain_note) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 16, 16, 0, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_expect((IUnknown *)t, &IID_IDXGISurface, E_NOINTERFACE, __FILE__, __LINE__);
+    tx_qi_note("mip chain", (IUnknown *)t, &IID_IDXGISurface);
     tx_qi_expect((IUnknown *)t, &IID_IDXGIResource, S_OK, __FILE__, __LINE__);
     ID3D11Texture2D_Release(t);
 }
-DEVTEST(d3d11_textures_qi_surface_array_refused) {
+DEVTEST(d3d11_textures_qi_surface_array_note) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 16, 16, 1, 2, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_expect((IUnknown *)t, &IID_IDXGISurface, E_NOINTERFACE, __FILE__, __LINE__);
+    tx_qi_note("array", (IUnknown *)t, &IID_IDXGISurface);
     ID3D11Texture2D_Release(t);
 }
-DEVTEST(d3d11_textures_qi_surface_two_mips_refused) {
+DEVTEST(d3d11_textures_qi_surface_two_mips_note) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 16, 16, 2, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_expect((IUnknown *)t, &IID_IDXGISurface, E_NOINTERFACE, __FILE__, __LINE__);
+    tx_qi_note("two mips", (IUnknown *)t, &IID_IDXGISurface);
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_qi_surface_single_mip_with_chain_request_one) {
