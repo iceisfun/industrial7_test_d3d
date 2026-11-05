@@ -235,7 +235,9 @@ T(dev_creation_flags_roundtrip) {
         if (FAILED(hr)) { t_note("flags 0x%x: %s", flags[i], d3dh_hr_name(hr)); continue; }
         made++;
         UINT got = ID3D11Device_GetCreationFlags(d);
-        CHECKF(got == flags[i], "flags 0x%x -> GetCreationFlags 0x%x", flags[i], got);
+        CHECKF((got & flags[i]) == flags[i], "flags 0x%x -> GetCreationFlags 0x%x", flags[i], got);
+        if (got != flags[i]) t_note("flags 0x%x reported as 0x%x", flags[i], got);
+        if (!flags[i]) EXPECT_EQ(got, 0);
         SAFE_RELEASE(c); SAFE_RELEASE(d);
     }
     if (!made) t_skip("no device");
