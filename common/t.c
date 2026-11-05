@@ -7,6 +7,9 @@ static int g_pass, g_fail, g_cur_fail, g_cur_skip;
 static const char *g_cur;
 static jmp_buf g_jb;
 static volatile int g_in_test;
+static jmp_buf g_gjb;
+static volatile int g_guard;
+static volatile DWORD g_guard_code;
 
 HMODULE t_module(const char *dll) { return LoadLibraryA(dll); }   /* refcounted; modules stay loaded */
 FARPROC t_proc_in(const char *dll, const char *name) { HMODULE m = t_module(dll); return m ? GetProcAddress(m, name) : NULL; }
@@ -35,9 +38,19 @@ void t_check(int ok, const char *file, int line, const char *expr, const char *f
 void t_note(const char *fmt, ...) { va_list a; va_start(a, fmt); printf("  NOTE "); vprintf(fmt, a); printf("\n"); va_end(a); }
 void t_skip(const char *fmt, ...) { va_list a; va_start(a, fmt); printf("  SKIP "); vprintf(fmt, a); printf("\n"); va_end(a); g_cur_skip = 1; }
 
+/* t_try: run fn(ctx) and report a hardware/NT exception it raises (0 if none) instead of failing the test. */
+static jmp_buf g_gjb; static volatile int g_gactive; static volatile DWORD g_gcode, g_gtid;
+DWORD t_try(void (*fn)(void *), void *ctx) {
+    jmp_buf save; memcpy(save, g_gjb, sizeof save);
+    DWORD code = 0; g_gcode = 0; g_gtid = GetCurrentThreadId();
+    if (!setjmp(g_gjb)) { g_gactive = 1; fn(ctx); g_gactive = 0; } else code = g_gcode;
+    g_gactive = 0; memcpy(g_gjb, save, sizeof save);
+    return code;
+}
 /* A crash inside a test is reported as a failure of that test and the run continues. */
 static LONG CALLBACK veh(PEXCEPTION_POINTERS ep) {
     DWORD c = ep->ExceptionRecord->ExceptionCode;
+    if (g_guard && (c & 0xF0000000) == 0xC0000000) { g_guard = 0; g_guard_code = c; longjmp(g_gjb, 1); }
     if (!g_in_test) return EXCEPTION_CONTINUE_SEARCH;
     if (c == 0x40010006 || c == 0x406D1388 || c == DBG_PRINTEXCEPTION_C || c == 0x4001000A) return EXCEPTION_CONTINUE_SEARCH;
     if ((c & 0xF0000000) != 0xC0000000) return EXCEPTION_CONTINUE_SEARCH;
@@ -46,6 +59,12 @@ static LONG CALLBACK veh(PEXCEPTION_POINTERS ep) {
     g_in_test = 0;
     longjmp(g_jb, 1);
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* Run fn(ctx) with hardware/NT exceptions (0xC...) caught: returns 0 if it completed, else the exception code. */
+DWORD t_guarded(void (*fn)(void *), void *ctx) {
+    if (setjmp(g_gjb)) return g_guard_code;
+    g_guard = 1; fn(ctx); g_guard = 0; return 0;
 }
 
 const char *t_self_path(void) { static char p[MAX_PATH * 2]; if (!p[0]) GetModuleFileNameA(NULL, p, sizeof p); return p; }

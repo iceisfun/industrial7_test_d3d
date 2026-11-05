@@ -74,8 +74,11 @@ void t_check(int ok, const char *file, int line, const char *expr, const char *f
 /* A call that must FAIL with a specific error: r is the call's failure sentinel test. */
 #define EXPECT_FAIL(is_failure, err) do { t_check(!!(is_failure), __FILE__, __LINE__, #is_failure, "call unexpectedly succeeded"); EXPECT_ERR(err); } while (0)
 
+/* Run fn(ctx); returns the NT exception code (e.g. 0xc0000005) it raised, or 0. The test keeps running. */
+DWORD t_try(void (*fn)(void *), void *ctx);
 void t_note(const char *fmt, ...);   /* observed/version-dependent behaviour: logged, never fails */
 void t_skip(const char *fmt, ...);   /* skip the rest of the current test */
 #define REQUIRE(ptr) do { if (!(ptr)) { t_skip("missing export: " #ptr); return; } } while (0)
+DWORD t_guarded(void (*fn)(void *), void *ctx);   /* run fn(ctx) catching 0xC... exceptions: 0 = completed, else exception code */
 int  t_is_wine(void);                /* true under an emulator exposing wine_get_version */
 #endif
