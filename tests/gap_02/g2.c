@@ -4,7 +4,7 @@
 #include <lowlevelmonitorconfigurationapi.h>
 
 /* High-level monitor setters/savers are thin wrappers over SetVCPFeature / DDCCISaveCurrentSettings
- * (decomp: SetMonitorBrightness -> VCP 0x10, SetMonitorContrast -> VCP 0x12, RestoreMonitorFactoryDefaults -> VCP 0x04,
+ * (SetMonitorBrightness -> VCP 0x10, SetMonitorContrast -> VCP 0x12, RestoreMonitorFactoryDefaults -> VCP 0x04,
  * SaveCurrentMonitorSettings == SaveCurrentSettings -> gdi32!DDCCISaveCurrentSettings; failure => FALSE + last error).
  * Only invalid handles are used here, so no monitor is ever modified. */
 

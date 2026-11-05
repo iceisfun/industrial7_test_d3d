@@ -119,8 +119,7 @@ TEST(d3d9_core_create9ex_boundaries) {
     }
 }
 TEST(d3d9_core_create9ex_null_out_note) {
-    /* The decompiled implementation stores through the out pointer unconditionally, so a NULL out pointer is not a
-       documented INVALIDCALL path on Windows 10; deliberately not called. */
+    /* Behaviour with a NULL out pointer is not documented as an INVALIDCALL path on Windows 10; deliberately not called. */
     __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     t_note("Direct3DCreate9Ex(ver, NULL) is not exercised: d3d9.dll writes *ppD3D9Ex first (no INVALIDCALL validation)");
 }

@@ -617,7 +617,7 @@ TEST(dxgi_factory_declare_removal_support_after_factory_child) {
     t_note("declaration after a factory exists: class %lu", (unsigned long)rc);
 }
 
-/* ---------------- additional decomp-verified cases ---------------- */
+/* ---------------- additional cases ---------------- */
 TEST(dxgi_factory_compat_value_size_boundary_99_vs_100_chars) {
     NEED_COMPAT();
     char s[256]; unsigned long long v;

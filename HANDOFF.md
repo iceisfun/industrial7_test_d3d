@@ -24,7 +24,7 @@ Collect `build\results\*.txt` (zip them) and run `python tools\summarize.py buil
 
 ## Triage failures
 For each failing check decide:
-1. Wrong expectation: Windows differs from the test. Check the decompilation (`http://docker1.dev.moonlightcompanies.com:8765/api/function/<module>/<Name>/decomp`) and fix the test.
+1. Wrong expectation: Windows differs from the test. Re-probe the exact call on the VM (a small variant of the failing test, repeated at least 20 times if the result varies) and fix the test.
 2. Environment/SKU/hardware dependence (WARP vs GPU, locale, privilege, missing feature): turn the check into `t_note` or `t_skip`.
 3. Real divergence from the reference behaviour: record as a finding; this is what the corpus is for.
 Fix, rebuild, re-run only that test, commit with a short message using specific `git add` paths.
@@ -40,7 +40,7 @@ Fix, rebuild, re-run only that test, commit with a short message using specific 
 ## Known weak spots
 - Headless Wine failures that need a Windows verdict: d3d12_rootsig_cpu (many serializer/HLSL root-signature expectations), d3dcompiler_reflect_blob and d3d10_utils_effects (compiler/disassembler text, blob validation), ddraw_legacy, dxva2_monitor_video, gap_00, d3d11_device_create (module-level undocumented exports). Most are probably Wine gaps, but they are the highest-risk expectations.
 - Device-based areas (d3d11_*, d3d10_device, d3d9_*, dxgi_*, d3d12_objects, hlsl_semantics_exec, cross_com_threads_stress) were almost entirely skipped during validation, so their hard checks have never run anywhere.
-- Undocumented-signature exports (`D3D11CoreCreateDevice` etc.): argument layouts were inferred from the decompilation.
+- Undocumented-signature exports (`D3D11CoreCreateDevice` etc.): argument layouts were inferred and are confirmed or corrected by the Windows run.
 
 ## Cleanup of leftovers
 Scratch files live in `%TEMP%\d3dt_<pid>\` and are removed on exit. After crashes: `rmdir /s /q %TEMP%\d3dt_*` and `taskkill /f /im core_smoke.exe` (repeat for any stray `<area>.exe`, e.g. `for %f in (build\*.exe) do taskkill /f /im %~nxf`). Reverting the snapshot removes everything else.
