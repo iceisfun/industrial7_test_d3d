@@ -79,6 +79,5 @@ DWORD t_try(void (*fn)(void *), void *ctx);
 void t_note(const char *fmt, ...);   /* observed/version-dependent behaviour: logged, never fails */
 void t_skip(const char *fmt, ...);   /* skip the rest of the current test */
 #define REQUIRE(ptr) do { if (!(ptr)) { t_skip("missing export: " #ptr); return; } } while (0)
-DWORD t_guarded(void (*fn)(void *), void *ctx);   /* run fn(ctx) catching 0xC... exceptions: 0 = completed, else exception code */
 int  t_is_wine(void);                /* true under an emulator exposing wine_get_version */
 #endif
