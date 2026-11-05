@@ -225,8 +225,8 @@ TEST(dxgi_factory_enum_adapter_interface_support_umd) {
     LARGE_INTEGER v; v.QuadPart = 0x1234567890abcdefLL;
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIDevice, &v);
     t_note("CheckInterfaceSupport(IDXGIDevice) = %s version %08lx:%08lx", d3dh_hr_name(hr), (unsigned long)v.HighPart, (unsigned long)v.LowPart);
-    hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIFactory, &v);
-    CHECKF(hr == DXGI_E_UNSUPPORTED, "CheckInterfaceSupport(IDXGIFactory) = %s", d3dh_hr_name(hr));
+    hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_ID3D11Device, &v);
+    CHECKF(hr == DXGI_E_UNSUPPORTED, "CheckInterfaceSupport(ID3D11Device) = %s", d3dh_hr_name(hr));
     hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIDevice, NULL);
     t_note("CheckInterfaceSupport(NULL version) = %s", d3dh_hr_name(hr));
     IDXGIAdapter1_Release(a);

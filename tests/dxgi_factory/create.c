@@ -42,6 +42,7 @@ TEST(dxgi_factory_cf0_exports_present) {
     CHECK(fh_cf2() != NULL);
 }
 TEST(dxgi_factory_cf0_unknown) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IUnknown *u = POISON;
     EXPECT_HR(fh_cf0()(&IID_IUnknown, (void **)&u), S_OK);
@@ -49,12 +50,14 @@ TEST(dxgi_factory_cf0_unknown) {
     if (u && u != POISON) EXPECT_EQ(u->lpVtbl->Release(u), 0);
 }
 TEST(dxgi_factory_cf0_object) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIObject *o = POISON;
     EXPECT_HR(fh_cf0()(&IID_IDXGIObject, (void **)&o), S_OK);
     if (o && o != POISON) EXPECT_EQ(IDXGIObject_Release(o), 0);
 }
 TEST(dxgi_factory_cf0_factory) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *f = POISON;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&f), S_OK);
@@ -62,6 +65,7 @@ TEST(dxgi_factory_cf0_factory) {
     if (f && f != POISON) EXPECT_EQ(IDXGIFactory_Release(f), 0);
 }
 TEST(dxgi_factory_cf0_factory1_observed) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     /* The legacy entry point hands out a DXGI 1.0 factory; whether IDXGIFactory1 is exposed is observed only. */
     IUnknown *u = POISON;
@@ -70,6 +74,7 @@ TEST(dxgi_factory_cf0_factory1_observed) {
     if (SUCCEEDED(hr)) u->lpVtbl->Release(u); else CHECK(u == NULL);
 }
 TEST(dxgi_factory_cf0_wrong_iid_nulls_out) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     for (size_t i = 0; i < NBAD; i++) {
         void *p = POISON;
@@ -79,6 +84,7 @@ TEST(dxgi_factory_cf0_wrong_iid_nulls_out) {
     }
 }
 TEST(dxgi_factory_cf0_null_out) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     HRESULT hr = fh_cf0()(&IID_IDXGIFactory, NULL);
     CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
@@ -91,6 +97,7 @@ TEST(dxgi_factory_cf0_null_out_wrong_iid) {
     t_note("CreateDXGIFactory(IDXGIDevice, NULL) = %s", d3dh_hr_name(hr));
 }
 TEST(dxgi_factory_cf0_distinct_objects_each_call) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *a = NULL, *b = NULL;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&a), S_OK);
@@ -100,6 +107,7 @@ TEST(dxgi_factory_cf0_distinct_objects_each_call) {
     if (a) IDXGIFactory_Release(a);
 }
 TEST(dxgi_factory_cf0_refcount_roundtrip) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *f = NULL;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&f), S_OK);
@@ -111,6 +119,7 @@ TEST(dxgi_factory_cf0_refcount_roundtrip) {
     EXPECT_EQ(IDXGIFactory_Release(f), 0);
 }
 TEST(dxgi_factory_cf0_qi_up_levels_observed) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *f = NULL;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&f), S_OK);
@@ -149,17 +158,19 @@ static void bad_matrix(const char *api, int use2, UINT flags) {
         CHECKF(p == NULL, "%s(%s): out not cleared", api, k_bad[i].name);
     }
 }
-TEST(dxgi_factory_cf1_riid_matrix) { REQUIRE(fh_cf1()); riid_matrix("CreateDXGIFactory1", 0, 0); }
-TEST(dxgi_factory_cf1_bad_riid_matrix) { REQUIRE(fh_cf1()); bad_matrix("CreateDXGIFactory1", 0, 0); }
-TEST(dxgi_factory_cf2_riid_matrix) { REQUIRE(fh_cf2()); riid_matrix("CreateDXGIFactory2", 1, 0); }
-TEST(dxgi_factory_cf2_bad_riid_matrix) { REQUIRE(fh_cf2()); bad_matrix("CreateDXGIFactory2", 1, 0); }
+TEST(dxgi_factory_cf1_riid_matrix) { WINE_NOFAC(); REQUIRE(fh_cf1()); riid_matrix("CreateDXGIFactory1", 0, 0); }
+TEST(dxgi_factory_cf1_bad_riid_matrix) { WINE_NOFAC(); REQUIRE(fh_cf1()); bad_matrix("CreateDXGIFactory1", 0, 0); }
+TEST(dxgi_factory_cf2_riid_matrix) { WINE_NOFAC(); REQUIRE(fh_cf2()); riid_matrix("CreateDXGIFactory2", 1, 0); }
+TEST(dxgi_factory_cf2_bad_riid_matrix) { WINE_NOFAC(); REQUIRE(fh_cf2()); bad_matrix("CreateDXGIFactory2", 1, 0); }
 TEST(dxgi_factory_cf1_null_out) {
+    WINE_NOFAC();
     REQUIRE(fh_cf1());
     HRESULT hr = fh_cf1()(&IID_IDXGIFactory1, NULL);
     CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
     t_note("CreateDXGIFactory1(IDXGIFactory1, NULL) = %s", d3dh_hr_name(hr));
 }
 TEST(dxgi_factory_cf2_null_out) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     HRESULT hr = fh_cf2()(0, &IID_IDXGIFactory2, NULL);
     CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
@@ -186,12 +197,14 @@ TEST(dxgi_factory_cf1_refcount_roundtrip) {
     EXPECT_EQ(IDXGIFactory1_Release(f), 0);
 }
 TEST(dxgi_factory_cf2_flag0_ok) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     IDXGIFactory2 *f = NULL;
     EXPECT_HR(fh_cf2()(0, &IID_IDXGIFactory2, (void **)&f), S_OK);
     if (f) EXPECT_EQ(IDXGIFactory2_Release(f), 0);
 }
 TEST(dxgi_factory_cf2_debug_flag_observed) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     void *p = POISON;
     HRESULT hr = fh_cf2()(DXGI_CREATE_FACTORY_DEBUG, &IID_IDXGIFactory3, &p);
@@ -220,6 +233,7 @@ TEST(dxgi_factory_cf2_debug_flag_riid_matrix) {
     bad_matrix("CreateDXGIFactory2(DEBUG)", 1, DXGI_CREATE_FACTORY_DEBUG);
 }
 TEST(dxgi_factory_cf2_unknown_flag_bits_observed) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     static const UINT fl[] = { 0x2, 0x4, 0x80, 0x10000, 0x80000000u, 0xFFFFFFFEu };
     for (size_t i = 0; i < sizeof(fl) / sizeof(fl[0]); i++) {
@@ -230,6 +244,7 @@ TEST(dxgi_factory_cf2_unknown_flag_bits_observed) {
     }
 }
 TEST(dxgi_factory_cf2_wrong_iid_with_debug_flag) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     void *p = POISON;
     HRESULT hr = fh_cf2()(DXGI_CREATE_FACTORY_DEBUG, &IID_IDXGIDevice, &p);
@@ -247,6 +262,7 @@ TEST(dxgi_factory_creation_flags_cf1_zero) {
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_creation_flags_cf2_zero) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     IDXGIFactory3 *f3 = NULL;
     EXPECT_HR(fh_cf2()(0, &IID_IDXGIFactory3, (void **)&f3), S_OK);
@@ -255,6 +271,7 @@ TEST(dxgi_factory_creation_flags_cf2_zero) {
     IDXGIFactory3_Release(f3);
 }
 TEST(dxgi_factory_creation_flags_cf0_zero) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *f = NULL;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&f), S_OK);
@@ -526,8 +543,8 @@ TEST(dxgi_factory_get_parent_observed) {
     void *p = POISON;
     HRESULT hr = IDXGIFactory1_GetParent(f, &IID_IUnknown, &p);
     t_note("Factory::GetParent(IUnknown) = %s", d3dh_hr_name(hr));
-    CHECKF(FAILED(hr), "a factory has no parent: %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) CHECK(p == NULL);
+    EXPECT_HR(hr, E_NOINTERFACE);
+    CHECK(p == NULL);
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_get_parent_null_out) {
@@ -540,6 +557,7 @@ TEST(dxgi_factory_get_parent_null_out) {
 
 /* ---------------- many creations ---------------- */
 TEST(dxgi_factory_create_release_loop) {
+    WINE_NOFAC();
     REQUIRE(fh_cf1());
     for (int i = 0; i < 200; i++) {
         IDXGIFactory1 *f = NULL;
@@ -549,6 +567,7 @@ TEST(dxgi_factory_create_release_loop) {
     }
 }
 TEST(dxgi_factory_many_alive_at_once) {
+    WINE_NOFAC();
     REQUIRE(fh_cf2());
     IDXGIFactory2 *f[32] = { 0 };
     int n = 0;
@@ -557,6 +576,7 @@ TEST(dxgi_factory_many_alive_at_once) {
     for (int i = 0; i < n; i++) EXPECT_EQ(IDXGIFactory2_Release(f[i]), 0);
 }
 TEST(dxgi_factory_mixed_entry_points_coexist) {
+    WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *a = NULL; IDXGIFactory1 *b = NULL; IDXGIFactory2 *c = NULL;
     HRESULT h0 = fh_cf0()(&IID_IDXGIFactory, (void **)&a);

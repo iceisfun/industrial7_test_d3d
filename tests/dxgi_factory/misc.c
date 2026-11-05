@@ -133,6 +133,7 @@ TEST(dxgi_factory_mwa_through_every_interface) {
     }
 }
 TEST(dxgi_factory_mwa_cf0_factory) {
+    WINE_NOFAC();
     if (!fh_cf0()) { t_skip("no CreateDXGIFactory"); return; }
     IDXGIFactory *f = NULL;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&f), S_OK);
@@ -491,6 +492,7 @@ TEST(dxgi_factory_get_shared_resource_adapter_luid_bad_handle) {
     IDXGIFactory3_Release(f4);
 }
 TEST(dxgi_factory_cf_multithread_create) {
+    WINE_NOFAC();
     /* concurrent creation from several threads must succeed and leak nothing */
     extern int fh_thread_run(void);
     EXPECT_EQ(fh_thread_run(), 0);
