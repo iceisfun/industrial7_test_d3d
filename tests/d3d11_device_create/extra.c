@@ -33,46 +33,75 @@ T(export_unassigned_ordinals_absent)
         CHECKF(GetProcAddress(m, (LPCSTR)(ULONG_PTR)absent[i]) == NULL, "ordinal %u unexpectedly exported", absent[i]);
 }
 
-/* ---- D3DKMT* names exported by d3d11.dll are all one empty stub returning 0 ---- */
-static const char *kmt[] = {
-    "D3DKMTCloseAdapter", "D3DKMTCreateAllocation", "D3DKMTCreateContext", "D3DKMTCreateDevice",
-    "D3DKMTCreateSynchronizationObject", "D3DKMTDestroyAllocation", "D3DKMTDestroyContext", "D3DKMTDestroyDevice",
-    "D3DKMTDestroySynchronizationObject", "D3DKMTEscape", "D3DKMTGetContextSchedulingPriority", "D3DKMTGetDeviceState",
-    "D3DKMTGetDisplayModeList", "D3DKMTGetMultisampleMethodList", "D3DKMTGetRuntimeData", "D3DKMTGetSharedPrimaryHandle",
-    "D3DKMTLock", "D3DKMTOpenAdapterFromHdc", "D3DKMTOpenResource", "D3DKMTPresent", "D3DKMTQueryAdapterInfo",
-    "D3DKMTQueryAllocationResidency", "D3DKMTQueryResourceInfo", "D3DKMTRender", "D3DKMTSetAllocationPriority",
-    "D3DKMTSetContextSchedulingPriority", "D3DKMTSetDisplayMode", "D3DKMTSetDisplayPrivateDriverFormat",
-    "D3DKMTSetGammaRamp", "D3DKMTSetVidPnSourceOwner", "D3DKMTSignalSynchronizationObject", "D3DKMTUnlock",
-    "D3DKMTWaitForSynchronizationObject", "D3DKMTWaitForVerticalBlankEvent" };
+/* ---- D3DKMT* names exported by d3d11.dll are local thunks, not forwarders to gdi32 ---- */
+static const char *kmt_empty[] = {   /* one shared body: `xor eax,eax; ret` */
+    "D3DKMTCloseAdapter", "D3DKMTDestroyAllocation", "D3DKMTDestroyContext", "D3DKMTDestroyDevice",
+    "D3DKMTDestroySynchronizationObject", "D3DKMTPresent", "D3DKMTSetDisplayPrivateDriverFormat",
+    "D3DKMTSignalSynchronizationObject", "D3DKMTUnlock", "D3DKMTWaitForSynchronizationObject",
+    "D3DKMTCreateAllocation", "D3DKMTCreateContext", "D3DKMTCreateDevice", "D3DKMTCreateSynchronizationObject",
+    "D3DKMTGetContextSchedulingPriority", "D3DKMTGetDisplayModeList", "D3DKMTGetMultisampleMethodList",
+    "D3DKMTGetRuntimeData", "D3DKMTGetSharedPrimaryHandle", "D3DKMTLock", "D3DKMTQueryAllocationResidency",
+    "D3DKMTRender", "D3DKMTSetAllocationPriority", "D3DKMTSetContextSchedulingPriority", "D3DKMTSetDisplayMode",
+    "D3DKMTSetGammaRamp", "D3DKMTSetVidPnSourceOwner", "D3DKMTWaitForVerticalBlankEvent" };
+static const char *kmt_special[] = {   /* own bodies; the first two reject without looking at the argument */
+    "D3DKMTOpenResource", "D3DKMTQueryResourceInfo", "D3DKMTQueryAdapterInfo", "D3DKMTEscape",
+    "D3DKMTGetDeviceState", "D3DKMTOpenAdapterFromHdc" };
+#define NKMT_EMPTY (sizeof kmt_empty / sizeof *kmt_empty)
 
 T(export_d3dkmt_names_present)
 {
     HMODULE m = t_module("d3d11.dll");
     REQUIRE(m);
-    for (unsigned i = 0; i < sizeof kmt / sizeof *kmt; i++)
-        CHECKF(GetProcAddress(m, kmt[i]) != NULL, "%s missing from d3d11.dll", kmt[i]);
+    for (unsigned i = 0; i < NKMT_EMPTY; i++)
+        CHECKF(GetProcAddress(m, kmt_empty[i]) != NULL, "%s missing from d3d11.dll", kmt_empty[i]);
+    for (unsigned i = 0; i < sizeof kmt_special / sizeof *kmt_special; i++)
+        CHECKF(GetProcAddress(m, kmt_special[i]) != NULL, "%s missing from d3d11.dll", kmt_special[i]);
 }
-T(export_d3dkmt_share_one_stub)
+T(export_d3dkmt_not_forwarded)
+{
+    HMODULE m = t_module("d3d11.dll");
+    REQUIRE(m);
+    for (unsigned i = 0; i < NKMT_EMPTY; i++) {
+        HMODULE owner = NULL;
+        FARPROC p = GetProcAddress(m, kmt_empty[i]);
+        if (p && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)p, &owner))
+            CHECKF(owner == m, "%s resolves outside d3d11.dll", kmt_empty[i]);
+    }
+}
+T(export_d3dkmt_empty_thunks_share_one_body)
 {
     HMODULE m = t_module("d3d11.dll");
     FARPROC first;
     REQUIRE(m);
-    first = GetProcAddress(m, kmt[0]);
+    first = GetProcAddress(m, kmt_empty[0]);
     REQUIRE(first);
-    for (unsigned i = 1; i < sizeof kmt / sizeof *kmt; i++)
-        CHECKF(GetProcAddress(m, kmt[i]) == first, "%s is not the shared stub", kmt[i]);
+    for (unsigned i = 1; i < NKMT_EMPTY; i++)
+        CHECKF(GetProcAddress(m, kmt_empty[i]) == first, "%s is not the shared thunk", kmt_empty[i]);
 }
-T(export_d3dkmt_stub_returns_success_ignoring_arguments)
+T(export_d3dkmt_empty_thunks_return_success_ignoring_arguments)
 {
-    /* the stub is `xor eax,eax; ret`: it never touches its arguments (NULL is therefore safe) and reports STATUS_SUCCESS */
+    /* the body never touches its arguments (NULL is safe) and reports STATUS_SUCCESS */
     HMODULE m = t_module("d3d11.dll");
     REQUIRE(m);
     if (t_is_wine()) { t_skip("unimplemented stubs abort under emulation"); return; }
-    for (unsigned i = 0; i < sizeof kmt / sizeof *kmt; i++) {
-        LONG (WINAPI *f)(void *) = (void *)GetProcAddress(m, kmt[i]);
-        if (!f) { CHECKF(0, "%s missing", kmt[i]); continue; }
-        CHECKF(f(NULL) == 0, "%s(NULL) != STATUS_SUCCESS", kmt[i]);
+    for (unsigned i = 0; i < NKMT_EMPTY; i++) {
+        LONG (WINAPI *f)(void *) = (void *)GetProcAddress(m, kmt_empty[i]);
+        if (!f) { CHECKF(0, "%s missing", kmt_empty[i]); continue; }
+        CHECKF(f(NULL) == 0, "%s(NULL) != STATUS_SUCCESS", kmt_empty[i]);
     }
+}
+T(export_d3dkmt_open_resource_rejects)
+{
+    /* both entry points are `mov eax, STATUS_INVALID_PARAMETER; ret` */
+    HMODULE m = t_module("d3d11.dll");
+    REQUIRE(m);
+    if (t_is_wine()) { t_skip("unimplemented stubs abort under emulation"); return; }
+    for (unsigned i = 0; i < 2; i++) {
+        LONG (WINAPI *f)(void *) = (void *)GetProcAddress(m, kmt_special[i]);
+        if (!f) { CHECKF(0, "%s missing", kmt_special[i]); continue; }
+        CHECKF(f(NULL) == (LONG)0xC000000D, "%s(NULL) != STATUS_INVALID_PARAMETER", kmt_special[i]);
+    }
+    CHECK(GetProcAddress(m, kmt_special[0]) == GetProcAddress(m, kmt_special[1]));
 }
 
 /* ---- D3DPerformance_* : forward to a context object, NULL means no profiler attached ---- */
