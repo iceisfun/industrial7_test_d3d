@@ -180,6 +180,20 @@ static UINT tx_px32(const tx_img *im, UINT x, UINT y, UINT z) {
     UINT v; memcpy(&v, im->data + (((size_t)z * im->rows + y) * im->rowbytes) + (size_t)x * 4, 4); return v;
 }
 
+/* Write tx_pat(seed, ...) into every texel row of subresource `sub` through Map. w/h/d/mips/f describe the whole resource. */
+static HRESULT tx_write_pat(tx_ctx *c, ID3D11Resource *res, UINT sub, UINT w, UINT h, UINT d, UINT mips, DXGI_FORMAT f, UINT seed, D3D11_MAP mt) {
+    D3D11_MAPPED_SUBRESOURCE m; UINT mip = sub % mips, mw = tx_dim(w, mip), mh = tx_dim(h, mip), md = tx_dim(d, mip);
+    UINT rb = tx_row_bytes(f, mw), rows = tx_rows(f, mh), z, y; size_t idx = 0, x;
+    HRESULT hr = ID3D11DeviceContext_Map(c->ctx, res, sub, mt, 0, &m);
+    if (FAILED(hr)) return hr;
+    for (z = 0; z < md; z++) for (y = 0; y < rows; y++) {
+        unsigned char *row = (unsigned char *)m.pData + (size_t)z * m.DepthPitch + (size_t)y * m.RowPitch;
+        for (x = 0; x < rb; x++, idx++) row[x] = tx_pat(seed, idx);
+    }
+    ID3D11DeviceContext_Unmap(c->ctx, res, sub);
+    return S_OK;
+}
+
 /* Short aliases used by the case tables. */
 #define U_DEF D3D11_USAGE_DEFAULT
 #define U_IMM D3D11_USAGE_IMMUTABLE
