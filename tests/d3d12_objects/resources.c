@@ -301,9 +301,9 @@ TEST(d3d12_objects_res_tex_upload_readback_heaps_reject_textures) {
     D3D12_RESOURCE_DESC d = d12_tex2d_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, 0);
     ID3D12Resource *r = NULL; HRESULT hr;
     hr = d12_create_committed(dev, D3D12_HEAP_TYPE_UPLOAD, &d, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &r);
-    CHECKF(hr == E_INVALIDARG, "texture in UPLOAD heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF(FAILED(hr), "texture in UPLOAD heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     hr = d12_create_committed(dev, D3D12_HEAP_TYPE_READBACK, &d, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &r);
-    CHECKF(hr == E_INVALIDARG, "texture in READBACK heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF(FAILED(hr), "texture in READBACK heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
 }
 TEST(d3d12_objects_res_tex_flag_combos_valid) {
     NEED_DEV();

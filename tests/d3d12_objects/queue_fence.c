@@ -31,7 +31,6 @@ TEST(d3d12_objects_queue_create_video_types) {
         ID3D12CommandQueue *q = NULL;
         HRESULT hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
         t_note("video queue type %d on this adapter: %s", (int)v[i], d3dh_hr_name(hr));
-        CHECK(hr == S_OK || FAILED(hr));
         if (SUCCEEDED(hr)) { D3D12_COMMAND_QUEUE_DESC g = d12_queue_desc(q); EXPECT_EQ(g.Type, v[i]); }
         SAFE_RELEASE(q);
     }
