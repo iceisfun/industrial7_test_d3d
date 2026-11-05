@@ -153,7 +153,7 @@ TEST(d3d12_entry_points_create_warp_fl_##label) { \
     else if (idx < 4) EXPECT_HR_IN(hr, S_OK, HR_UNSUPPORTED); \
     else t_note("WARP min FL %s -> %s", k_fls[idx].name, d3dh_hr_name(hr)); \
     CHECK(SUCCEEDED(hr) == (d != NULL)); \
-    if (d) EXPECT_EQ(ID3D12Device_Release(d), 0); \
+    if (d) EP_EQ(ID3D12Device_Release(d), 0); \
     SAFE_RELEASE(ad); \
 }
 FL_TEST(0, 11_0)
@@ -198,10 +198,10 @@ TEST(d3d12_entry_points_create_default_adapter_null) {
     HRESULT hr = d3dh_D3D12CreateDevice()(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d);
     if (FAILED(hr)) { t_skip("no default D3D12 adapter (%s)", d3dh_hr_name(hr)); return; }
     CHECK(d != NULL);
-    EXPECT_EQ(d3dh_refcount(d), 1);
+    EP_EQ(d3dh_refcount(d), 1);
     HRESULT v = d3dh_D3D12CreateDevice()(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, NULL);
     EXPECT_HR(v, S_FALSE);
-    EXPECT_EQ(ID3D12Device_Release(d), 0);
+    EP_EQ(ID3D12Device_Release(d), 0);
 }
 
 TEST(d3d12_entry_points_create_null_out_does_not_leak) {
@@ -210,7 +210,7 @@ TEST(d3d12_entry_points_create_null_out_does_not_leak) {
     EXPECT_HR(create_fl(ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d), S_OK);
     ULONG before = d3dh_refcount(d);
     for (int i = 0; i < 5; i++) EXPECT_HR(create_fl(ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, NULL), S_FALSE);
-    EXPECT_EQ(d3dh_refcount(d), before);
+    EP_EQ(d3dh_refcount(d), before);
     ID3D12Device_Release(d); SAFE_RELEASE(ad);
 }
 
@@ -218,10 +218,10 @@ TEST(d3d12_entry_points_create_fresh_refcount_is_one) {
     EP_NEED_WARP_USABLE(ad);
     ID3D12Device *d = NULL;
     EXPECT_HR(create_fl(ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d), S_OK);
-    EXPECT_EQ(d3dh_refcount(d), 1);
-    EXPECT_EQ(ID3D12Device_AddRef(d), 2);
-    EXPECT_EQ(ID3D12Device_Release(d), 1);
-    EXPECT_EQ(ID3D12Device_Release(d), 0);
+    EP_EQ(d3dh_refcount(d), 1);
+    EP_EQ(ID3D12Device_AddRef(d), 2);
+    EP_EQ(ID3D12Device_Release(d), 1);
+    EP_EQ(ID3D12Device_Release(d), 0);
     SAFE_RELEASE(ad);
 }
 
@@ -310,7 +310,7 @@ TEST(d3d12_entry_points_create_riid_device_##i) { \
         ID3D12Device *base = NULL; \
         EXPECT_HR(((IUnknown *)p)->lpVtbl->QueryInterface((IUnknown *)p, &IID_ID3D12Device, (void **)&base), S_OK); \
         SAFE_RELEASE(base); \
-        EXPECT_EQ(((IUnknown *)p)->lpVtbl->Release((IUnknown *)p), 0); \
+        EP_EQ(((IUnknown *)p)->lpVtbl->Release((IUnknown *)p), 0); \
     } else { \
         t_note("riid ID3D12Device%d -> %s", i, d3dh_hr_name(hr)); CHECK(p == NULL); \
         EXPECT_HR_IN(hr, E_NOINTERFACE, HR_UNSUPPORTED, E_INVALIDARG); \
@@ -457,7 +457,7 @@ TEST(d3d12_entry_points_create_by_luid_adapter) {
     if (ad) {
         ID3D12Device *d = NULL;
         EXPECT_HR(create_fl(ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d), S_OK);
-        if (d) { LUID l = ep_luid(d); EXPECT_EQ(l.LowPart, desc.AdapterLuid.LowPart); ID3D12Device_Release(d); }
+        if (d) { LUID l = ep_luid(d); EP_EQ(l.LowPart, desc.AdapterLuid.LowPart); ID3D12Device_Release(d); }
         IDXGIAdapter_Release(ad);
     }
     IDXGIFactory4_Release(f); SAFE_RELEASE(wad);

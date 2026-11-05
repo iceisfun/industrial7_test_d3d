@@ -16,9 +16,9 @@ TEST(d3d12_entry_points_debug_interface_##i) { \
         CHECK(p != NULL && p != (void *)1); \
         if (p && p != (void *)1) { \
             IUnknown *u = (IUnknown *)p; \
-            EXPECT_EQ(u->lpVtbl->AddRef(u), 2); \
-            EXPECT_EQ(u->lpVtbl->Release(u), 1); \
-            EXPECT_EQ(u->lpVtbl->Release(u), 0); \
+            EP_EQ(u->lpVtbl->AddRef(u), 2); \
+            EP_EQ(u->lpVtbl->Release(u), 1); \
+            EP_EQ(u->lpVtbl->Release(u), 0); \
         } \
     } else { \
         if (i == 0) EXPECT_HR_IN(hr, HR_SDKMISSING, HR_NOINTERFACE); \
@@ -44,7 +44,7 @@ TEST(d3d12_entry_points_debug_interface_ladder) {
     }
     CHECK(ident != NULL);
     if (ident) ident->lpVtbl->Release(ident);
-    EXPECT_EQ(u->lpVtbl->Release(u), 0);
+    EP_EQ(u->lpVtbl->Release(u), 0);
 }
 
 TEST(d3d12_entry_points_debug_interface_unrelated_iid) {
@@ -96,12 +96,12 @@ TEST(d3d12_entry_points_getinterface_sdkconfiguration) {
     if (FAILED(hr)) { t_note("SDKConfiguration -> %s", d3dh_hr_name(hr)); EXPECT_HR_IN(hr, E_NOINTERFACE, CLASS_E_CLASSNOTAVAILABLE); t_skip("not available"); return; }
     EXPECT_HR(hr, S_OK);
     CHECK(c != NULL);
-    EXPECT_EQ(d3dh_refcount(c), 1);
+    EP_EQ(d3dh_refcount(c), 1);
     IUnknown *u = NULL;
     EXPECT_HR(ID3D12SDKConfiguration_QueryInterface(c, &IID_IUnknown, (void **)&u), S_OK);
     CHECK((void *)u == (void *)c);
     SAFE_RELEASE(u);
-    EXPECT_EQ(ID3D12SDKConfiguration_Release(c), 0);
+    EP_EQ(ID3D12SDKConfiguration_Release(c), 0);
 }
 
 TEST(d3d12_entry_points_getinterface_sdkconfiguration_null_out) {
@@ -155,12 +155,12 @@ TEST(d3d12_entry_points_getinterface_tools) {
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&t);
     if (FAILED(hr)) { t_note("Tools -> %s", d3dh_hr_name(hr)); t_skip("tools interface unavailable"); return; }
     EXPECT_HR(hr, S_OK); CHECK(t != NULL);
-    EXPECT_EQ(d3dh_refcount(t), 1);
+    EP_EQ(d3dh_refcount(t), 1);
     IUnknown *u = NULL;
     EXPECT_HR(ID3D12Tools_QueryInterface(t, &IID_IUnknown, (void **)&u), S_OK);
     CHECK((void *)u == (void *)t);
     SAFE_RELEASE(u);
-    EXPECT_EQ(ID3D12Tools_Release(t), 0);
+    EP_EQ(ID3D12Tools_Release(t), 0);
 }
 
 TEST(d3d12_entry_points_getinterface_tools_null_out) {
@@ -181,12 +181,12 @@ TEST(d3d12_entry_points_getinterface_dred_settings) {
     if (FAILED(hr)) { t_note("DRED settings -> %s", d3dh_hr_name(hr)); t_skip("DRED settings unavailable"); return; }
     EXPECT_HR(hr, S_OK);
     CHECK(s != NULL);
-    EXPECT_EQ(d3dh_refcount(s), 1);
+    EP_EQ(d3dh_refcount(s), 1);
     ID3D12DeviceRemovedExtendedDataSettings1 *s1 = NULL;
     HRESULT h1 = ID3D12DeviceRemovedExtendedDataSettings_QueryInterface(s, &IID_ID3D12DeviceRemovedExtendedDataSettings1, (void **)&s1);
     t_note("DRED settings1 QI -> %s", d3dh_hr_name(h1));
     SAFE_RELEASE(s1);
-    EXPECT_EQ(ID3D12DeviceRemovedExtendedDataSettings_Release(s), 0);
+    EP_EQ(ID3D12DeviceRemovedExtendedDataSettings_Release(s), 0);
 }
 
 TEST(d3d12_entry_points_getinterface_device_factory_observed) {
@@ -218,7 +218,7 @@ TEST(d3d12_entry_points_getinterface_core_direct) {
     EXPECT_HR(f(&EP_RANDOM_GUID, &IID_IUnknown, &p), E_NOINTERFACE);
     ID3D12Tools *t = NULL;
     HRESULT hr = f(&CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&t);
-    if (SUCCEEDED(hr)) { EXPECT_HR(hr, S_OK); EXPECT_EQ(ID3D12Tools_Release(t), 0); }
+    if (SUCCEEDED(hr)) { EXPECT_HR(hr, S_OK); EP_EQ(ID3D12Tools_Release(t), 0); }
     else t_note("core Tools -> %s", d3dh_hr_name(hr));
     CHECK(f(&CLSID_D3D12Tools, &IID_ID3D12Tools, NULL) == S_FALSE || FAILED(f(&CLSID_D3D12Tools, &IID_ID3D12Tools, NULL)));
 }

@@ -65,4 +65,6 @@ static int ep_hr_in(HRESULT hr, const HRESULT *set, int n) { for (int i = 0; i <
 #define EP_HR_IN(hr, ...) ({ static const HRESULT s_[] = { __VA_ARGS__ }; ep_hr_in((hr), s_, (int)(sizeof s_ / sizeof s_[0])); })
 #define EXPECT_HR_IN(hr, ...) do { HRESULT h_ = (HRESULT)(hr); \
     t_check(EP_HR_IN(h_, __VA_ARGS__), __FILE__, __LINE__, #hr " in {" #__VA_ARGS__ "}", "got %s", d3dh_hr_name(h_)); } while (0)
+#define EP_EQ(a, b) do { unsigned long long a_ = (unsigned long long)(ULONG_PTR)(a), b_ = (unsigned long long)(ULONG_PTR)(b); \
+    t_check(a_ == b_, __FILE__, __LINE__, #a " == " #b, "got 0x%llx want 0x%llx", a_, b_); } while (0)
 #endif
