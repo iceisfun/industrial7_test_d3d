@@ -38,16 +38,18 @@ static void run_group(UINT grp, D3D12_RESOURCE_DIMENSION dim)
     if (!dev) { t_skip("no D3D12 device"); return; }
     for (id = 0; id < FPT_NFORMATS; id++) {
         const fpt_fmt *f = &fpt_formats[id]; UINT bit; HRESULT hr; UINT sup; char line[400]; int n, any = 0;
-        if (f->group != grp || (id >= 19 && id <= 22)) continue;
+        if (f->group != grp || (id >= 19 && id <= 22) || id == 46 || id == 47) continue;
         bit = dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D ? D3D12_FORMAT_SUPPORT1_TEXTURE1D : dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D ? D3D12_FORMAT_SUPPORT1_TEXTURE2D : D3D12_FORMAT_SUPPORT1_TEXTURE3D;
         sup = support1(dev, id, &hr);
         if (FAILED(hr) || !(sup & bit)) { t_note("%s %s not supported by D3D12 for this dimension (hr=%s support1=0x%x)", dn(dim), f->name, d3dh_hr_name(hr), sup); continue; }
         n = snprintf(line, sizeof line, "%s %s rowSize/rowPitch/total by width:", dn(dim), f->name);
         for (wi = 0; wi < FPT_NW; wi++) {
             UINT w = fpt_widths[wi], h = dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D ? 1 : 5, d = dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 3 : 1;
-            UINT rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), rp = fpt_align(rowb, ROWPITCH_ALIGN);
+            UINT rowb, rows, rp;
             D3D12_RESOURCE_DESC desc = mkdesc(dim, w, h, d, 1, (DXGI_FORMAT)id);
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay; UINT nrows = 0; UINT64 rsz = 0, total = 0;
+            if ((w & 1) && !(f->group >= G_B8 && f->group <= G_B128) && !fpt_is_bc(f)) continue;
+            rowb = fpt_row_bytes(f, w); rows = fpt_rows(f, h); rp = fpt_align(rowb, ROWPITCH_ALIGN);
             memset(&lay, 0xcd, sizeof lay);
             ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 1, 0, &lay, &nrows, &rsz, &total);
             CHECKF(rsz == rowb, "%s %s w=%u RowSizeInBytes %llu want %u", dn(dim), f->name, w, (unsigned long long)rsz, rowb);

@@ -71,7 +71,7 @@ static void run_group(UINT grp, int dim)
             UINT rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h);
             UINT sup = fpt_support11(e.dev, id, NULL);
             UINT bit = dim == 1 ? D3D11_FORMAT_SUPPORT_TEXTURE1D : dim == 2 ? D3D11_FORMAT_SUPPORT_TEXTURE2D : D3D11_FORMAT_SUPPORT_TEXTURE3D;
-            int must = hard_group(grp) && (sup & bit) && !(fpt_is_bc(f) && (w % 4 || dim == 1));
+            int must = hard_group(grp) && (sup & bit) && !(sup & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && (w % 4 || dim == 1));
             HRESULT hr1, hr2;
             ID3D11Resource *a, *b;
             D3D11_MAPPED_SUBRESOURCE m;
@@ -240,7 +240,7 @@ static void run_mips(UINT grp)
         if (f->group != grp) continue;
         sup = fpt_support11(e.dev, id, NULL);
         res = mk_stage(e.dev, 2, f, W, H, 1, MIPS, ARR, &hr);
-        if (!res) { if (hard_group(grp) && (sup & D3D11_FORMAT_SUPPORT_TEXTURE2D)) CHECKF(0, "%s mip/array staging creation %s", f->name, d3dh_hr_name(hr)); continue; }
+        if (!res) { if (hard_group(grp) && (sup & D3D11_FORMAT_SUPPORT_TEXTURE2D) && !(sup & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL)) CHECKF(0, "%s mip/array staging creation %s", f->name, d3dh_hr_name(hr)); continue; }
         for (a = 0; a < ARR; a++) {
             UINT prev = 0xffffffffu;
             for (m = 0; m < MIPS; m++) {

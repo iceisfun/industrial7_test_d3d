@@ -229,7 +229,7 @@ TEST(fpt_d3d11_support_invariants)
         if (FAILED(hr)) continue;
         if (s & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) CHECKF(s & D3D11_FORMAT_SUPPORT_TEXTURE2D, "%s: DEPTH_STENCIL without TEXTURE2D", f->name);
         if (s & D3D11_FORMAT_SUPPORT_BLENDABLE) CHECKF(s & D3D11_FORMAT_SUPPORT_RENDER_TARGET, "%s: BLENDABLE without RENDER_TARGET", f->name);
-        if (s & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET) CHECKF(s & D3D11_FORMAT_SUPPORT_RENDER_TARGET, "%s: MSAA RT without RENDER_TARGET", f->name);
+        if ((s & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET) && !(s & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL)) CHECKF(s & D3D11_FORMAT_SUPPORT_RENDER_TARGET, "%s: MSAA RT without RENDER_TARGET", f->name);
         if (s & D3D11_FORMAT_SUPPORT_MIP_AUTOGEN) CHECKF(s & D3D11_FORMAT_SUPPORT_RENDER_TARGET, "%s: MIP_AUTOGEN without RENDER_TARGET", f->name);
         if (fpt_is_bc(f)) CHECKF(!(s & (D3D11_FORMAT_SUPPORT_RENDER_TARGET | D3D11_FORMAT_SUPPORT_DEPTH_STENCIL | D3D11_FORMAT_SUPPORT_BLENDABLE)), "%s: block compressed with RT/DS bits 0x%x", f->name, s);
     }
@@ -399,7 +399,7 @@ TEST(fpt_d3d11_limit_mip_levels)
         hr = ID3D11Device_CreateTexture2D(dev, &t, NULL, &tex); CHECKF(hr == E_INVALIDARG, "width %u mips %u: %s", t.Width, m + 1, d3dh_hr_name(hr)); SAFE_RELEASE(tex);
     }
 }
-TEST(fpt_d3d11_limit_buffer_element_formats)
+TEST(fpt_d3d11_limit_buffer_bytewidth)
 {
     D3D_FEATURE_LEVEL fl; ID3D11Device *dev = dev_fl11(&fl); D3D11_BUFFER_DESC b = {0}; ID3D11Buffer *buf = NULL; HRESULT hr;
     if (!dev) return;

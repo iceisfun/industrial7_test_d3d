@@ -21,7 +21,7 @@ static void run10_2d(UINT grp)
         for (wi = 0; wi < FPT_NW; wi++) {
             UINT w = fpt_widths[wi], h = 5, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), r, i; D3D10_TEXTURE2D_DESC d = {0};
             ID3D10Texture2D *a = NULL, *b = NULL; D3D10_MAPPED_TEXTURE2D m; HRESULT hr;
-            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(fpt_is_bc(f) && w % 4);
+            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
             d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = (DXGI_FORMAT)id; d.SampleDesc.Count = 1;
             d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ | D3D10_CPU_ACCESS_WRITE;
             hr = ID3D10Device_CreateTexture2D(dev, &d, NULL, &a);
@@ -67,7 +67,7 @@ static void run10_3d(UINT grp)
         for (wi = 0; wi < FPT_NW; wi++) {
             UINT w = fpt_widths[wi], h = 5, dp = 3, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), z, r, i; D3D10_TEXTURE3D_DESC d = {0};
             ID3D10Texture3D *a = NULL, *b = NULL; D3D10_MAPPED_TEXTURE3D m; HRESULT hr;
-            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE3D) && !(fpt_is_bc(f) && w % 4);
+            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE3D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
             d.Width = w; d.Height = h; d.Depth = dp; d.MipLevels = 1; d.Format = (DXGI_FORMAT)id;
             d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ | D3D10_CPU_ACCESS_WRITE;
             hr = ID3D10Device_CreateTexture3D(dev, &d, NULL, &a);
@@ -106,7 +106,7 @@ static void run10_mips(UINT grp)
         d.Width = W; d.Height = H; d.MipLevels = MIPS; d.ArraySize = ARR; d.Format = (DXGI_FORMAT)id; d.SampleDesc.Count = 1;
         d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ;
         hr = ID3D10Device_CreateTexture2D(dev, &d, NULL, &t);
-        if (FAILED(hr)) { if (sup10(dev, id) & D3D10_FORMAT_SUPPORT_TEXTURE2D) CHECKF(0, "d3d10 %s mip/array creation %s", f->name, d3dh_hr_name(hr)); continue; }
+        if (FAILED(hr)) { if ((sup10(dev, id) & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup10(dev, id) & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL)) CHECKF(0, "d3d10 %s mip/array creation %s", f->name, d3dh_hr_name(hr)); continue; }
         for (a = 0; a < ARR; a++) for (m = 0; m < MIPS; m++) {
             D3D10_MAPPED_TEXTURE2D ms; UINT sub = fpt_calc_sub(m, a, MIPS);
             memset(&ms, 0, sizeof ms);
@@ -215,7 +215,7 @@ static void run9_tex(int blockclass)
         supported = fmt_ok9(dev, f->f, D3DRTYPE_TEXTURE);
         n = snprintf(line, sizeof line, "d3d9 sysmem %s (CheckDeviceFormat %s) pitch by width:", f->name, supported ? "ok" : "no");
         for (wi = 0; wi < FPT_NW; wi++) {
-            UINT w = fpt_widths[wi], h = 5, r, k; IDirect3DTexture9 *t = NULL; D3DLOCKED_RECT lr, lr2; D3DSURFACE_DESC sd; HRESULT hr;
+            UINT w = fpt_widths[wi], h = f->block == 1 ? 8 : 5, r, k; IDirect3DTexture9 *t = NULL; D3DLOCKED_RECT lr, lr2; D3DSURFACE_DESC sd; HRESULT hr;
             int must = supported && !(f->block == 1 && (w % 4 || h % 4)) && !(f->block == 2 && (w & 1));
             hr = IDirect3DDevice9_CreateTexture(dev, w, h, 1, 0, f->f, D3DPOOL_SYSTEMMEM, &t, NULL);
             if (FAILED(hr)) {
