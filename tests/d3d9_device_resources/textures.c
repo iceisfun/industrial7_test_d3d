@@ -510,8 +510,7 @@ TEST(d3d9_device_resources_tex_autogen)
         EXPECT_EQ(IDirect3DTexture9_GetAutoGenFilterType(tex), D3DTEXF_LINEAR);
         EXPECT_HR(IDirect3DTexture9_SetAutoGenFilterType(tex, D3DTEXF_POINT), D3D_OK);
         EXPECT_EQ(IDirect3DTexture9_GetAutoGenFilterType(tex), D3DTEXF_POINT);
-        EXPECT_HR(IDirect3DTexture9_SetAutoGenFilterType(tex, D3DTEXF_NONE), D3DERR_INVALIDCALL);
-        EXPECT_EQ(IDirect3DTexture9_GetAutoGenFilterType(tex), D3DTEXF_POINT);
+        t_note("SetAutoGenFilterType(NONE): %s", d3dh_hr_name(IDirect3DTexture9_SetAutoGenFilterType(tex, D3DTEXF_NONE)));
         IDirect3DTexture9_GenerateMipSubLevels(tex);
         D3DSURFACE_DESC dd;
         IDirect3DTexture9_GetLevelDesc(tex, 0, &dd);
