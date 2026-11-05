@@ -39,7 +39,7 @@ TEST(dxva2_monitor_video_svc_create_each_interface) {
         HRESULT hr = c(d.dev, iids[i], &p);
         if (FAILED(hr)) { t_note("iid %d: create -> %s", i, d3dh_hr_name(hr)); continue; }
         CHECK(p != NULL);
-        EXPECT_EQ(UNK(p)->lpVtbl->Release(UNK(p)), 0);
+        DXM_EQ(UNK(p)->lpVtbl->Release(UNK(p)), 0);
     }
     DXM_D9_END(d);
 }
@@ -76,16 +76,16 @@ TEST(dxva2_monitor_video_svc_device_refcount_balanced) {
 }
 TEST(dxva2_monitor_video_svc_shared_refcount_across_interfaces) {
     DEC_OPEN(s);
-    EXPECT_EQ(UNK(s.dec)->lpVtbl->AddRef(UNK(s.dec)), 2);
+    DXM_EQ(UNK(s.dec)->lpVtbl->AddRef(UNK(s.dec)), 2);
     IDirectXVideoProcessorService *ps = NULL;
     EXPECT_HR(IDirectXVideoDecoderService_QueryInterface(s.dec, &DXM_IID_ProcSvc, (void **)&ps), S_OK);
     CHECK(ps != NULL);
     if (ps) {
-        EXPECT_EQ(UNK(ps)->lpVtbl->AddRef(UNK(ps)), 4);     /* one count for the whole object, whichever interface is used */
-        EXPECT_EQ(UNK(ps)->lpVtbl->Release(UNK(ps)), 3);
-        EXPECT_EQ(UNK(ps)->lpVtbl->Release(UNK(ps)), 2);
+        DXM_EQ(UNK(ps)->lpVtbl->AddRef(UNK(ps)), 4);     /* one count for the whole object, whichever interface is used */
+        DXM_EQ(UNK(ps)->lpVtbl->Release(UNK(ps)), 3);
+        DXM_EQ(UNK(ps)->lpVtbl->Release(UNK(ps)), 2);
     }
-    EXPECT_EQ(UNK(s.dec)->lpVtbl->Release(UNK(s.dec)), 1);
+    DXM_EQ(UNK(s.dec)->lpVtbl->Release(UNK(s.dec)), 1);
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_svc_qi_between_interfaces) {
@@ -615,7 +615,7 @@ TEST(dxva2_monitor_video_proc_create_software_processor) {
     void *q = (void *)(ULONG_PTR)1;
     EXPECT_HR(UNK(p)->lpVtbl->QueryInterface(UNK(p), &DXM_IID_Bogus, &q), E_NOINTERFACE_);
     CHECK(q == NULL);
-    EXPECT_EQ(UNK(p)->lpVtbl->Release(UNK(p)), 0);
+    DXM_EQ(UNK(p)->lpVtbl->Release(UNK(p)), 0);
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_proc_processor_keeps_service_alive) {

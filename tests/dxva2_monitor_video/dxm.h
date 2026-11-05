@@ -21,6 +21,9 @@ DXM_GUID(DXM_IID_Unk,     0x00000000, 0x0000, 0x0000, 0xc0,0x00,0x00,0x00,0x00,0
 /* a GUID that no component implements */
 DXM_GUID(DXM_IID_Bogus,   0x7a1d0e55, 0x1234, 0x4abc, 0x9d,0x00,0x11,0x22,0x33,0x44,0x55,0x66);
 
+/* EXPECT_EQ evaluates its first argument twice; use this for expressions with side effects */
+#define DXM_EQ(expr, want) do { ULONG_PTR dxm_v_ = (ULONG_PTR)(expr); EXPECT_EQ(dxm_v_, want); } while (0)
+
 #define DXM_E_NOT_INITIALIZED 0x80041000
 #define DXM_E_NEW_VIDEO_DEVICE 0x80041001
 #define DXM_E_VIDEO_DEVICE_LOCKED 0x80041002

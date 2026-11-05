@@ -80,8 +80,8 @@ TEST(dxva2_monitor_video_hd_device_refcount_and_qi) {
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
     if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
-    EXPECT_EQ(IDXVAHD_Device_AddRef(dev), 2);
-    EXPECT_EQ(IDXVAHD_Device_Release(dev), 1);
+    DXM_EQ(IDXVAHD_Device_AddRef(dev), 2);
+    DXM_EQ(IDXVAHD_Device_Release(dev), 1);
     void *p = (void *)(ULONG_PTR)1;
     EXPECT_HR(IDXVAHD_Device_QueryInterface(dev, &DXM_IID_Bogus, &p), (HRESULT)0x80004002);
     CHECK(p == NULL);

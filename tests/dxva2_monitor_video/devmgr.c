@@ -36,17 +36,17 @@ TEST(dxva2_monitor_video_mgr_create) {
     EXPECT_HR(hr, S_OK);
     CHECK(m != NULL);
     if (tok == 0) t_note("reset token is 0 (tick count wrapped?)"); else CHECK(tok != 0);
-    if (m) { EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 0); }
+    if (m) { DXM_EQ(IDirect3DDeviceManager9_Release(m), 0); }
 }
 TEST(dxva2_monitor_video_mgr_refcount_protocol) {
     create_mgr_fn c = mgr_create(); REQUIRE(c);
     UINT tok; IDirect3DDeviceManager9 *m = NULL;
     if (FAILED(c(&tok, &m))) { t_skip("create failed"); return; }
-    EXPECT_EQ(IDirect3DDeviceManager9_AddRef(m), 2);
-    EXPECT_EQ(IDirect3DDeviceManager9_AddRef(m), 3);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 2);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 1);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 0);
+    DXM_EQ(IDirect3DDeviceManager9_AddRef(m), 2);
+    DXM_EQ(IDirect3DDeviceManager9_AddRef(m), 3);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 2);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 1);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 0);
 }
 TEST(dxva2_monitor_video_mgr_qi_supported) {
     create_mgr_fn c = mgr_create(); REQUIRE(c);
@@ -55,12 +55,12 @@ TEST(dxva2_monitor_video_mgr_qi_supported) {
     void *p = NULL;
     EXPECT_HR(IDirect3DDeviceManager9_QueryInterface(m, &DXM_IID_DevMgr9, &p), S_OK);
     CHECK(p == (void *)m);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 1);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 1);
     p = NULL;
     EXPECT_HR(IDirect3DDeviceManager9_QueryInterface(m, &DXM_IID_Unk, &p), S_OK);
     CHECK(p != NULL);
     if (p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 0);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 0);
 }
 TEST(dxva2_monitor_video_mgr_qi_unsupported) {
     create_mgr_fn c = mgr_create(); REQUIRE(c);
@@ -72,17 +72,17 @@ TEST(dxva2_monitor_video_mgr_qi_unsupported) {
         EXPECT_HR(IDirect3DDeviceManager9_QueryInterface(m, bad[i], &p), E_NOINTERFACE_);
         CHECK(p == NULL);
     }
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 0);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 0);
 }
 TEST(dxva2_monitor_video_mgr_two_managers_independent) {
     create_mgr_fn c = mgr_create(); REQUIRE(c);
     UINT t1, t2; IDirect3DDeviceManager9 *a = NULL, *b = NULL;
     if (FAILED(c(&t1, &a)) || FAILED(c(&t2, &b))) { t_skip("create failed"); if (a) IDirect3DDeviceManager9_Release(a); return; }
     CHECK(a != b);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(a), 0);
-    EXPECT_EQ(IDirect3DDeviceManager9_AddRef(b), 2);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(b), 1);
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(b), 0);
+    DXM_EQ(IDirect3DDeviceManager9_Release(a), 0);
+    DXM_EQ(IDirect3DDeviceManager9_AddRef(b), 2);
+    DXM_EQ(IDirect3DDeviceManager9_Release(b), 1);
+    DXM_EQ(IDirect3DDeviceManager9_Release(b), 0);
 }
 
 /* ---------------- uninitialised manager (no ResetDevice yet) ---------------- */
@@ -190,7 +190,7 @@ TEST(dxva2_monitor_video_mgr_device_refcount_released_on_destroy) {
         IDirect3DDevice9_Release(dev);
         IDirect3DDeviceManager9_UnlockDevice(m, h, FALSE);
     }
-    EXPECT_EQ(IDirect3DDeviceManager9_Release(m), 0);
+    DXM_EQ(IDirect3DDeviceManager9_Release(m), 0);
     EXPECT_EQ(d3dh_refcount(d.dev), base);       /* everything the manager held is gone */
     DXM_D9_END(d);
 }
