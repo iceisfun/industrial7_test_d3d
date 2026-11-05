@@ -1,0 +1,282 @@
+[
+{
+"name": "D3DKMTCloseAdapter",
+"ordinal": 1,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTDestroyAllocation",
+"ordinal": 2,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTDestroyContext",
+"ordinal": 3,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTDestroyDevice",
+"ordinal": 4,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTDestroySynchronizationObject",
+"ordinal": 5,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTPresent",
+"ordinal": 6,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTQueryAdapterInfo",
+"ordinal": 7,
+"rva": 9536,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2540"
+},
+{
+"name": "D3DKMTSetDisplayPrivateDriverFormat",
+"ordinal": 8,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTSignalSynchronizationObject",
+"ordinal": 9,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTUnlock",
+"ordinal": 10,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTWaitForSynchronizationObject",
+"ordinal": 11,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "OpenAdapter10",
+"ordinal": 12,
+"rva": 9728,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2600"
+},
+{
+"name": "OpenAdapter10_2",
+"ordinal": 13,
+"rva": 9792,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2640"
+},
+{
+"name": "D3D10CoreCreateDevice1",
+"ordinal": 14,
+"rva": 10880,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2a80"
+},
+{
+"name": "D3D10CoreGetSupportedVersions",
+"ordinal": 15,
+"rva": 10880,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2a80"
+},
+{
+"name": "D3D10CoreGetVersion",
+"ordinal": 16,
+"rva": 10896,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2a90"
+},
+{
+"name": "D3D10CoreRegisterLayers",
+"ordinal": 17,
+"rva": 10880,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2a80"
+},
+{
+"name": "D3DKMTCreateAllocation",
+"ordinal": 18,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTCreateContext",
+"ordinal": 19,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTCreateDevice",
+"ordinal": 20,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTCreateSynchronizationObject",
+"ordinal": 21,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTEscape",
+"ordinal": 22,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTGetContextSchedulingPriority",
+"ordinal": 23,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTGetDeviceState",
+"ordinal": 24,
+"rva": 9856,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2680"
+},
+{
+"name": "D3DKMTGetDisplayModeList",
+"ordinal": 25,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTGetMultisampleMethodList",
+"ordinal": 26,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTGetRuntimeData",
+"ordinal": 27,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTGetSharedPrimaryHandle",
+"ordinal": 28,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTLock",
+"ordinal": 29,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTOpenAdapterFromHdc",
+"ordinal": 30,
+"rva": 9920,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x26c0"
+},
+{
+"name": "D3DKMTOpenResource",
+"ordinal": 31,
+"rva": 9968,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x26f0"
+},
+{
+"name": "D3DKMTQueryAllocationResidency",
+"ordinal": 32,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTQueryResourceInfo",
+"ordinal": 33,
+"rva": 9968,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x26f0"
+},
+{
+"name": "D3DKMTRender",
+"ordinal": 34,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTSetAllocationPriority",
+"ordinal": 35,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTSetContextSchedulingPriority",
+"ordinal": 36,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTSetDisplayMode",
+"ordinal": 37,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTSetGammaRamp",
+"ordinal": 38,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTSetVidPnSourceOwner",
+"ordinal": 39,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+},
+{
+"name": "D3DKMTWaitForVerticalBlankEvent",
+"ordinal": 40,
+"rva": 9520,
+"forwarder": null,
+"ref": "d3d10_1core.dll!0x2530"
+}
+]

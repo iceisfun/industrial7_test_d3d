@@ -1,0 +1,205 @@
+[
+{
+"name": "D3D10CompileEffectFromMemory",
+"ordinal": 1,
+"rva": 724816,
+"forwarder": null,
+"ref": "d3d10.dll!0xb0f50"
+},
+{
+"name": "D3D10CompileShader",
+"ordinal": 2,
+"rva": 7824,
+"forwarder": null,
+"ref": "d3d10.dll!0x1e90"
+},
+{
+"name": "D3D10CreateBlob",
+"ordinal": 3,
+"rva": 6256,
+"forwarder": null,
+"ref": "d3d10.dll!0x1870"
+},
+{
+"name": "D3D10CreateDevice",
+"ordinal": 4,
+"rva": 5008,
+"forwarder": null,
+"ref": "d3d10.dll!0x1390"
+},
+{
+"name": "D3D10CreateDeviceAndSwapChain",
+"ordinal": 5,
+"rva": 6064,
+"forwarder": null,
+"ref": "d3d10.dll!0x17b0"
+},
+{
+"name": "D3D10CreateEffectFromMemory",
+"ordinal": 6,
+"rva": 724480,
+"forwarder": null,
+"ref": "d3d10.dll!0xb0e00"
+},
+{
+"name": "D3D10CreateEffectPoolFromMemory",
+"ordinal": 7,
+"rva": 724672,
+"forwarder": null,
+"ref": "d3d10.dll!0xb0ec0"
+},
+{
+"name": "D3D10CreateStateBlock",
+"ordinal": 8,
+"rva": 875456,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5bc0"
+},
+{
+"name": "D3D10DisassembleEffect",
+"ordinal": 9,
+"rva": 868272,
+"forwarder": null,
+"ref": "d3d10.dll!0xd3fb0"
+},
+{
+"name": "D3D10DisassembleShader",
+"ordinal": 10,
+"rva": 868096,
+"forwarder": null,
+"ref": "d3d10.dll!0xd3f00"
+},
+{
+"name": "D3D10GetGeometryShaderProfile",
+"ordinal": 11,
+"rva": 8512,
+"forwarder": null,
+"ref": "d3d10.dll!0x2140"
+},
+{
+"name": "D3D10GetInputAndOutputSignatureBlob",
+"ordinal": 12,
+"rva": 12832,
+"forwarder": null,
+"ref": "d3d10.dll!0x3220"
+},
+{
+"name": "D3D10GetInputSignatureBlob",
+"ordinal": 13,
+"rva": 12736,
+"forwarder": null,
+"ref": "d3d10.dll!0x31c0"
+},
+{
+"name": "D3D10GetOutputSignatureBlob",
+"ordinal": 14,
+"rva": 12784,
+"forwarder": null,
+"ref": "d3d10.dll!0x31f0"
+},
+{
+"name": "D3D10GetPixelShaderProfile",
+"ordinal": 15,
+"rva": 8480,
+"forwarder": null,
+"ref": "d3d10.dll!0x2120"
+},
+{
+"name": "D3D10GetShaderDebugInfo",
+"ordinal": 16,
+"rva": 8528,
+"forwarder": null,
+"ref": "d3d10.dll!0x2150"
+},
+{
+"name": "D3D10GetVersion",
+"ordinal": 17,
+"rva": 4880,
+"forwarder": null,
+"ref": "d3d10.dll!0x1310"
+},
+{
+"name": "D3D10GetVertexShaderProfile",
+"ordinal": 18,
+"rva": 8496,
+"forwarder": null,
+"ref": "d3d10.dll!0x2130"
+},
+{
+"name": "D3D10PreprocessShader",
+"ordinal": 19,
+"rva": 12112,
+"forwarder": null,
+"ref": "d3d10.dll!0x2f50"
+},
+{
+"name": "D3D10ReflectShader",
+"ordinal": 20,
+"rva": 730656,
+"forwarder": null,
+"ref": "d3d10.dll!0xb2620"
+},
+{
+"name": "D3D10RegisterLayers",
+"ordinal": 21,
+"rva": 4912,
+"forwarder": null,
+"ref": "d3d10.dll!0x1330"
+},
+{
+"name": "D3D10StateBlockMaskDifference",
+"ordinal": 22,
+"rva": 875824,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5d30"
+},
+{
+"name": "D3D10StateBlockMaskDisableAll",
+"ordinal": 23,
+"rva": 876224,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5ec0"
+},
+{
+"name": "D3D10StateBlockMaskDisableCapture",
+"ordinal": 24,
+"rva": 876032,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5e00"
+},
+{
+"name": "D3D10StateBlockMaskEnableAll",
+"ordinal": 25,
+"rva": 876176,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5e90"
+},
+{
+"name": "D3D10StateBlockMaskEnableCapture",
+"ordinal": 26,
+"rva": 875888,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5d70"
+},
+{
+"name": "D3D10StateBlockMaskGetSetting",
+"ordinal": 27,
+"rva": 876272,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5ef0"
+},
+{
+"name": "D3D10StateBlockMaskIntersect",
+"ordinal": 28,
+"rva": 875760,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5cf0"
+},
+{
+"name": "D3D10StateBlockMaskUnion",
+"ordinal": 29,
+"rva": 875696,
+"forwarder": null,
+"ref": "d3d10.dll!0xd5cb0"
+}
+]

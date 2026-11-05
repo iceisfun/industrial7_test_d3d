@@ -1,0 +1,156 @@
+[
+{
+"name": "AcquireDDThreadLock",
+"ordinal": 1,
+"rva": 172432,
+"forwarder": null,
+"ref": "ddraw.dll!0x2a190"
+},
+{
+"name": "CompleteCreateSysmemSurface",
+"ordinal": 2,
+"rva": 178160,
+"forwarder": null,
+"ref": "ddraw.dll!0x2b7f0"
+},
+{
+"name": "D3DParseUnknownCommand",
+"ordinal": 3,
+"rva": 192912,
+"forwarder": null,
+"ref": "ddraw.dll!0x2f190"
+},
+{
+"name": "DDGetAttachedSurfaceLcl",
+"ordinal": 4,
+"rva": 201040,
+"forwarder": null,
+"ref": "ddraw.dll!0x31150"
+},
+{
+"name": "DDInternalLock",
+"ordinal": 5,
+"rva": 172576,
+"forwarder": null,
+"ref": "ddraw.dll!0x2a220"
+},
+{
+"name": "DDInternalUnlock",
+"ordinal": 6,
+"rva": 172608,
+"forwarder": null,
+"ref": "ddraw.dll!0x2a240"
+},
+{
+"name": "DSoundHelp",
+"ordinal": 7,
+"rva": 207264,
+"forwarder": null,
+"ref": "ddraw.dll!0x329a0"
+},
+{
+"name": "DirectDrawCreate",
+"ordinal": 8,
+"rva": 55344,
+"forwarder": null,
+"ref": "ddraw.dll!0xd830"
+},
+{
+"name": "DirectDrawCreateClipper",
+"ordinal": 9,
+"rva": 217696,
+"forwarder": null,
+"ref": "ddraw.dll!0x35260"
+},
+{
+"name": "DirectDrawCreateEx",
+"ordinal": 10,
+"rva": 193168,
+"forwarder": null,
+"ref": "ddraw.dll!0x2f290"
+},
+{
+"name": "DirectDrawEnumerateA",
+"ordinal": 11,
+"rva": 193440,
+"forwarder": null,
+"ref": "ddraw.dll!0x2f3a0"
+},
+{
+"name": "DirectDrawEnumerateExA",
+"ordinal": 12,
+"rva": 193504,
+"forwarder": null,
+"ref": "ddraw.dll!0x2f3e0"
+},
+{
+"name": "DirectDrawEnumerateExW",
+"ordinal": 13,
+"rva": 56720,
+"forwarder": null,
+"ref": "ddraw.dll!0xdd90"
+},
+{
+"name": "DirectDrawEnumerateW",
+"ordinal": 14,
+"rva": 194768,
+"forwarder": null,
+"ref": "ddraw.dll!0x2f8d0"
+},
+{
+"name": "DllCanUnloadNow",
+"ordinal": 15,
+"rva": 221744,
+"forwarder": null,
+"ref": "ddraw.dll!0x36230"
+},
+{
+"name": "DllGetClassObject",
+"ordinal": 16,
+"rva": 221968,
+"forwarder": null,
+"ref": "ddraw.dll!0x36310"
+},
+{
+"name": "GetDDSurfaceLocal",
+"ordinal": 17,
+"rva": 180080,
+"forwarder": null,
+"ref": "ddraw.dll!0x2bf70"
+},
+{
+"name": "GetOLEThunkData",
+"ordinal": 18,
+"rva": 232128,
+"forwarder": null,
+"ref": "ddraw.dll!0x38ac0"
+},
+{
+"name": "GetSurfaceFromDC",
+"ordinal": 19,
+"rva": 248912,
+"forwarder": null,
+"ref": "ddraw.dll!0x3cc50"
+},
+{
+"name": "RegisterSpecialCase",
+"ordinal": 20,
+"rva": 93216,
+"forwarder": null,
+"ref": "ddraw.dll!0x16c20"
+},
+{
+"name": "ReleaseDDThreadLock",
+"ordinal": 21,
+"rva": 177184,
+"forwarder": null,
+"ref": "ddraw.dll!0x2b420"
+},
+{
+"name": "SetAppCompatData",
+"ordinal": 22,
+"rva": 302944,
+"forwarder": null,
+"ref": "ddraw.dll!0x49f60"
+}
+]

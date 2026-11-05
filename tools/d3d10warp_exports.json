@@ -1,0 +1,65 @@
+[
+{
+"name": null,
+"ordinal": 199,
+"rva": 318112,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x4daa0"
+},
+{
+"name": "VSD3DDebugConnectionBuffer",
+"ordinal": 200,
+"rva": 7023136,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x6b2a20"
+},
+{
+"name": "D3D11RefGetLastCreation",
+"ordinal": 201,
+"rva": 301248,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x498c0"
+},
+{
+"name": "D3DLayerGetInterface",
+"ordinal": 202,
+"rva": 300832,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x49720"
+},
+{
+"name": "OpenAdapter",
+"ordinal": 203,
+"rva": 315776,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x4d180"
+},
+{
+"name": "OpenAdapter10_2",
+"ordinal": 204,
+"rva": 315952,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x4d230"
+},
+{
+"name": "OpenAdapter12",
+"ordinal": 205,
+"rva": 316128,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x4d2e0"
+},
+{
+"name": "OpenDisplayAdapter1",
+"ordinal": 206,
+"rva": 316672,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x4d500"
+},
+{
+"name": "QueryDListForApplication1",
+"ordinal": 207,
+"rva": 317232,
+"forwarder": null,
+"ref": "d3d10warp.dll!0x4d730"
+}
+]

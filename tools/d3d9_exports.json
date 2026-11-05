@@ -1,0 +1,163 @@
+[
+{
+"name": null,
+"ordinal": 16,
+"rva": 556160,
+"forwarder": null,
+"ref": "d3d9.dll!0x87c80"
+},
+{
+"name": null,
+"ordinal": 17,
+"rva": 564880,
+"forwarder": null,
+"ref": "d3d9.dll!0x89e90"
+},
+{
+"name": null,
+"ordinal": 18,
+"rva": 564976,
+"forwarder": null,
+"ref": "d3d9.dll!0x89ef0"
+},
+{
+"name": null,
+"ordinal": 19,
+"rva": 601424,
+"forwarder": null,
+"ref": "d3d9.dll!0x92d50"
+},
+{
+"name": "Direct3DCreate9On12",
+"ordinal": 20,
+"rva": 287152,
+"forwarder": null,
+"ref": "d3d9.dll!0x461b0"
+},
+{
+"name": "Direct3DCreate9On12Ex",
+"ordinal": 21,
+"rva": 287200,
+"forwarder": null,
+"ref": "d3d9.dll!0x461e0"
+},
+{
+"name": null,
+"ordinal": 22,
+"rva": 556176,
+"forwarder": null,
+"ref": "d3d9.dll!0x87c90"
+},
+{
+"name": null,
+"ordinal": 23,
+"rva": 632992,
+"forwarder": null,
+"ref": "d3d9.dll!0x9a8a0"
+},
+{
+"name": "Direct3DShaderValidatorCreate9",
+"ordinal": 24,
+"rva": 867120,
+"forwarder": null,
+"ref": "d3d9.dll!0xd3b30"
+},
+{
+"name": "PSGPError",
+"ordinal": 25,
+"rva": 522800,
+"forwarder": null,
+"ref": "d3d9.dll!0x7fa30"
+},
+{
+"name": "PSGPSampleTexture",
+"ordinal": 26,
+"rva": 522848,
+"forwarder": null,
+"ref": "d3d9.dll!0x7fa60"
+},
+{
+"name": "D3DPERF_BeginEvent",
+"ordinal": 27,
+"rva": 564448,
+"forwarder": null,
+"ref": "d3d9.dll!0x89ce0"
+},
+{
+"name": "D3DPERF_EndEvent",
+"ordinal": 28,
+"rva": 564528,
+"forwarder": null,
+"ref": "d3d9.dll!0x89d30"
+},
+{
+"name": "D3DPERF_GetStatus",
+"ordinal": 29,
+"rva": 564576,
+"forwarder": null,
+"ref": "d3d9.dll!0x89d60"
+},
+{
+"name": "D3DPERF_QueryRepeatFrame",
+"ordinal": 30,
+"rva": 564624,
+"forwarder": null,
+"ref": "d3d9.dll!0x89d90"
+},
+{
+"name": "D3DPERF_SetMarker",
+"ordinal": 31,
+"rva": 564688,
+"forwarder": null,
+"ref": "d3d9.dll!0x89dd0"
+},
+{
+"name": "D3DPERF_SetOptions",
+"ordinal": 32,
+"rva": 564752,
+"forwarder": null,
+"ref": "d3d9.dll!0x89e10"
+},
+{
+"name": "D3DPERF_SetRegion",
+"ordinal": 33,
+"rva": 564800,
+"forwarder": null,
+"ref": "d3d9.dll!0x89e40"
+},
+{
+"name": "DebugSetLevel",
+"ordinal": 34,
+"rva": 565040,
+"forwarder": null,
+"ref": "d3d9.dll!0x89f30"
+},
+{
+"name": "DebugSetMute",
+"ordinal": 35,
+"rva": 565104,
+"forwarder": null,
+"ref": "d3d9.dll!0x89f70"
+},
+{
+"name": "Direct3D9EnableMaximizedWindowedModeShim",
+"ordinal": 36,
+"rva": 564864,
+"forwarder": null,
+"ref": "d3d9.dll!0x89e80"
+},
+{
+"name": "Direct3DCreate9",
+"ordinal": 37,
+"rva": 221136,
+"forwarder": null,
+"ref": "d3d9.dll!0x35fd0"
+},
+{
+"name": "Direct3DCreate9Ex",
+"ordinal": 38,
+"rva": 221184,
+"forwarder": null,
+"ref": "d3d9.dll!0x36000"
+}
+]

@@ -1,0 +1,16 @@
+[
+{
+"name": "DxcCreateInstance2",
+"ordinal": 1,
+"rva": 6512,
+"forwarder": null,
+"ref": "dxilconv.dll!0x1970"
+},
+{
+"name": "DxcCreateInstance",
+"ordinal": 2,
+"rva": 6208,
+"forwarder": null,
+"ref": "dxilconv.dll!0x1840"
+}
+]

@@ -1,0 +1,135 @@
+[
+{
+"name": "ApplyCompatResolutionQuirking",
+"ordinal": 1,
+"rva": 122752,
+"forwarder": null,
+"ref": "dxgi.dll!0x1df80"
+},
+{
+"name": "CompatString",
+"ordinal": 2,
+"rva": 47712,
+"forwarder": null,
+"ref": "dxgi.dll!0xba60"
+},
+{
+"name": "CompatValue",
+"ordinal": 3,
+"rva": 46720,
+"forwarder": null,
+"ref": "dxgi.dll!0xb680"
+},
+{
+"name": "DXGIDumpJournal",
+"ordinal": 4,
+"rva": 360336,
+"forwarder": null,
+"ref": "dxgi.dll!0x57f90"
+},
+{
+"name": "PIXBeginCapture",
+"ordinal": 5,
+"rva": 134400,
+"forwarder": null,
+"ref": "dxgi.dll!0x20d00"
+},
+{
+"name": "PIXEndCapture",
+"ordinal": 6,
+"rva": 134400,
+"forwarder": null,
+"ref": "dxgi.dll!0x20d00"
+},
+{
+"name": "PIXGetCaptureState",
+"ordinal": 7,
+"rva": 134400,
+"forwarder": null,
+"ref": "dxgi.dll!0x20d00"
+},
+{
+"name": "SetAppCompatStringPointer",
+"ordinal": 8,
+"rva": 366720,
+"forwarder": null,
+"ref": "dxgi.dll!0x59880"
+},
+{
+"name": "UpdateHMDEmulationStatus",
+"ordinal": 9,
+"rva": 370560,
+"forwarder": null,
+"ref": "dxgi.dll!0x5a780"
+},
+{
+"name": "CreateDXGIFactory",
+"ordinal": 10,
+"rva": 124128,
+"forwarder": null,
+"ref": "dxgi.dll!0x1e4e0"
+},
+{
+"name": "CreateDXGIFactory1",
+"ordinal": 11,
+"rva": 124544,
+"forwarder": null,
+"ref": "dxgi.dll!0x1e680"
+},
+{
+"name": "CreateDXGIFactory2",
+"ordinal": 12,
+"rva": 124288,
+"forwarder": null,
+"ref": "dxgi.dll!0x1e580"
+},
+{
+"name": "DXGID3D10CreateDevice",
+"ordinal": 13,
+"rva": 133968,
+"forwarder": null,
+"ref": "dxgi.dll!0x20b50"
+},
+{
+"name": "DXGID3D10CreateLayeredDevice",
+"ordinal": 14,
+"rva": 133968,
+"forwarder": null,
+"ref": "dxgi.dll!0x20b50"
+},
+{
+"name": "DXGID3D10GetLayeredDeviceSize",
+"ordinal": 15,
+"rva": 134400,
+"forwarder": null,
+"ref": "dxgi.dll!0x20d00"
+},
+{
+"name": "DXGID3D10RegisterLayers",
+"ordinal": 16,
+"rva": 133968,
+"forwarder": null,
+"ref": "dxgi.dll!0x20b50"
+},
+{
+"name": "DXGIDeclareAdapterRemovalSupport",
+"ordinal": 17,
+"rva": 33600,
+"forwarder": null,
+"ref": "dxgi.dll!0x8340"
+},
+{
+"name": "DXGIGetDebugInterface1",
+"ordinal": 18,
+"rva": 374864,
+"forwarder": null,
+"ref": "dxgi.dll!0x5b850"
+},
+{
+"name": "DXGIReportAdapterConfiguration",
+"ordinal": 19,
+"rva": 10096,
+"forwarder": null,
+"ref": "dxgi.dll!0x2770"
+}
+]

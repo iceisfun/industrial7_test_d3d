@@ -1,0 +1,268 @@
+[
+{
+"name": "CapabilitiesRequestAndCapabilitiesReply",
+"ordinal": 1,
+"rva": 62288,
+"forwarder": null,
+"ref": "dxva2.dll!0xf350"
+},
+{
+"name": "DXVA2CreateDirect3DDeviceManager9",
+"ordinal": 2,
+"rva": 11696,
+"forwarder": null,
+"ref": "dxva2.dll!0x2db0"
+},
+{
+"name": "DXVA2CreateVideoService",
+"ordinal": 3,
+"rva": 8288,
+"forwarder": null,
+"ref": "dxva2.dll!0x2060"
+},
+{
+"name": "DXVAHD_CreateDevice",
+"ordinal": 4,
+"rva": 76048,
+"forwarder": null,
+"ref": "dxva2.dll!0x12910"
+},
+{
+"name": "DegaussMonitor",
+"ordinal": 5,
+"rva": 63776,
+"forwarder": null,
+"ref": "dxva2.dll!0xf920"
+},
+{
+"name": "DestroyPhysicalMonitor",
+"ordinal": 6,
+"rva": 66672,
+"forwarder": null,
+"ref": "dxva2.dll!0x10470"
+},
+{
+"name": "DestroyPhysicalMonitors",
+"ordinal": 7,
+"rva": 66736,
+"forwarder": null,
+"ref": "dxva2.dll!0x104b0"
+},
+{
+"name": "GetCapabilitiesStringLength",
+"ordinal": 8,
+"rva": 62464,
+"forwarder": null,
+"ref": "dxva2.dll!0xf400"
+},
+{
+"name": "GetMonitorBrightness",
+"ordinal": 9,
+"rva": 63808,
+"forwarder": null,
+"ref": "dxva2.dll!0xf940"
+},
+{
+"name": "GetMonitorCapabilities",
+"ordinal": 10,
+"rva": 63856,
+"forwarder": null,
+"ref": "dxva2.dll!0xf970"
+},
+{
+"name": "GetMonitorColorTemperature",
+"ordinal": 11,
+"rva": 64016,
+"forwarder": null,
+"ref": "dxva2.dll!0xfa10"
+},
+{
+"name": "GetMonitorContrast",
+"ordinal": 12,
+"rva": 64176,
+"forwarder": null,
+"ref": "dxva2.dll!0xfab0"
+},
+{
+"name": "GetMonitorDisplayAreaPosition",
+"ordinal": 13,
+"rva": 64224,
+"forwarder": null,
+"ref": "dxva2.dll!0xfae0"
+},
+{
+"name": "GetMonitorDisplayAreaSize",
+"ordinal": 14,
+"rva": 64336,
+"forwarder": null,
+"ref": "dxva2.dll!0xfb50"
+},
+{
+"name": "GetMonitorRedGreenOrBlueDrive",
+"ordinal": 15,
+"rva": 64448,
+"forwarder": null,
+"ref": "dxva2.dll!0xfbc0"
+},
+{
+"name": "GetMonitorRedGreenOrBlueGain",
+"ordinal": 16,
+"rva": 64560,
+"forwarder": null,
+"ref": "dxva2.dll!0xfc30"
+},
+{
+"name": "GetMonitorTechnologyType",
+"ordinal": 17,
+"rva": 64672,
+"forwarder": null,
+"ref": "dxva2.dll!0xfca0"
+},
+{
+"name": "GetNumberOfPhysicalMonitorsFromHMONITOR",
+"ordinal": 18,
+"rva": 66880,
+"forwarder": null,
+"ref": "dxva2.dll!0x10540"
+},
+{
+"name": "GetNumberOfPhysicalMonitorsFromIDirect3DDevice9",
+"ordinal": 19,
+"rva": 67008,
+"forwarder": null,
+"ref": "dxva2.dll!0x105c0"
+},
+{
+"name": "GetPhysicalMonitorsFromHMONITOR",
+"ordinal": 20,
+"rva": 67104,
+"forwarder": null,
+"ref": "dxva2.dll!0x10620"
+},
+{
+"name": "GetPhysicalMonitorsFromIDirect3DDevice9",
+"ordinal": 21,
+"rva": 67168,
+"forwarder": null,
+"ref": "dxva2.dll!0x10660"
+},
+{
+"name": "GetTimingReport",
+"ordinal": 22,
+"rva": 62624,
+"forwarder": null,
+"ref": "dxva2.dll!0xf4a0"
+},
+{
+"name": "GetVCPFeatureAndVCPFeatureReply",
+"ordinal": 23,
+"rva": 62784,
+"forwarder": null,
+"ref": "dxva2.dll!0xf540"
+},
+{
+"name": "OPMGetVideoOutputForTarget",
+"ordinal": 24,
+"rva": 71904,
+"forwarder": null,
+"ref": "dxva2.dll!0x118e0"
+},
+{
+"name": "OPMGetVideoOutputsFromHMONITOR",
+"ordinal": 25,
+"rva": 72192,
+"forwarder": null,
+"ref": "dxva2.dll!0x11a00"
+},
+{
+"name": "OPMGetVideoOutputsFromIDirect3DDevice9Object",
+"ordinal": 26,
+"rva": 8624,
+"forwarder": null,
+"ref": "dxva2.dll!0x21b0"
+},
+{
+"name": "RestoreMonitorFactoryColorDefaults",
+"ordinal": 27,
+"rva": 64848,
+"forwarder": null,
+"ref": "dxva2.dll!0xfd50"
+},
+{
+"name": "RestoreMonitorFactoryDefaults",
+"ordinal": 28,
+"rva": 64880,
+"forwarder": null,
+"ref": "dxva2.dll!0xfd70"
+},
+{
+"name": "SaveCurrentMonitorSettings",
+"ordinal": 29,
+"rva": 64912,
+"forwarder": null,
+"ref": "dxva2.dll!0xfd90"
+},
+{
+"name": "SaveCurrentSettings",
+"ordinal": 30,
+"rva": 62992,
+"forwarder": null,
+"ref": "dxva2.dll!0xf610"
+},
+{
+"name": "SetMonitorBrightness",
+"ordinal": 31,
+"rva": 64928,
+"forwarder": null,
+"ref": "dxva2.dll!0xfda0"
+},
+{
+"name": "SetMonitorColorTemperature",
+"ordinal": 32,
+"rva": 64944,
+"forwarder": null,
+"ref": "dxva2.dll!0xfdb0"
+},
+{
+"name": "SetMonitorContrast",
+"ordinal": 33,
+"rva": 65104,
+"forwarder": null,
+"ref": "dxva2.dll!0xfe50"
+},
+{
+"name": "SetMonitorDisplayAreaPosition",
+"ordinal": 34,
+"rva": 65120,
+"forwarder": null,
+"ref": "dxva2.dll!0xfe60"
+},
+{
+"name": "SetMonitorDisplayAreaSize",
+"ordinal": 35,
+"rva": 65200,
+"forwarder": null,
+"ref": "dxva2.dll!0xfeb0"
+},
+{
+"name": "SetMonitorRedGreenOrBlueDrive",
+"ordinal": 36,
+"rva": 65280,
+"forwarder": null,
+"ref": "dxva2.dll!0xff00"
+},
+{
+"name": "SetMonitorRedGreenOrBlueGain",
+"ordinal": 37,
+"rva": 65360,
+"forwarder": null,
+"ref": "dxva2.dll!0xff50"
+},
+{
+"name": "SetVCPFeature",
+"ordinal": 38,
+"rva": 63136,
+"forwarder": null,
+"ref": "dxva2.dll!0xf6a0"
+}
+]

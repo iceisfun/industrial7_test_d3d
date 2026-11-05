@@ -1,0 +1,1549 @@
+[
+{
+"name": null,
+"ordinal": 1,
+"rva": 132800,
+"forwarder": null,
+"ref": "dxcore.dll!0x206c0"
+},
+{
+"name": null,
+"ordinal": 2,
+"rva": 185519,
+"forwarder": "WIN32U.NtGdiDdDDICreateAllocation",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 3,
+"rva": 190049,
+"forwarder": "WIN32U.NtGdiDdDDIQueryResourceInfo",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 4,
+"rva": 190084,
+"forwarder": "WIN32U.NtGdiDdDDIQueryResourceInfoFromNtHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 5,
+"rva": 191485,
+"forwarder": "WIN32U.NtGdiDdDDIShareObjects",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 6,
+"rva": 188901,
+"forwarder": "WIN32U.NtGdiDdDDIOpenNtHandleFromName",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 7,
+"rva": 189019,
+"forwarder": "WIN32U.NtGdiDdDDIOpenResourceFromNtHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 8,
+"rva": 189092,
+"forwarder": "WIN32U.NtGdiDdDDIOpenSyncObjectFromNtHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 9,
+"rva": 133264,
+"forwarder": null,
+"ref": "dxcore.dll!0x20890"
+},
+{
+"name": null,
+"ordinal": 10,
+"rva": 188989,
+"forwarder": "WIN32U.NtGdiDdDDIOpenResource",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 11,
+"rva": 186104,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyAllocation",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 12,
+"rva": 190662,
+"forwarder": "WIN32U.NtGdiDdDDISetAllocationPriority",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 13,
+"rva": 189798,
+"forwarder": "WIN32U.NtGdiDdDDIQueryAllocationResidency",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 14,
+"rva": 185658,
+"forwarder": "WIN32U.NtGdiDdDDICreateDevice",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 15,
+"rva": 186207,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyDevice",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 16,
+"rva": 185589,
+"forwarder": "WIN32U.NtGdiDdDDICreateContext",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 17,
+"rva": 186175,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyContext",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 18,
+"rva": 133632,
+"forwarder": null,
+"ref": "dxcore.dll!0x20a00"
+},
+{
+"name": null,
+"ordinal": 19,
+"rva": 185994,
+"forwarder": "WIN32U.NtGdiDdDDICreateSynchronizationObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 20,
+"rva": 189229,
+"forwarder": "WIN32U.NtGdiDdDDIOpenSynchronizationObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 21,
+"rva": 186483,
+"forwarder": "WIN32U.NtGdiDdDDIDestroySynchronizationObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 22,
+"rva": 133776,
+"forwarder": null,
+"ref": "dxcore.dll!0x20a90"
+},
+{
+"name": null,
+"ordinal": 23,
+"rva": 192493,
+"forwarder": "WIN32U.NtGdiDdDDIWaitForSynchronizationObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 24,
+"rva": 133936,
+"forwarder": null,
+"ref": "dxcore.dll!0x20b30"
+},
+{
+"name": null,
+"ordinal": 25,
+"rva": 191611,
+"forwarder": "WIN32U.NtGdiDdDDISignalSynchronizationObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 26,
+"rva": 188223,
+"forwarder": "WIN32U.NtGdiDdDDILock",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 27,
+"rva": 192142,
+"forwarder": "WIN32U.NtGdiDdDDIUnlock",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 28,
+"rva": 187350,
+"forwarder": "WIN32U.NtGdiDdDDIGetDisplayModeList",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 29,
+"rva": 190802,
+"forwarder": "WIN32U.NtGdiDdDDISetDisplayMode",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 30,
+"rva": 187467,
+"forwarder": "WIN32U.NtGdiDdDDIGetMultisampleMethodList",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 31,
+"rva": 189576,
+"forwarder": "WIN32U.NtGdiDdDDIPresent",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 32,
+"rva": 190552,
+"forwarder": "WIN32U.NtGdiDdDDIRender",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 33,
+"rva": 187885,
+"forwarder": "WIN32U.NtGdiDdDDIGetRuntimeData",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 34,
+"rva": 189764,
+"forwarder": "WIN32U.NtGdiDdDDIQueryAdapterInfo",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 35,
+"rva": 188662,
+"forwarder": "WIN32U.NtGdiDdDDIOpenAdapterFromDeviceName",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 36,
+"rva": 185448,
+"forwarder": "WIN32U.NtGdiDdDDICloseAdapter",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 37,
+"rva": 187987,
+"forwarder": "WIN32U.NtGdiDdDDIGetSharedPrimaryHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 38,
+"rva": 186857,
+"forwarder": "WIN32U.NtGdiDdDDIEscape",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 39,
+"rva": 190131,
+"forwarder": "WIN32U.NtGdiDdDDIQueryStatistics",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 40,
+"rva": 135312,
+"forwarder": null,
+"ref": "dxcore.dll!0x21090"
+},
+{
+"name": null,
+"ordinal": 41,
+"rva": 187582,
+"forwarder": "WIN32U.NtGdiDdDDIGetPresentHistory",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 42,
+"rva": 187617,
+"forwarder": "WIN32U.NtGdiDdDDIGetPresentQueueEvent",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 43,
+"rva": 185855,
+"forwarder": "WIN32U.NtGdiDdDDICreateOverlay",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 44,
+"rva": 192302,
+"forwarder": "WIN32U.NtGdiDdDDIUpdateOverlay",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 45,
+"rva": 186941,
+"forwarder": "WIN32U.NtGdiDdDDIFlipOverlay",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 46,
+"rva": 186374,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyOverlay",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 47,
+"rva": 192645,
+"forwarder": "WIN32U.NtGdiDdDDIWaitForVerticalBlankEvent",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 48,
+"rva": 190904,
+"forwarder": "WIN32U.NtGdiDdDDISetGammaRamp",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 49,
+"rva": 187318,
+"forwarder": "WIN32U.NtGdiDdDDIGetDeviceState",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 50,
+"rva": 187175,
+"forwarder": "WIN32U.NtGdiDdDDIGetContextInProcessSchedulingPriority",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 51,
+"rva": 190756,
+"forwarder": "WIN32U.NtGdiDdDDISetContextSchedulingPriority",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 52,
+"rva": 187230,
+"forwarder": "WIN32U.NtGdiDdDDIGetContextSchedulingPriority",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 53,
+"rva": 191167,
+"forwarder": "WIN32U.NtGdiDdDDISetProcessSchedulingPriorityClass",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 54,
+"rva": 187781,
+"forwarder": "WIN32U.NtGdiDdDDIGetProcessSchedulingPriorityClass",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 55,
+"rva": 190425,
+"forwarder": "WIN32U.NtGdiDdDDIReleaseProcessVidPnSourceOwners",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 56,
+"rva": 187917,
+"forwarder": "WIN32U.NtGdiDdDDIGetScanLine",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 57,
+"rva": 191218,
+"forwarder": "WIN32U.NtGdiDdDDISetQueuedLimit",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 58,
+"rva": 189539,
+"forwarder": "WIN32U.NtGdiDdDDIPollDisplayChildren",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 59,
+"rva": 188151,
+"forwarder": "WIN32U.NtGdiDdDDIInvalidateActiveVidPn",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 60,
+"rva": 185327,
+"forwarder": "WIN32U.NtGdiDdDDICheckOcclusion",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 61,
+"rva": 192464,
+"forwarder": "WIN32U.NtGdiDdDDIWaitForIdle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 62,
+"rva": 185144,
+"forwarder": "WIN32U.NtGdiDdDDICheckMonitorPowerState",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 63,
+"rva": 185103,
+"forwarder": "WIN32U.NtGdiDdDDICheckExclusiveOwnership",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 64,
+"rva": 185402,
+"forwarder": "WIN32U.NtGdiDdDDICheckVidPnExclusiveOwnership",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 65,
+"rva": 135488,
+"forwarder": null,
+"ref": "dxcore.dll!0x21140"
+},
+{
+"name": null,
+"ordinal": 66,
+"rva": 191515,
+"forwarder": "WIN32U.NtGdiDdDDISharedPrimaryLockNotification",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 67,
+"rva": 191562,
+"forwarder": "WIN32U.NtGdiDdDDISharedPrimaryUnLockNotification",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 68,
+"rva": 185752,
+"forwarder": "WIN32U.NtGdiDdDDICreateKeyedMutex",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 69,
+"rva": 185786,
+"forwarder": "WIN32U.NtGdiDdDDICreateKeyedMutex2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 70,
+"rva": 188792,
+"forwarder": "WIN32U.NtGdiDdDDIOpenKeyedMutex",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 71,
+"rva": 188824,
+"forwarder": "WIN32U.NtGdiDdDDIOpenKeyedMutex2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 72,
+"rva": 186304,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyKeyedMutex",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 73,
+"rva": 184835,
+"forwarder": "WIN32U.NtGdiDdDDIAcquireKeyedMutex",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 74,
+"rva": 184870,
+"forwarder": "WIN32U.NtGdiDdDDIAcquireKeyedMutex2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 75,
+"rva": 190354,
+"forwarder": "WIN32U.NtGdiDdDDIReleaseKeyedMutex",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 76,
+"rva": 190389,
+"forwarder": "WIN32U.NtGdiDdDDIReleaseKeyedMutex2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 77,
+"rva": 185478,
+"forwarder": "WIN32U.NtGdiDdDDIConfigureSharedResource",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 78,
+"rva": 187509,
+"forwarder": "WIN32U.NtGdiDdDDIGetOverlayState",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 79,
+"rva": 185359,
+"forwarder": "WIN32U.NtGdiDdDDICheckSharedResourceAccess",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 80,
+"rva": 188628,
+"forwarder": "WIN32U.NtGdiDdDDIOfferAllocations",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 81,
+"rva": 190248,
+"forwarder": "WIN32U.NtGdiDdDDIReclaimAllocations",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 82,
+"rva": 185821,
+"forwarder": "WIN32U.NtGdiDdDDICreateOutputDupl",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 83,
+"rva": 186339,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyOutputDupl",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 84,
+"rva": 189272,
+"forwarder": "WIN32U.NtGdiDdDDIOutputDuplGetFrameInfo",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 85,
+"rva": 189312,
+"forwarder": "WIN32U.NtGdiDdDDIOutputDuplGetMetaData",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 86,
+"rva": 189351,
+"forwarder": "WIN32U.NtGdiDdDDIOutputDuplGetPointerShapeData",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 87,
+"rva": 189473,
+"forwarder": "WIN32U.NtGdiDdDDIOutputDuplReleaseFrame",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 88,
+"rva": 189398,
+"forwarder": "WIN32U.NtGdiDdDDIOutputDuplPresent",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 89,
+"rva": 188027,
+"forwarder": "WIN32U.NtGdiDdDDIGetSharedResourceAdapterLuid",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 90,
+"rva": 191287,
+"forwarder": "WIN32U.NtGdiDdDDISetStereoEnabled",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 91,
+"rva": 187132,
+"forwarder": "WIN32U.NtGdiDdDDIGetCachedHybridQueryValue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 92,
+"rva": 185018,
+"forwarder": "WIN32U.NtGdiDdDDICacheHybridQueryValue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 93,
+"rva": 188371,
+"forwarder": "WIN32U.NtGdiDdDDINetDispGetNextChunkInfo",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 94,
+"rva": 188469,
+"forwarder": "WIN32U.NtGdiDdDDINetDispQueryMiracastDisplayDeviceSupport",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 95,
+"rva": 135280,
+"forwarder": null,
+"ref": "dxcore.dll!0x21070"
+},
+{
+"name": null,
+"ordinal": 96,
+"rva": 135088,
+"forwarder": null,
+"ref": "dxcore.dll!0x20fb0"
+},
+{
+"name": null,
+"ordinal": 97,
+"rva": 188527,
+"forwarder": "WIN32U.NtGdiDdDDINetDispStartMiracastDisplayDevice",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 98,
+"rva": 188578,
+"forwarder": "WIN32U.NtGdiDdDDINetDispStopMiracastDisplayDevice",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 99,
+"rva": 188412,
+"forwarder": "WIN32U.NtGdiDdDDINetDispQueryMiracastDisplayDeviceStatus",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 100,
+"rva": 186139,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyAllocation2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 101,
+"rva": 188268,
+"forwarder": "WIN32U.NtGdiDdDDIMakeResident",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 102,
+"rva": 186881,
+"forwarder": "WIN32U.NtGdiDdDDIEvict",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 103,
+"rva": 192219,
+"forwarder": "WIN32U.NtGdiDdDDIUpdateAllocationProperty",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 104,
+"rva": 192539,
+"forwarder": "WIN32U.NtGdiDdDDIWaitForSynchronizationObjectFromCpu",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 105,
+"rva": 191656,
+"forwarder": "WIN32U.NtGdiDdDDISignalSynchronizationObjectFromCpu",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 106,
+"rva": 192592,
+"forwarder": "WIN32U.NtGdiDdDDIWaitForSynchronizationObjectFromGpu",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 107,
+"rva": 191708,
+"forwarder": "WIN32U.NtGdiDdDDISignalSynchronizationObjectFromGpu",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 108,
+"rva": 191760,
+"forwarder": "WIN32U.NtGdiDdDDISignalSynchronizationObjectFromGpu2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 109,
+"rva": 185886,
+"forwarder": "WIN32U.NtGdiDdDDICreatePagingQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 110,
+"rva": 186406,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyPagingQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 111,
+"rva": 188245,
+"forwarder": "WIN32U.NtGdiDdDDILock2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 112,
+"rva": 192166,
+"forwarder": "WIN32U.NtGdiDdDDIUnlock2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 113,
+"rva": 188190,
+"forwarder": "WIN32U.NtGdiDdDDIInvalidateCache",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 114,
+"rva": 188298,
+"forwarder": "WIN32U.NtGdiDdDDIMapGpuVirtualAddress",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 115,
+"rva": 190576,
+"forwarder": "WIN32U.NtGdiDdDDIReserveGpuVirtualAddress",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 116,
+"rva": 187008,
+"forwarder": "WIN32U.NtGdiDdDDIFreeGpuVirtualAddress",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 117,
+"rva": 192261,
+"forwarder": "WIN32U.NtGdiDdDDIUpdateGpuVirtualAddress",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 118,
+"rva": 187832,
+"forwarder": "WIN32U.NtGdiDdDDIGetResourcePresentPrivateDriverData",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 119,
+"rva": 185620,
+"forwarder": "WIN32U.NtGdiDdDDICreateContextVirtual",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 120,
+"rva": 191813,
+"forwarder": "WIN32U.NtGdiDdDDISubmitCommand",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 121,
+"rva": 190284,
+"forwarder": "WIN32U.NtGdiDdDDIReclaimAllocations2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 122,
+"rva": 190164,
+"forwarder": "WIN32U.NtGdiDdDDIQueryVidPnExclusiveOwnership",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 123,
+"rva": 184979,
+"forwarder": "WIN32U.NtGdiDdDDIAdjustFullscreenGamma",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 124,
+"rva": 188705,
+"forwarder": "WIN32U.NtGdiDdDDIOpenAdapterFromLuid",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 125,
+"rva": 191368,
+"forwarder": "WIN32U.NtGdiDdDDISetVidPnSourceHwProtection",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 126,
+"rva": 188336,
+"forwarder": "WIN32U.NtGdiDdDDIMarkDeviceAsError",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 127,
+"rva": 186970,
+"forwarder": "WIN32U.NtGdiDdDDIFlushHeapTransitions",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 128,
+"rva": 190934,
+"forwarder": "WIN32U.NtGdiDdDDISetHwProtectionTeardownRecovery",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 129,
+"rva": 189136,
+"forwarder": "WIN32U.NtGdiDdDDIOpenSyncObjectFromNtHandle2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 130,
+"rva": 189181,
+"forwarder": "WIN32U.NtGdiDdDDIOpenSyncObjectNtHandleFromName",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 131,
+"rva": 190210,
+"forwarder": "WIN32U.NtGdiDdDDIQueryVideoMemoryInfo",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 132,
+"rva": 185057,
+"forwarder": "WIN32U.NtGdiDdDDIChangeVideoMemoryReservation",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 133,
+"rva": 134480,
+"forwarder": null,
+"ref": "dxcore.dll!0x20d50"
+},
+{
+"name": null,
+"ordinal": 134,
+"rva": 134800,
+"forwarder": null,
+"ref": "dxcore.dll!0x20e90"
+},
+{
+"name": null,
+"ordinal": 135,
+"rva": 135520,
+"forwarder": null,
+"ref": "dxcore.dll!0x21160"
+},
+{
+"name": null,
+"ordinal": 136,
+"rva": 135600,
+"forwarder": null,
+"ref": "dxcore.dll!0x211b0"
+},
+{
+"name": null,
+"ordinal": 137,
+"rva": 185184,
+"forwarder": "WIN32U.NtGdiDdDDICheckMultiPlaneOverlaySupport",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 138,
+"rva": 189601,
+"forwarder": "WIN32U.NtGdiDdDDIPresentMultiPlaneOverlay",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 139,
+"rva": 185231,
+"forwarder": "WIN32U.NtGdiDdDDICheckMultiPlaneOverlaySupport2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 140,
+"rva": 189643,
+"forwarder": "WIN32U.NtGdiDdDDIPresentMultiPlaneOverlay2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 141,
+"rva": 191250,
+"forwarder": "WIN32U.NtGdiDdDDISetStablePowerState",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 142,
+"rva": 189840,
+"forwarder": "WIN32U.NtGdiDdDDIQueryClockCalibration",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 143,
+"rva": 186769,
+"forwarder": "WIN32U.NtGdiDdDDIEnumAdapters",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 144,
+"rva": 186799,
+"forwarder": "WIN32U.NtGdiDdDDIEnumAdapters2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 145,
+"rva": 189910,
+"forwarder": "WIN32U.NtGdiDdDDIQueryProcessOfferInfo",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 146,
+"rva": 192060,
+"forwarder": "WIN32U.NtGdiDdDDITrimProcessCommitment",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 147,
+"rva": 185279,
+"forwarder": "WIN32U.NtGdiDdDDICheckMultiPlaneOverlaySupport3",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 148,
+"rva": 189686,
+"forwarder": "WIN32U.NtGdiDdDDIPresentMultiPlaneOverlay3",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 149,
+"rva": 185961,
+"forwarder": "WIN32U.NtGdiDdDDICreateSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 150,
+"rva": 189061,
+"forwarder": "WIN32U.NtGdiDdDDIOpenSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 151,
+"rva": 184906,
+"forwarder": "WIN32U.NtGdiDdDDIAcquireSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 152,
+"rva": 190474,
+"forwarder": "WIN32U.NtGdiDdDDIReleaseSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 153,
+"rva": 187946,
+"forwarder": "WIN32U.NtGdiDdDDIGetSetSwapChainMetadata",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 154,
+"rva": 184801,
+"forwarder": "WIN32U.NtGdiDdDDIAbandonSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 155,
+"rva": 190834,
+"forwarder": "WIN32U.NtGdiDdDDISetDodIndirectSwapchain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 156,
+"rva": 190875,
+"forwarder": "WIN32U.NtGdiDdDDISetFSEBlock",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 157,
+"rva": 189879,
+"forwarder": "WIN32U.NtGdiDdDDIQueryFSEBlock",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 158,
+"rva": 185688,
+"forwarder": "WIN32U.NtGdiDdDDICreateHwContext",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 159,
+"rva": 186238,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyHwContext",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 160,
+"rva": 185721,
+"forwarder": "WIN32U.NtGdiDdDDICreateHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 161,
+"rva": 186272,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 162,
+"rva": 191844,
+"forwarder": "WIN32U.NtGdiDdDDISubmitCommandToHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 163,
+"rva": 192009,
+"forwarder": "WIN32U.NtGdiDdDDISubmitWaitForSyncObjectsToHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 164,
+"rva": 191959,
+"forwarder": "WIN32U.NtGdiDdDDISubmitSignalSyncObjectsToHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 165,
+"rva": 135392,
+"forwarder": null,
+"ref": "dxcore.dll!0x210e0"
+},
+{
+"name": null,
+"ordinal": 166,
+"rva": 192688,
+"forwarder": "WIN32U.NtGdiDdDDIWaitForVerticalBlankEvent2",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 167,
+"rva": 191321,
+"forwarder": "WIN32U.NtGdiDdDDISetSyncRefreshCountWaitTarget",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 168,
+"rva": 187276,
+"forwarder": "WIN32U.NtGdiDdDDIGetDWMVerticalBlankEvent",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 169,
+"rva": 187047,
+"forwarder": "WIN32U.NtGdiDdDDIGetAllocationPriority",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 170,
+"rva": 187425,
+"forwarder": "WIN32U.NtGdiDdDDIGetMultiPlaneOverlayCaps",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 171,
+"rva": 187542,
+"forwarder": "WIN32U.NtGdiDdDDIGetPostCompositionCaps",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 172,
+"rva": 191449,
+"forwarder": "WIN32U.NtGdiDdDDISetYieldPercentage",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 173,
+"rva": 191117,
+"forwarder": "WIN32U.NtGdiDdDDISetProcessSchedulingPriorityBand",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 174,
+"rva": 190983,
+"forwarder": "WIN32U.NtGdiDdDDISetMemoryBudgetTarget",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 175,
+"rva": 188115,
+"forwarder": "WIN32U.NtGdiDdDDIGetYieldPercentage",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 176,
+"rva": 187731,
+"forwarder": "WIN32U.NtGdiDdDDIGetProcessSchedulingPriorityBand",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 177,
+"rva": 187386,
+"forwarder": "WIN32U.NtGdiDdDDIGetMemoryBudgetTarget",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 178,
+"rva": 186074,
+"forwarder": "WIN32U.NtGdiDdDDIDDisplayEnum",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 179,
+"rva": 186565,
+"forwarder": "WIN32U.NtGdiDdDDIDispMgrCreate",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 180,
+"rva": 186666,
+"forwarder": "WIN32U.NtGdiDdDDIDispMgrTargetOperation",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 181,
+"rva": 186626,
+"forwarder": "WIN32U.NtGdiDdDDIDispMgrSourceOperation",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 182,
+"rva": 191412,
+"forwarder": "WIN32U.NtGdiDdDDISetVidPnSourceOwner",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 183,
+"rva": 191022,
+"forwarder": "WIN32U.NtGdiDdDDISetMonitorColorSpaceTransform",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 184,
+"rva": 185921,
+"forwarder": "WIN32U.NtGdiDdDDICreateProtectedSession",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 185,
+"rva": 186442,
+"forwarder": "WIN32U.NtGdiDdDDIDestroyProtectedSession",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 186,
+"rva": 190004,
+"forwarder": "WIN32U.NtGdiDdDDIQueryProtectedSessionStatus",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 187,
+"rva": 189949,
+"forwarder": "WIN32U.NtGdiDdDDIQueryProtectedSessionInfoFromNtHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 188,
+"rva": 188939,
+"forwarder": "WIN32U.NtGdiDdDDIOpenProtectedSessionFromNtHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 189,
+"rva": 185553,
+"forwarder": "WIN32U.NtGdiDdDDICreateBundleObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 190,
+"rva": 186904,
+"forwarder": "WIN32U.NtGdiDdDDIExtractBundleObject",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 191,
+"rva": 191069,
+"forwarder": "WIN32U.NtGdiDdDDISetProcessDeviceRemovalSupport",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 192,
+"rva": 187655,
+"forwarder": "WIN32U.NtGdiDdDDIGetProcessDeviceRemovalSupport",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 193,
+"rva": 189729,
+"forwarder": "WIN32U.NtGdiDdDDIPresentRedirected",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 194,
+"rva": 184940,
+"forwarder": "WIN32U.NtGdiDdDDIAddSurfaceToSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 195,
+"rva": 190508,
+"forwarder": "WIN32U.NtGdiDdDDIRemoveSurfaceFromSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 196,
+"rva": 192099,
+"forwarder": "WIN32U.NtGdiDdDDIUnOrderedPresentSwapChain",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 197,
+"rva": 188857,
+"forwarder": "WIN32U.NtGdiDdDDIOpenKeyedMutexFromNtHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 198,
+"rva": 190321,
+"forwarder": "WIN32U.NtDxgkRegisterVailProcess",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 199,
+"rva": 192368,
+"forwarder": "WIN32U.NtDxgkVailConnect",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 200,
+"rva": 192393,
+"forwarder": "WIN32U.NtDxgkVailDisconnect",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 201,
+"rva": 192421,
+"forwarder": "WIN32U.NtDxgkVailPromoteCompositionSurface",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 202,
+"rva": 191884,
+"forwarder": "WIN32U.NtDxgkSubmitPresentBltToHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 203,
+"rva": 187703,
+"forwarder": "WIN32U.NtDxgkGetProcessList",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 204,
+"rva": 188742,
+"forwarder": "WIN32U.NtGdiDdDDIOpenBundleObjectNtHandleFromName",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 205,
+"rva": 190701,
+"forwarder": "WIN32U.NtGdiDdDDISetContextInProcessSchedulingPriority",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 206,
+"rva": 191923,
+"forwarder": "WIN32U.NtDxgkSubmitPresentToHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 207,
+"rva": 186039,
+"forwarder": "WIN32U.NtDxgkCreateTrackedWorkload",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 208,
+"rva": 186529,
+"forwarder": "WIN32U.NtDxgkDestroyTrackedWorkload",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 209,
+"rva": 187086,
+"forwarder": "WIN32U.NtDxgkGetAvailableTrackedWorkloadIndex",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 210,
+"rva": 192333,
+"forwarder": "WIN32U.NtDxgkUpdateTrackedWorkload",
+"ref": null
+},
+{
+"name": "DXCoreCreateAdapterFactory",
+"ordinal": 211,
+"rva": 59408,
+"forwarder": null,
+"ref": "dxcore.dll!0xe810"
+},
+{
+"name": null,
+"ordinal": 212,
+"rva": 188073,
+"forwarder": "WIN32U.NtDxgkGetTrackedWorkloadStatistics",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 213,
+"rva": 190618,
+"forwarder": "WIN32U.NtDxgkResetTrackedWorkloadStatistics",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 214,
+"rva": 189433,
+"forwarder": "WIN32U.NtDxgkOutputDuplPresentToHwQueue",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 215,
+"rva": 186596,
+"forwarder": "WIN32U.NtDxgkDispMgrOperation",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 216,
+"rva": 186740,
+"forwarder": "WIN32U.NtDxgkDuplicateHandle",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 217,
+"rva": 186830,
+"forwarder": "WIN32U.NtDxgkEnumAdapters3",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 218,
+"rva": 61056,
+"forwarder": null,
+"ref": "dxcore.dll!0xee80"
+},
+{
+"name": null,
+"ordinal": 220,
+"rva": 189513,
+"forwarder": "WIN32U.NtDxgkPinResources",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 221,
+"rva": 192191,
+"forwarder": "WIN32U.NtDxgkUnpinResources",
+"ref": null
+},
+{
+"name": null,
+"ordinal": 222,
+"rva": 186706,
+"forwarder": "WIN32U.NtDxgkDisplayPortOperation",
+"ref": null
+}
+]

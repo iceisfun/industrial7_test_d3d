@@ -1,0 +1,23 @@
+[
+{
+"name": "GetPrivateDDITable",
+"ordinal": 1,
+"rva": 40528,
+"forwarder": null,
+"ref": "d3d9on12.dll!0x9e50"
+},
+{
+"name": "OpenAdapter",
+"ordinal": 2,
+"rva": 12304,
+"forwarder": null,
+"ref": "d3d9on12.dll!0x3010"
+},
+{
+"name": "SetAppCompatData",
+"ordinal": 3,
+"rva": 40496,
+"forwarder": null,
+"ref": "d3d9on12.dll!0x9e30"
+}
+]

@@ -1,0 +1,9 @@
+[
+{
+"name": "OpenAdapter_D3D11On12",
+"ordinal": 1,
+"rva": 35456,
+"forwarder": null,
+"ref": "d3d11on12.dll!0x8a80"
+}
+]

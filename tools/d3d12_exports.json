@@ -1,0 +1,135 @@
+[
+{
+"name": null,
+"ordinal": 99,
+"rva": 64816,
+"forwarder": null,
+"ref": "d3d12.dll!0xfd30"
+},
+{
+"name": "GetBehaviorValue",
+"ordinal": 100,
+"rva": 28368,
+"forwarder": null,
+"ref": "d3d12.dll!0x6ed0"
+},
+{
+"name": "D3D12CreateDevice",
+"ordinal": 101,
+"rva": 27376,
+"forwarder": null,
+"ref": "d3d12.dll!0x6af0"
+},
+{
+"name": "D3D12GetDebugInterface",
+"ordinal": 102,
+"rva": 66160,
+"forwarder": null,
+"ref": "d3d12.dll!0x10270"
+},
+{
+"name": "SetAppCompatStringPointer",
+"ordinal": 103,
+"rva": 65344,
+"forwarder": null,
+"ref": "d3d12.dll!0xff40"
+},
+{
+"name": "D3D12CoreCreateLayeredDevice",
+"ordinal": 104,
+"rva": 18704,
+"forwarder": null,
+"ref": "d3d12.dll!0x4910"
+},
+{
+"name": "D3D12CoreGetLayeredDeviceSize",
+"ordinal": 105,
+"rva": 18640,
+"forwarder": null,
+"ref": "d3d12.dll!0x48d0"
+},
+{
+"name": "D3D12CoreRegisterLayers",
+"ordinal": 106,
+"rva": 18400,
+"forwarder": null,
+"ref": "d3d12.dll!0x47e0"
+},
+{
+"name": "D3D12CreateRootSignatureDeserializer",
+"ordinal": 107,
+"rva": 65872,
+"forwarder": null,
+"ref": "d3d12.dll!0x10150"
+},
+{
+"name": "D3D12CreateVersionedRootSignatureDeserializer",
+"ordinal": 108,
+"rva": 65968,
+"forwarder": null,
+"ref": "d3d12.dll!0x101b0"
+},
+{
+"name": "D3D12DeviceRemovedExtendedData",
+"ordinal": 109,
+"rva": 102936,
+"forwarder": null,
+"ref": "d3d12.dll!0x19218"
+},
+{
+"name": "D3D12EnableExperimentalFeatures",
+"ordinal": 110,
+"rva": 66064,
+"forwarder": null,
+"ref": "d3d12.dll!0x10210"
+},
+{
+"name": "D3D12GetInterface",
+"ordinal": 111,
+"rva": 36672,
+"forwarder": null,
+"ref": "d3d12.dll!0x8f40"
+},
+{
+"name": "D3D12PIXEventsReplaceBlock",
+"ordinal": 112,
+"rva": 67904,
+"forwarder": null,
+"ref": "d3d12.dll!0x10940"
+},
+{
+"name": "D3D12PIXGetThreadInfo",
+"ordinal": 113,
+"rva": 67920,
+"forwarder": null,
+"ref": "d3d12.dll!0x10950"
+},
+{
+"name": "D3D12PIXNotifyWakeFromFenceSignal",
+"ordinal": 114,
+"rva": 67936,
+"forwarder": null,
+"ref": "d3d12.dll!0x10960"
+},
+{
+"name": "D3D12PIXReportCounter",
+"ordinal": 115,
+"rva": 67984,
+"forwarder": null,
+"ref": "d3d12.dll!0x10990"
+},
+{
+"name": "D3D12SerializeRootSignature",
+"ordinal": 116,
+"rva": 66224,
+"forwarder": null,
+"ref": "d3d12.dll!0x102b0"
+},
+{
+"name": "D3D12SerializeVersionedRootSignature",
+"ordinal": 117,
+"rva": 66320,
+"forwarder": null,
+"ref": "d3d12.dll!0x10310"
+}
+]

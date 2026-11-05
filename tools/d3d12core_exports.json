@@ -1,0 +1,16 @@
+[
+{
+"name": "D3D12GetInterface",
+"ordinal": 1,
+"rva": 83360,
+"forwarder": null,
+"ref": "d3d12core.dll!0x145a0"
+},
+{
+"name": "D3D12SDKVersion",
+"ordinal": 2,
+"rva": 1386032,
+"forwarder": null,
+"ref": "d3d12core.dll!0x152630"
+}
+]

@@ -1,0 +1,205 @@
+[
+{
+"name": "D3DAssemble",
+"ordinal": 1,
+"rva": 993040,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf2710"
+},
+{
+"name": "DebugSetMute",
+"ordinal": 2,
+"rva": 30848,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7880"
+},
+{
+"name": "D3DCompile",
+"ordinal": 3,
+"rva": 992240,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf23f0"
+},
+{
+"name": "D3DCompile2",
+"ordinal": 4,
+"rva": 992368,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf2470"
+},
+{
+"name": "D3DCompileFromFile",
+"ordinal": 5,
+"rva": 992640,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf2580"
+},
+{
+"name": "D3DCompressShaders",
+"ordinal": 6,
+"rva": 1004192,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf52a0"
+},
+{
+"name": "D3DCreateBlob",
+"ordinal": 7,
+"rva": 30112,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x75a0"
+},
+{
+"name": "D3DCreateFunctionLinkingGraph",
+"ordinal": 8,
+"rva": 30544,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7750"
+},
+{
+"name": "D3DCreateLinker",
+"ordinal": 9,
+"rva": 30144,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x75c0"
+},
+{
+"name": "D3DDecompressShaders",
+"ordinal": 10,
+"rva": 1005056,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf5600"
+},
+{
+"name": "D3DDisassemble",
+"ordinal": 11,
+"rva": 29056,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7180"
+},
+{
+"name": "D3DDisassemble10Effect",
+"ordinal": 12,
+"rva": 93904,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x16ed0"
+},
+{
+"name": "D3DDisassemble11Trace",
+"ordinal": 13,
+"rva": 29264,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7250"
+},
+{
+"name": "D3DDisassembleRegion",
+"ordinal": 14,
+"rva": 29120,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x71c0"
+},
+{
+"name": "D3DGetBlobPart",
+"ordinal": 15,
+"rva": 999216,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf3f30"
+},
+{
+"name": "D3DGetDebugInfo",
+"ordinal": 16,
+"rva": 1000784,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf4550"
+},
+{
+"name": "D3DGetInputAndOutputSignatureBlob",
+"ordinal": 17,
+"rva": 1000928,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf45e0"
+},
+{
+"name": "D3DGetInputSignatureBlob",
+"ordinal": 18,
+"rva": 1000832,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf4580"
+},
+{
+"name": "D3DGetOutputSignatureBlob",
+"ordinal": 19,
+"rva": 1000880,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf45b0"
+},
+{
+"name": "D3DGetTraceInstructionOffsets",
+"ordinal": 20,
+"rva": 29200,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7210"
+},
+{
+"name": "D3DLoadModule",
+"ordinal": 21,
+"rva": 30288,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7650"
+},
+{
+"name": "D3DPreprocess",
+"ordinal": 22,
+"rva": 997056,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf36c0"
+},
+{
+"name": "D3DReadFileToBlob",
+"ordinal": 23,
+"rva": 984176,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf0470"
+},
+{
+"name": "D3DReflect",
+"ordinal": 24,
+"rva": 29328,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7290"
+},
+{
+"name": "D3DReflectLibrary",
+"ordinal": 25,
+"rva": 29712,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x7410"
+},
+{
+"name": "D3DReturnFailure1",
+"ordinal": 26,
+"rva": 97664,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0x17d80"
+},
+{
+"name": "D3DSetBlobPart",
+"ordinal": 27,
+"rva": 999280,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf3f70"
+},
+{
+"name": "D3DStripShader",
+"ordinal": 28,
+"rva": 1000976,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf4610"
+},
+{
+"name": "D3DWriteBlobToFile",
+"ordinal": 29,
+"rva": 984752,
+"forwarder": null,
+"ref": "d3dcompiler_47.dll!0xf06b0"
+}
+]

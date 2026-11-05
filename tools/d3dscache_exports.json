@@ -1,0 +1,65 @@
+[
+{
+"name": "DllCanUnloadNow",
+"ordinal": 1,
+"rva": 14704,
+"forwarder": null,
+"ref": "d3dscache.dll!0x3970"
+},
+{
+"name": "DllGetClassObject",
+"ordinal": 2,
+"rva": 14768,
+"forwarder": null,
+"ref": "d3dscache.dll!0x39b0"
+},
+{
+"name": "ShaderCache_AddValue",
+"ordinal": 3,
+"rva": 13488,
+"forwarder": null,
+"ref": "d3dscache.dll!0x34b0"
+},
+{
+"name": "ShaderCache_Create",
+"ordinal": 4,
+"rva": 11696,
+"forwarder": null,
+"ref": "d3dscache.dll!0x2db0"
+},
+{
+"name": "ShaderCache_Destroy",
+"ordinal": 5,
+"rva": 12016,
+"forwarder": null,
+"ref": "d3dscache.dll!0x2ef0"
+},
+{
+"name": "ShaderCache_FindValue",
+"ordinal": 6,
+"rva": 12864,
+"forwarder": null,
+"ref": "d3dscache.dll!0x3240"
+},
+{
+"name": "ShaderCache_Flush",
+"ordinal": 7,
+"rva": 14112,
+"forwarder": null,
+"ref": "d3dscache.dll!0x3720"
+},
+{
+"name": "ShaderCache_FreeValue",
+"ordinal": 8,
+"rva": 12640,
+"forwarder": null,
+"ref": "d3dscache.dll!0x3160"
+},
+{
+"name": "ShaderCache_GetDesc",
+"ordinal": 9,
+"rva": 14320,
+"forwarder": null,
+"ref": "d3dscache.dll!0x37f0"
+}
+]
