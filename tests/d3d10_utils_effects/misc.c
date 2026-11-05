@@ -22,6 +22,7 @@ TEST(d3d10_utils_effects_exports_d3d10level9) { check_exports("d3d10level9.dll",
 
 static void check_ordinals(const char *dll, const char *const *tbl, int n)
 {
+    if (t_is_wine()) { t_skip("export ordinals of the emulator differ"); return; }
     HMODULE m = t_module(dll);
     if (!m) { t_skip("%s not loadable", dll); return; }
     /* The export directory is sorted by name and the ordinals follow that order, starting at 1. */
