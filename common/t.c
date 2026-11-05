@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < g_nc; i++) if (!strcmp(g_c[i].n, argv[2])) return g_c[i].f(argc - 2, argv + 2);
         return 0xC0DE0001;
     }
+    if (argc > 1 && !strcmp(argv[1], "--list")) { for (int i = 0; i < g_nt; i++) printf("%s\n", g_t[i].n); return 0; }
     AddVectoredExceptionHandler(1, veh);
     if (!t_module(g_mods[0])) { printf("FATAL cannot load %s\n", g_mods[0]); return 2; }
     for (int i = 0; i < g_nt; i++) {
