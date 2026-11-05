@@ -90,6 +90,7 @@ static int have_core(void) { return t_module("d3d12core.dll") != NULL; }
 
 TEST(d3d12_entry_points_getinterface_sdkconfiguration) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     ID3D12SDKConfiguration *c = NULL;
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&c);
     if (FAILED(hr)) { t_note("SDKConfiguration -> %s", d3dh_hr_name(hr)); EXPECT_HR_IN(hr, E_NOINTERFACE, CLASS_E_CLASSNOTAVAILABLE); t_skip("not available"); return; }
@@ -105,6 +106,7 @@ TEST(d3d12_entry_points_getinterface_sdkconfiguration) {
 
 TEST(d3d12_entry_points_getinterface_sdkconfiguration_null_out) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     ID3D12SDKConfiguration *c = NULL;
     HRESULT probe = U(D3D12GetInterface)(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&c);
     if (FAILED(probe)) { t_skip("SDKConfiguration unavailable"); return; }
@@ -115,6 +117,7 @@ TEST(d3d12_entry_points_getinterface_sdkconfiguration_null_out) {
 
 TEST(d3d12_entry_points_getinterface_unknown_clsid) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     void *p = NULL;
     HRESULT hr = U(D3D12GetInterface)(&EP_RANDOM_GUID, &IID_IUnknown, &p);
     EXPECT_HR(hr, E_NOINTERFACE);
@@ -123,12 +126,14 @@ TEST(d3d12_entry_points_getinterface_unknown_clsid) {
 
 TEST(d3d12_entry_points_getinterface_unknown_clsid_null_out) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     EXPECT_HR(U(D3D12GetInterface)(&EP_RANDOM_GUID, &IID_IUnknown, NULL), E_NOINTERFACE);
 }
 
 TEST(d3d12_entry_points_getinterface_iid_as_clsid) {
     /* an interface id is not a class id */
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     void *p = NULL;
     EXPECT_HR(U(D3D12GetInterface)(&IID_ID3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, &p), E_NOINTERFACE);
     EXPECT_HR(U(D3D12GetInterface)(&IID_ID3D12Device, &IID_ID3D12Device, &p), E_NOINTERFACE);
@@ -137,12 +142,14 @@ TEST(d3d12_entry_points_getinterface_iid_as_clsid) {
 
 TEST(d3d12_entry_points_getinterface_null_clsid_guid) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     void *p = NULL;
     EXPECT_HR(U(D3D12GetInterface)(&GUID_NULL, &IID_IUnknown, &p), E_NOINTERFACE);
 }
 
 TEST(d3d12_entry_points_getinterface_tools) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     if (!have_core()) { t_skip("d3d12core.dll absent"); return; }
     ID3D12Tools *t = NULL;
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&t);
@@ -158,6 +165,7 @@ TEST(d3d12_entry_points_getinterface_tools) {
 
 TEST(d3d12_entry_points_getinterface_tools_null_out) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     if (!have_core()) { t_skip("d3d12core.dll absent"); return; }
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12Tools, &IID_ID3D12Tools, NULL);
     t_note("Tools with NULL out -> %s", d3dh_hr_name(hr));
@@ -166,6 +174,7 @@ TEST(d3d12_entry_points_getinterface_tools_null_out) {
 
 TEST(d3d12_entry_points_getinterface_dred_settings) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     if (!have_core()) { t_skip("d3d12core.dll absent"); return; }
     ID3D12DeviceRemovedExtendedDataSettings *s = NULL;
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12DeviceRemovedExtendedData, &IID_ID3D12DeviceRemovedExtendedDataSettings, (void **)&s);
@@ -182,6 +191,7 @@ TEST(d3d12_entry_points_getinterface_dred_settings) {
 
 TEST(d3d12_entry_points_getinterface_device_factory_observed) {
     REQUIRE(U(D3D12GetInterface));
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     void *p = NULL;
     HRESULT hr = U(D3D12GetInterface)(&EP_CLSID_DeviceFactory, &EP_IID_DeviceFactory, &p);
     t_note("CLSID_D3D12DeviceFactory -> %s", d3dh_hr_name(hr));
@@ -190,6 +200,7 @@ TEST(d3d12_entry_points_getinterface_device_factory_observed) {
 }
 
 TEST(d3d12_entry_points_getinterface_via_ordinal) {
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     HMODULE m = t_module("d3d12.dll"); if (!m) { t_skip("no d3d12.dll"); return; }
     typeof(&D3D12GetInterface) f = (typeof(&D3D12GetInterface))GetProcAddress(m, (LPCSTR)111);
     if (!f) { t_skip("ordinal 111 absent"); return; }
@@ -199,6 +210,7 @@ TEST(d3d12_entry_points_getinterface_via_ordinal) {
 }
 
 TEST(d3d12_entry_points_getinterface_core_direct) {
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     HMODULE c = t_module("d3d12core.dll"); if (!c) { t_skip("no d3d12core.dll"); return; }
     typeof(&D3D12GetInterface) f = (typeof(&D3D12GetInterface))GetProcAddress(c, "D3D12GetInterface");
     REQUIRE(f);
@@ -224,7 +236,7 @@ CHILD(sdkcfg_bad_path) {
 }
 TEST(d3d12_entry_points_sdkconfig_setsdkversion_bad_path) {
     REQUIRE(U(D3D12GetInterface));
-    if (t_is_wine()) { t_skip("emulator lacks SDK configuration"); return; }
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     DWORD rc = t_run_child("sdkcfg_bad_path", "", 20000);
     if (rc == 100 || rc == 101) { t_skip("SDK configuration unavailable"); return; }
     CHECK(rc != 0xDEAD0000 && rc != 0xDEAD0001);
@@ -241,7 +253,7 @@ CHILD(sdkcfg_refcount) {
 }
 TEST(d3d12_entry_points_sdkconfig_refcounts) {
     REQUIRE(U(D3D12GetInterface));
-    if (t_is_wine()) { t_skip("emulator lacks SDK configuration"); return; }
+    if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     DWORD rc = t_run_child("sdkcfg_refcount", "", 20000);
     if (rc == 100) { t_skip("SDK configuration unavailable"); return; }
     EXPECT_EQ(rc, 0);
@@ -353,6 +365,7 @@ CHILD(getbehavior) {
 }
 TEST(d3d12_entry_points_getbehaviorvalue_unknown_name) {
     REQUIRE(UN(GetBehaviorValue));
+    if (t_is_wine()) { t_skip("emulator stubs GetBehaviorValue"); return; }
     DWORD rc = t_run_child("getbehavior", "", 20000);
     if (rc == 100) { t_skip("absent"); return; }
     CHECK(rc != 99 && rc != 0xDEAD0000 && rc != 0xDEAD0001);
