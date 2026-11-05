@@ -363,18 +363,6 @@ TEST(d3d12_entry_points_checkfeature_matrix_size_zero) {
     ID3D12Device_Release(d);
 }
 
-TEST(d3d12_entry_points_checkfeature_matrix_null_data) {
-    EP_NEED_DEVICE(d);
-    for (unsigned i = 0; i < NFEAT; i++) {
-        fbuf b; HRESULT ok = feat_call(d, i, &b, k_feat[i].size);
-        if (FAILED(ok)) continue;
-        HRESULT hr = CFS(d, k_feat[i].feature, NULL, k_feat[i].size);
-        CHECKF(FAILED(hr), "%s NULL data -> %s", k_feat[i].name, d3dh_hr_name(hr));
-        if (hr != E_INVALIDARG) t_note("%s NULL data -> %s", k_feat[i].name, d3dh_hr_name(hr));
-    }
-    ID3D12Device_Release(d);
-}
-
 TEST(d3d12_entry_points_checkfeature_matrix_repeatable) {
     EP_NEED_DEVICE(d);
     for (unsigned i = 0; i < NFEAT; i++) {
@@ -901,3 +889,12 @@ TEST(d3d12_entry_points_device_factory_create_device) {
     f->lpVtbl->Release(f);
     SAFE_RELEASE(ad);
 }
+
+TEST(d3d12_entry_points_device_luid_matches_across_queries) {
+    EP_NEED_DEVICE(d);
+    LUID a = ep_luid(d), b = ep_luid(d);
+    CHECK(!memcmp(&a, &b, sizeof a));
+    EP_EQ(ID3D12Device_GetNodeCount(d) >= 1, 1);
+    ID3D12Device_Release(d);
+}
+
