@@ -172,7 +172,7 @@ TEST(d3dcompiler_compile_targets_level9_has_aon9_part)
     if (t_is_wine()) { t_skip("level 9 profiles"); return; }
     for (i = 0; i < 4; i++) {
         cc_r r;
-        EXPECT_HR(cc_run(&r, tg[i][0] == 'v' ? CC_VS_SRC : CC_PS_SRC, "main", tg[i], 0), S_OK);
+        EXPECT_HR(cc_run(&r, tg[i][0] == 'v' ? CC_VS_SRC : CC_PS_CONST, "main", tg[i], 0), S_OK);
         if (r.code) {
             char parts[128];
             cc_part_list(r.code, parts, sizeof parts);

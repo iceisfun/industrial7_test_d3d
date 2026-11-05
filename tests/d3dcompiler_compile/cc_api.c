@@ -379,7 +379,7 @@ TEST(d3dcompiler_compile_api_long_source)
 TEST(d3dcompiler_compile_api_srcname_prefixes_diagnostics)
 {
     WIN_ONLY();
-    static const char *names[] = { "my_shader.hlsl", "dir/sub/file.fx", "C:\\path\\with space\\x.hlsl", "n" };
+    static const char *names[] = { "my_shader.hlsl", "dir/sub/file.fx", "C:/path/with space/x.hlsl", "n" };
     unsigned i;
     NEED_COMPILE();
     for (i = 0; i < sizeof names / sizeof *names; i++) {
