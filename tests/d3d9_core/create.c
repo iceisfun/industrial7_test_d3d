@@ -1,16 +1,27 @@
 /* d3d9.dll creation entry points: Direct3DCreate9 / Ex / On12, QueryInterface ladder, refcounts. */
 #include "d9c.h"
 
+/* Skip when the runtime cannot create any enumeration object at all (e.g. an emulator without a display driver). */
+static int can_create(void) {
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9();
+    if (!c) { t_skip("missing export: Direct3DCreate9"); return 0; }
+    IDirect3D9 *d = c(D3D_SDK_VERSION);
+    if (!d) { t_skip("Direct3DCreate9 returned NULL for the current SDK version"); return 0; }
+    IDirect3D9_Release(d);
+    return 1;
+}
+#define NEED_CREATE() do { if (!can_create()) return; } while (0)
+
 /* ---- Direct3DCreate9: SDK version handling (accepted: 31, 32, >= 132 after masking bit 31) ---- */
 TEST(d3d9_core_create9_current_version) {
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     IDirect3D9 *d = c(D3D_SDK_VERSION);
     CHECK(d != NULL);
     if (d) EXPECT_EQ(IDirect3D9_Release(d), 0);
 }
 TEST(d3d9_core_create9_sdk_version_constant) { EXPECT_EQ(D3D_SDK_VERSION, 32); }
 TEST(d3d9_core_create9_valid_versions) {
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     static const UINT v[] = { 31, 32, 0x80000020u, 0x8000001Fu, 132, 200, 1000 };
     for (unsigned i = 0; i < sizeof v / sizeof *v; i++) {
         IDirect3D9 *d = c(v[i]);
@@ -19,7 +30,7 @@ TEST(d3d9_core_create9_valid_versions) {
     }
 }
 TEST(d3d9_core_create9_invalid_versions) {
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     static const UINT v[] = { 0, 1, 2, 7, 15, 29, 30, 33, 34, 40, 64, 100, 131, 0x80000000u, 0x80000001u, 0x8000001Eu, 0x80000021u, 0x80000083u };
     for (unsigned i = 0; i < sizeof v / sizeof *v; i++) {
         IDirect3D9 *d = c(v[i]);
@@ -29,7 +40,7 @@ TEST(d3d9_core_create9_invalid_versions) {
 }
 TEST(d3d9_core_create9_boundaries_exact) {
     /* 30 rejected, 31 accepted, 32 accepted, 33 rejected, 131 rejected, 132 accepted. */
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     static const struct { UINT v; int ok; } t[] = { {30,0},{31,1},{32,1},{33,0},{131,0},{132,1} };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) {
         IDirect3D9 *d = c(t[i].v);
@@ -38,14 +49,14 @@ TEST(d3d9_core_create9_boundaries_exact) {
     }
 }
 TEST(d3d9_core_create9_distinct_objects) {
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     IDirect3D9 *a = c(D3D_SDK_VERSION), *b = c(D3D_SDK_VERSION);
     CHECK(a && b);
     if (a && b) { CHECK(a != b); EXPECT_EQ(IDirect3D9_Release(a), 0); EXPECT_EQ(IDirect3D9_Release(b), 0); }
     else { SAFE_RELEASE(a); SAFE_RELEASE(b); }
 }
 TEST(d3d9_core_create9_many_create_release) {
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     for (int i = 0; i < 50; i++) {
         IDirect3D9 *d = c(D3D_SDK_VERSION);
         if (!d) { CHECKF(0, "iteration %d returned NULL", i); break; }
@@ -54,7 +65,7 @@ TEST(d3d9_core_create9_many_create_release) {
 }
 TEST(d3d9_core_create9_debug_flag_bit31) {
     /* Bit 31 of the SDK version is masked before validation. */
-    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9) c = D9_CREATE9(); REQUIRE(c); NEED_CREATE();
     IDirect3D9 *d = c(D3D_SDK_VERSION | 0x80000000u);
     CHECK(d != NULL);
     if (d) IDirect3D9_Release(d);
@@ -62,7 +73,7 @@ TEST(d3d9_core_create9_debug_flag_bit31) {
 
 /* ---- Direct3DCreate9Ex ---- */
 TEST(d3d9_core_create9ex_current_version) {
-    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     IDirect3D9Ex *d = NULL;
     HRESULT hr = c(D3D_SDK_VERSION, &d);
     EXPECT_HR(hr, S_OK);
@@ -70,7 +81,7 @@ TEST(d3d9_core_create9ex_current_version) {
     if (d) EXPECT_EQ(IDirect3D9Ex_Release(d), 0);
 }
 TEST(d3d9_core_create9ex_invalid_versions) {
-    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     static const UINT v[] = { 0, 1, 30, 33, 100, 131, 0x80000000u, 0x80000021u };
     for (unsigned i = 0; i < sizeof v / sizeof *v; i++) {
         IDirect3D9Ex *d = NULL;
@@ -82,14 +93,14 @@ TEST(d3d9_core_create9ex_invalid_versions) {
 }
 TEST(d3d9_core_create9ex_out_cleared_on_failure) {
     /* The out slot is written NULL before anything else happens, even when the call fails. */
-    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     IDirect3D9Ex *d = (IDirect3D9Ex *)(ULONG_PTR)0x10;
     HRESULT hr = c(1, &d);
     EXPECT_HR(hr, D9_NOTAVAILABLE);
     CHECK(d == NULL);
 }
 TEST(d3d9_core_create9ex_out_overwritten_on_success) {
-    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     IDirect3D9Ex *d = (IDirect3D9Ex *)(ULONG_PTR)0x10;
     HRESULT hr = c(D3D_SDK_VERSION, &d);
     EXPECT_HR(hr, S_OK);
@@ -97,7 +108,7 @@ TEST(d3d9_core_create9ex_out_overwritten_on_success) {
     if (d && d != (IDirect3D9Ex *)(ULONG_PTR)0x10) IDirect3D9Ex_Release(d);
 }
 TEST(d3d9_core_create9ex_boundaries) {
-    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     static const struct { UINT v; int ok; } t[] = { {30,0},{31,1},{32,1},{33,0},{131,0},{132,1},{0x80000020u,1} };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) {
         IDirect3D9Ex *d = NULL;
@@ -110,7 +121,7 @@ TEST(d3d9_core_create9ex_boundaries) {
 TEST(d3d9_core_create9ex_null_out_note) {
     /* The decompiled implementation stores through the out pointer unconditionally, so a NULL out pointer is not a
        documented INVALIDCALL path on Windows 10; deliberately not called. */
-    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c);
+    __typeof__(&Direct3DCreate9Ex) c = D9_CREATE9EX(); REQUIRE(c); NEED_CREATE();
     t_note("Direct3DCreate9Ex(ver, NULL) is not exercised: d3d9.dll writes *ppD3D9Ex first (no INVALIDCALL validation)");
 }
 
@@ -269,7 +280,7 @@ TEST(d3d9_core_on12_args_layout) {
     EXPECT_EQ(offsetof(d9c_on12_args, NumQueues), 32);
 }
 TEST(d3d9_core_on12_null_args) {
-    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c);
+    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c); NEED_CREATE();
     IDirect3D9 *d = c(D3D_SDK_VERSION, NULL, 0);
     CHECK(d != NULL);
     if (d) {
@@ -279,7 +290,7 @@ TEST(d3d9_core_on12_null_args) {
     }
 }
 TEST(d3d9_core_on12_bad_version) {
-    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c);
+    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c); NEED_CREATE();
     static const UINT v[] = { 0, 30, 33, 131, 0x80000021u };
     for (unsigned i = 0; i < sizeof v / sizeof *v; i++) {
         IDirect3D9 *d = c(v[i], NULL, 0);
@@ -288,7 +299,7 @@ TEST(d3d9_core_on12_bad_version) {
     }
 }
 TEST(d3d9_core_on12_disabled_args) {
-    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c);
+    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c); NEED_CREATE();
     d9c_on12_args a; memset(&a, 0, sizeof a);   /* Enable9On12 = FALSE, no D3D12 objects */
     IDirect3D9 *d = c(D3D_SDK_VERSION, &a, 1);
     t_note("Direct3DCreate9On12 with Enable9On12=FALSE: %p", (void *)d);
@@ -298,7 +309,7 @@ TEST(d3d9_core_on12_disabled_args) {
     }
 }
 TEST(d3d9_core_on12ex_null_args) {
-    Direct3DCreate9On12Ex_pfn c = (Direct3DCreate9On12Ex_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12Ex"); REQUIRE(c);
+    Direct3DCreate9On12Ex_pfn c = (Direct3DCreate9On12Ex_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12Ex"); REQUIRE(c); NEED_CREATE();
     IDirect3D9Ex *d = NULL;
     HRESULT hr = c(D3D_SDK_VERSION, NULL, 0, &d);
     EXPECT_HR(hr, S_OK);
@@ -311,7 +322,7 @@ TEST(d3d9_core_on12ex_null_args) {
     }
 }
 TEST(d3d9_core_on12ex_bad_version) {
-    Direct3DCreate9On12Ex_pfn c = (Direct3DCreate9On12Ex_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12Ex"); REQUIRE(c);
+    Direct3DCreate9On12Ex_pfn c = (Direct3DCreate9On12Ex_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12Ex"); REQUIRE(c); NEED_CREATE();
     static const UINT v[] = { 0, 30, 33, 131 };
     for (unsigned i = 0; i < sizeof v / sizeof *v; i++) {
         IDirect3D9Ex *d = (IDirect3D9Ex *)(ULONG_PTR)0x30;
@@ -321,7 +332,7 @@ TEST(d3d9_core_on12ex_bad_version) {
     }
 }
 TEST(d3d9_core_on12_same_adapter_count_as_plain) {
-    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c);
+    Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c); NEED_CREATE();
     D9_GET(a);
     IDirect3D9 *b = c(D3D_SDK_VERSION, NULL, 0);
     CHECK(b != NULL);

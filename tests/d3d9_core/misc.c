@@ -11,11 +11,13 @@ static const struct { const char *name; unsigned ord; } k_exports[] = {
 
 TEST(d3d9_core_exports_present) {
     HMODULE m = t_module("d3d9.dll"); REQUIRE(m);
+    if (t_is_wine()) { t_skip("emulator export list differs"); return; }
     for (unsigned i = 0; i < sizeof k_exports / sizeof *k_exports; i++)
         CHECKF(GetProcAddress(m, k_exports[i].name) != NULL, "%s", k_exports[i].name);
 }
 TEST(d3d9_core_exports_ordinals) {
     HMODULE m = t_module("d3d9.dll"); REQUIRE(m);
+    if (t_is_wine()) { t_skip("emulator export table differs"); return; }
     for (unsigned i = 0; i < sizeof k_exports / sizeof *k_exports; i++) {
         FARPROC byname = GetProcAddress(m, k_exports[i].name);
         FARPROC byord = GetProcAddress(m, (LPCSTR)(ULONG_PTR)k_exports[i].ord);
@@ -25,6 +27,7 @@ TEST(d3d9_core_exports_ordinals) {
 TEST(d3d9_core_exports_unnamed_ordinal_17) {
     /* Direct3D9SetMaximizedWindowedModeShim is exported by ordinal only. Not called: it can write app-compat registry state. */
     HMODULE m = t_module("d3d9.dll"); REQUIRE(m);
+    if (t_is_wine()) { t_skip("emulator export table differs"); return; }
     FARPROC p = GetProcAddress(m, (LPCSTR)(ULONG_PTR)17);
     CHECK(p != NULL);
 }
@@ -56,6 +59,7 @@ TEST(d3d9_core_exports_module_filename) {
 TEST(d3d9_core_exports_not_forwarders) {
     /* All named exports resolve inside the d3d9.dll image (no forwarder strings). */
     HMODULE m = t_module("d3d9.dll"); REQUIRE(m);
+    if (t_is_wine()) { t_skip("emulator export table differs"); return; }
     BYTE *base = (BYTE *)m;
     IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
     DWORD sz = nt->OptionalHeader.SizeOfImage;
@@ -165,16 +169,19 @@ UDECL(void, DebugSetMute, (DWORD));
 UDECL(void, DebugSetLevel, (DWORD));
 TEST(d3d9_core_debug_set_mute_stub) {
     DebugSetMute_pfn f = (DebugSetMute_pfn)t_proc_in("d3d9.dll", "DebugSetMute"); REQUIRE(f);
+    if (t_is_wine()) { t_skip("emulator export has a different signature"); return; }
     f(0); f(1); f(0);
     CHECK(1);
 }
 TEST(d3d9_core_debug_set_level_stub) {
     DebugSetLevel_pfn f = (DebugSetLevel_pfn)t_proc_in("d3d9.dll", "DebugSetLevel"); REQUIRE(f);
+    if (t_is_wine()) { t_skip("emulator export has a different signature"); return; }
     f(0); f(1); f(0);
     CHECK(1);
 }
 TEST(d3d9_core_debug_stubs_do_not_break_create) {
     DebugSetMute_pfn f = (DebugSetMute_pfn)t_proc_in("d3d9.dll", "DebugSetMute"); REQUIRE(f);
+    if (t_is_wine()) { t_skip("emulator export has a different signature"); return; }
     f(1);
     D9_GET(d);
     IDirect3D9_Release(d);
@@ -201,6 +208,7 @@ static HRESULT CALLBACK val_cb(const char *file, UINT line, DWORD flags, UINT id
 static v9 *mkval(void) {
     Direct3DShaderValidatorCreate9_pfn c = (Direct3DShaderValidatorCreate9_pfn)t_proc_in("d3d9.dll", "Direct3DShaderValidatorCreate9");
     if (!c) { t_skip("missing export: Direct3DShaderValidatorCreate9"); return NULL; }
+    if (t_is_wine()) { t_skip("emulator does not implement the shader validator object"); return NULL; }
     v9 *v = c();
     if (!v) t_skip("validator not created");
     return v;

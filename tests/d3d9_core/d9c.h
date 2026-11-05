@@ -28,6 +28,6 @@
 
 /* True when the adapter 0 can describe the (X8R8G8B8 windowed) HAL format table; used to guard device-type dependent checks. */
 static inline int d9_have_devtype(IDirect3D9 *d3d, D3DDEVTYPE t) {
-    return SUCCEEDED(IDirect3D9_CheckDeviceFormat(d3d, 0, t, D3DFMT_X8R8G8B8, 0, D3DRTYPE_SURFACE, D3DFMT_X8R8G8B8));
+    return SUCCEEDED(IDirect3D9_CheckDeviceFormat(d3d, 0, t, D3DFMT_X8R8G8B8, 0, D3DRTYPE_TEXTURE, D3DFMT_X8R8G8B8));
 }
 #endif
