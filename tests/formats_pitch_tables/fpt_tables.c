@@ -108,3 +108,53 @@ TEST(fpt_d3d11_support_by_feature_level_table)
         ID3D11DeviceContext_Release(ctx); ID3D11Device_Release(dev);
     }
 }
+
+TEST(fpt_tables_block_bytes_per_group)
+{
+    UINT id;
+    for (id = 0; id < FPT_NFORMATS; id++) {
+        const fpt_fmt *f = &fpt_formats[id];
+        if (!fpt_is_bc(f)) continue;
+        CHECKF(f->bw == 4 && f->bh == 4, "%s block %ux%u", f->name, f->bw, f->bh);
+        if (f->group == G_BC1 || f->group == G_BC4) CHECKF(f->bpb == 8, "%s block bytes %u", f->name, f->bpb);
+        else CHECKF(f->bpb == 16, "%s block bytes %u", f->name, f->bpb);
+    }
+}
+TEST(fpt_tables_bc_row_bytes_all_groups)
+{
+    UINT id, wi;
+    for (id = 0; id < FPT_NFORMATS; id++) {
+        const fpt_fmt *f = &fpt_formats[id];
+        if (!fpt_is_bc(f)) continue;
+        for (wi = 0; wi < FPT_NW; wi++) {
+            UINT w = fpt_widths[wi], blocks = (w + 3) / 4;
+            CHECKF(fpt_row_bytes(f, w) == blocks * f->bpb, "%s w=%u", f->name, w);
+            CHECKF(fpt_row_bytes(f, w) % f->bpb == 0, "%s w=%u not a multiple of block size", f->name, w);
+        }
+    }
+}
+TEST(fpt_tables_row_pitch_alignment_arithmetic)
+{
+    static const struct { UINT in, want; } t[] = { {0,0}, {1,256}, {255,256}, {256,256}, {257,512}, {511,512}, {512,512}, {1000,1024}, {4096,4096} };
+    UINT i;
+    for (i = 0; i < sizeof t / sizeof *t; i++) CHECKF(fpt_align(t[i].in, 256) == t[i].want, "align256(%u)=%u", t[i].in, fpt_align(t[i].in, 256));
+    CHECK(fpt_align(1, 512) == 512 && fpt_align(513, 512) == 1024);
+}
+TEST(fpt_tables_mip_dimension_arithmetic)
+{
+    UINT v, m;
+    CHECK(fpt_mip(1, 0) == 1 && fpt_mip(1, 5) == 1 && fpt_mip(16384, 14) == 1 && fpt_mip(5, 1) == 2 && fpt_mip(7, 2) == 1 && fpt_mip(100, 3) == 12);
+    for (v = 1; v <= 64; v++) for (m = 0; m < 8; m++) CHECK(fpt_mip(v, m) >= 1 && fpt_mip(v, m) <= v);
+}
+TEST(fpt_tables_planar_and_packed_entries)
+{
+    CHECK(fpt_formats[DXGI_FORMAT_NV12].group == G_PLANAR && fpt_formats[DXGI_FORMAT_P010].bpb == 2 && fpt_formats[DXGI_FORMAT_NV12].bpb == 1);
+    CHECK(fpt_formats[DXGI_FORMAT_YUY2].bw == 2 && fpt_formats[DXGI_FORMAT_YUY2].bpb == 4 && fpt_formats[DXGI_FORMAT_Y210].bpb == 8);
+    CHECK(fpt_formats[DXGI_FORMAT_AYUV].bpb == 4 && fpt_formats[DXGI_FORMAT_R1_UNORM].bw == 8);
+}
+TEST(fpt_tables_d3d12_subresource_count_limits)
+{
+    CHECK(D3D12_REQ_SUBRESOURCES == 30720);
+    CHECK(D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION * D3D12_REQ_MIP_LEVELS == D3D12_REQ_SUBRESOURCES);
+    CHECK(D3D11_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION * D3D11_REQ_MIP_LEVELS == 30720);
+}

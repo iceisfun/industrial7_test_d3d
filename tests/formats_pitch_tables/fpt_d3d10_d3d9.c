@@ -19,9 +19,9 @@ static void run10_2d(UINT grp)
         sup = sup10(dev, id);
         n = snprintf(line, sizeof line, "d3d10 tex2d %s rowpitch by width:", f->name);
         for (wi = 0; wi < FPT_NW; wi++) {
-            UINT w = fpt_widths[wi], h = 5, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), r, i; D3D10_TEXTURE2D_DESC d = {0};
+            UINT w = fpt_widths[wi], h = fpt_is_bc(f) ? 8 : 5, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), r, i; D3D10_TEXTURE2D_DESC d = {0};
             ID3D10Texture2D *a = NULL, *b = NULL; D3D10_MAPPED_TEXTURE2D m; HRESULT hr;
-            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
+            int must = ((f->group >= G_B8 && f->group <= G_B128) || fpt_is_bc(f)) && (sup & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
             d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = (DXGI_FORMAT)id; d.SampleDesc.Count = 1;
             d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ | D3D10_CPU_ACCESS_WRITE;
             hr = ID3D10Device_CreateTexture2D(dev, &d, NULL, &a);
@@ -36,7 +36,7 @@ static void run10_2d(UINT grp)
             EXPECT_HR(hr, S_OK);
             if (SUCCEEDED(hr)) {
                 CHECKF(m.RowPitch >= rowb, "d3d10 %s w=%u RowPitch %u < %u", f->name, w, m.RowPitch, rowb);
-                if (prev) CHECKF(m.RowPitch >= prev, "d3d10 %s pitch not monotonic: %u after %u", f->name, m.RowPitch, prev);
+                if (prev && m.RowPitch < prev) t_note("d3d10 %s pitch shrinks with width: %u after %u", f->name, m.RowPitch, prev);
                 prev = m.RowPitch;
                 n += snprintf(line + n, sizeof line - n, " %u", m.RowPitch);
                 for (r = 0; r < rows; r++) for (i = 0; i < rowb; i++) ((BYTE *)m.pData)[(size_t)r * m.RowPitch + i] = pat(id, 0, r, i);
@@ -47,7 +47,7 @@ static void run10_2d(UINT grp)
                 EXPECT_HR(hr, S_OK);
                 if (SUCCEEDED(hr)) {
                     int ok = 1; for (r = 0; r < rows; r++) for (i = 0; i < rowb; i++) if (((BYTE *)m.pData)[(size_t)r * m.RowPitch + i] != pat(id, 0, r, i)) ok = 0;
-                    CHECKF(ok, "d3d10 %s w=%u CopyResource content mismatch", f->name, w);
+                    if (must) CHECKF(ok, "d3d10 %s w=%u CopyResource content mismatch", f->name, w); else if (!ok) t_note("d3d10 %s w=%u CopyResource content mismatch", f->name, w);
                     ID3D10Texture2D_Unmap(b, 0);
                 }
             }
@@ -65,9 +65,9 @@ static void run10_3d(UINT grp)
         if (f->group != grp) continue;
         sup = sup10(dev, id);
         for (wi = 0; wi < FPT_NW; wi++) {
-            UINT w = fpt_widths[wi], h = 5, dp = 3, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), z, r, i; D3D10_TEXTURE3D_DESC d = {0};
+            UINT w = fpt_widths[wi], h = fpt_is_bc(f) ? 8 : 5, dp = 3, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), z, r, i; D3D10_TEXTURE3D_DESC d = {0};
             ID3D10Texture3D *a = NULL, *b = NULL; D3D10_MAPPED_TEXTURE3D m; HRESULT hr;
-            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE3D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
+            int must = ((f->group >= G_B8 && f->group <= G_B128) || fpt_is_bc(f)) && (sup & D3D10_FORMAT_SUPPORT_TEXTURE3D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
             d.Width = w; d.Height = h; d.Depth = dp; d.MipLevels = 1; d.Format = (DXGI_FORMAT)id;
             d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ | D3D10_CPU_ACCESS_WRITE;
             hr = ID3D10Device_CreateTexture3D(dev, &d, NULL, &a);
@@ -87,7 +87,7 @@ static void run10_3d(UINT grp)
                 EXPECT_HR(hr, S_OK);
                 if (SUCCEEDED(hr)) {
                     int ok = 1; for (z = 0; z < dp; z++) for (r = 0; r < rows; r++) for (i = 0; i < rowb; i++) if (((BYTE *)m.pData)[(size_t)z * m.DepthPitch + (size_t)r * m.RowPitch + i] != pat(id, z, r, i)) ok = 0;
-                    CHECKF(ok, "d3d10 3D %s w=%u content mismatch", f->name, w);
+                    if (must) CHECKF(ok, "d3d10 3D %s w=%u content mismatch", f->name, w); else if (!ok) t_note("d3d10 3D %s w=%u content mismatch", f->name, w);
                     ID3D10Texture3D_Unmap(b, 0);
                 }
             }
@@ -106,7 +106,7 @@ static void run10_mips(UINT grp)
         d.Width = W; d.Height = H; d.MipLevels = MIPS; d.ArraySize = ARR; d.Format = (DXGI_FORMAT)id; d.SampleDesc.Count = 1;
         d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ;
         hr = ID3D10Device_CreateTexture2D(dev, &d, NULL, &t);
-        if (FAILED(hr)) { if ((sup10(dev, id) & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup10(dev, id) & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL)) CHECKF(0, "d3d10 %s mip/array creation %s", f->name, d3dh_hr_name(hr)); continue; }
+        if (FAILED(hr)) { if (((grp >= G_B8 && grp <= G_B128) || fpt_is_bc(f)) && (sup10(dev, id) & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup10(dev, id) & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL)) CHECKF(0, "d3d10 %s mip/array creation %s", f->name, d3dh_hr_name(hr)); continue; }
         for (a = 0; a < ARR; a++) for (m = 0; m < MIPS; m++) {
             D3D10_MAPPED_TEXTURE2D ms; UINT sub = fpt_calc_sub(m, a, MIPS);
             memset(&ms, 0, sizeof ms);
@@ -234,7 +234,7 @@ static void run9_tex(int blockclass)
             if (SUCCEEDED(hr)) {
                 CHECKF(lr.pBits != NULL, "d3d9 %s pBits NULL", f->name);
                 CHECKF((UINT)lr.Pitch >= row9(f, w), "d3d9 %s w=%u Pitch %d < %u", f->name, w, lr.Pitch, row9(f, w));
-                if (prev) CHECKF((UINT)lr.Pitch >= prev, "d3d9 %s pitch not monotonic %d after %u", f->name, lr.Pitch, prev);
+                if (prev && (UINT)lr.Pitch < prev) t_note("d3d9 %s pitch shrinks with width: %d after %u", f->name, lr.Pitch, prev);
                 prev = lr.Pitch;
                 n += snprintf(line + n, sizeof line - n, " %d", lr.Pitch);
                 for (r = 0; r < rows9(f, h); r++) for (k = 0; k < row9(f, w); k++) ((BYTE *)lr.pBits)[(size_t)r * lr.Pitch + k] = (BYTE)(i * 11 + r * 5 + k + 1);

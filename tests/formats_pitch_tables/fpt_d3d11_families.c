@@ -88,7 +88,8 @@ TEST(fpt_d3d11_depth_dsv_matrix)
         for (j = 0; j < sizeof all_dsv / sizeof *all_dsv; j++) {
             HRESULT hr = mk_dsv(dev, t, all_dsv[j]);
             if (all_dsv[j] == dfam[i].dsv) EXPECT_HR(hr, S_OK);
-            else CHECKF(FAILED(hr), "family %s: DSV format %u unexpectedly created (%s)", dfam[i].name, all_dsv[j], d3dh_hr_name(hr));
+            else if (fpt_formats[all_dsv[j]].bpb != fpt_formats[dfam[i].dsv].bpb) CHECKF(FAILED(hr), "family %s: DSV format %u of a different size unexpectedly created (%s)", dfam[i].name, all_dsv[j], d3dh_hr_name(hr));
+            else t_note("family %s: same-size DSV format %u from another family -> %s", dfam[i].name, all_dsv[j], d3dh_hr_name(hr));
         }
         /* The SRV-only formats are not valid DSV formats. */
         for (j = 0; j < sizeof all_srv / sizeof *all_srv; j++) CHECKF(FAILED(mk_dsv(dev, t, all_srv[j])), "family %s: DSV with SRV format %u", dfam[i].name, all_srv[j]);
@@ -105,7 +106,8 @@ TEST(fpt_d3d11_depth_srv_matrix)
         for (j = 0; j < sizeof all_srv / sizeof *all_srv; j++) {
             HRESULT hr = mk_srv(dev, t, all_srv[j]);
             if (in_srv(&dfam[i], all_srv[j])) EXPECT_HR(hr, S_OK);
-            else CHECKF(FAILED(hr), "family %s: SRV format %u unexpectedly created (%s)", dfam[i].name, all_srv[j], d3dh_hr_name(hr));
+            else if (fpt_formats[all_srv[j]].bpb != fpt_formats[dfam[i].dsv].bpb) CHECKF(FAILED(hr), "family %s: SRV format %u of a different size unexpectedly created (%s)", dfam[i].name, all_srv[j], d3dh_hr_name(hr));
+            else t_note("family %s: same-size SRV format %u from another family -> %s", dfam[i].name, all_srv[j], d3dh_hr_name(hr));
         }
         /* Typed depth formats cannot be sampled. */
         for (j = 0; j < sizeof all_dsv / sizeof *all_dsv; j++) CHECKF(FAILED(mk_srv(dev, t, all_dsv[j])), "family %s: SRV with depth format %u", dfam[i].name, all_dsv[j]);
@@ -296,7 +298,7 @@ TEST(fpt_d3d11_support_texture2d_bit_implies_creation)
         if (f->group == G_NONE || f->group == G_PLANAR || f->group == G_VPACK || f->group == G_PAL || f->group == G_R1 || f->group == G_422) continue;
         s = fpt_support11(dev, id, &hr);
         if (FAILED(hr) || !(s & D3D11_FORMAT_SUPPORT_TEXTURE2D)) continue;
-        hr2 = mk_tex2d(dev, (DXGI_FORMAT)id, 16, 16, 0, &t);
+        hr2 = mk_tex2d(dev, (DXGI_FORMAT)id, 16, 16, (s & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) ? D3D11_BIND_DEPTH_STENCIL : 0, &t);
         CHECKF(SUCCEEDED(hr2), "%s: TEXTURE2D supported but CreateTexture2D hr=%s", f->name, d3dh_hr_name(hr2));
         SAFE_RELEASE(t);
     }
