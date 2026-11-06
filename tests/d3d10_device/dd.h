@@ -34,6 +34,8 @@ static inline int dd_driver(void)
     }
     return cached;
 }
+/* 1 when the device under test is the WARP software rasteriser (the only adapter on the Win10 oracle) */
+static inline int dd_warp(void) { return dd_driver() == D3D10_DRIVER_TYPE_WARP; }
 static inline int dd_can_render(void)
 {
     int d = dd_driver();

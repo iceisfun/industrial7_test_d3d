@@ -1235,6 +1235,7 @@ T(map_texture_subresource_out_of_range)
     if (SUCCEEDED(ID3D10Device_CreateTexture2D(dev, &td, NULL, &t))) {
         D3D10_MAPPED_TEXTURE2D mt; memset(&mt, 0xcc, sizeof mt);
         HRESULT hr = ID3D10Texture2D_Map(t, 1, D3D10_MAP_READ, 0, &mt);
+        EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
         t_note("Map of subresource 1 of a single-subresource texture: %s", d3dh_hr_name(hr));
         CHECK(FAILED(hr)); if (SUCCEEDED(hr)) ID3D10Texture2D_Unmap(t, 1);
         ID3D10Texture2D_Release(t);

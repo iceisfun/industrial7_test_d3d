@@ -93,6 +93,7 @@ T(format_table_must_bits)
     DD_DEV(dev);
     for (int i = 0; i < NFMT; i++) {
         HRESULT hr; UINT s = support_of(dev, g_fmt[i].f, &hr);
+        if (g_fmt[i].f == DXGI_FORMAT_R1_UNORM) { EXPECT_HR(hr, E_FAIL); continue; } /* Win10 d3d10: E_FAIL (probed) */
         t_check(SUCCEEDED(hr), __FILE__, __LINE__, g_fmt[i].name, "CheckFormatSupport hr %s", d3dh_hr_name(hr));
         if (FAILED(hr)) continue;
         t_check((s & g_fmt[i].must) == g_fmt[i].must, __FILE__, __LINE__, g_fmt[i].name, "support 0x%x missing 0x%x", s, g_fmt[i].must & ~s);
@@ -150,7 +151,7 @@ T(format_sweep_implications)
         if (s & FS_DS) t_check(s & FS_T2, __FILE__, __LINE__, "DS => TEXTURE2D", "format %u 0x%x", f, s);
         if (s & FS_RT) t_check((s & (FS_T1|FS_T2|FS_T3|FS_BUFFER|FS_VB|FS_TC)) != 0, __FILE__, __LINE__, "RT => some resource kind", "format %u 0x%x", f, s);
         if (s & FS_BLEND) t_check(s & FS_RT, __FILE__, __LINE__, "BLENDABLE => RT", "format %u 0x%x", f, s);
-        if (s & FS_MSRT) t_check(s & FS_RT, __FILE__, __LINE__, "MSRT => RT", "format %u 0x%x", f, s);
+        if (s & FS_MSRT) t_check(s & (FS_RT | FS_DS), __FILE__, __LINE__, "MSRT => RT or DS", "format %u 0x%x", f, s);
         if (s & FS_DS) t_check(!(s & FS_RT), __FILE__, __LINE__, "DS excl RT", "format %u 0x%x", f, s);
         if (s & FS_DISPLAY) t_check(s & FS_RT, __FILE__, __LINE__, "DISPLAY => RT", "format %u 0x%x", f, s);
         if (s & FS_IB) t_check(f == DXGI_FORMAT_R16_UINT || f == DXGI_FORMAT_R32_UINT, __FILE__, __LINE__, "IB only R16/R32 UINT", "format %u", f);
@@ -436,7 +437,9 @@ T(msaa_consistent_with_format_support)
     for (UINT f = 1; f <= LAST_FMT; f++) {
         HRESULT hr; UINT s = support_of(dev, (DXGI_FORMAT)f, &hr), q = 0;
         if (FAILED(hr)) continue;
-        if (SUCCEEDED(msq(dev, (DXGI_FORMAT)f, 4, &q)) && q > 0)
+        /* typeless formats report one level for 4x although no render/MS bit is set (probed on Win10); they are exempt */
+        int typeless = !(s & (FS_RT | FS_DS)) && (s == 0x1210f0 || s == 0x1210b0);
+        if (!typeless && SUCCEEDED(msq(dev, (DXGI_FORMAT)f, 4, &q)) && q > 0)
             t_check(s & (FS_MSRT | FS_RT | FS_DS | FS_MSRES), __FILE__, __LINE__, "4x ms", "format %u reports %u levels but support 0x%x", f, q, s);
     }
     DD_END(dev);
@@ -523,8 +526,8 @@ T(counter_no_device_dependent_when_last_zero)
     t_note("CheckCounter(DEVICE_DEPENDENT_0) = %s", d3dh_hr_name(hr));
     ID3D10Counter *c = (ID3D10Counter *)(ULONG_PTR)1;
     hr = ID3D10Device_CreateCounter(dev, &desc, &c);
-    CHECK(FAILED(hr));
-    CHECK(c == NULL);
+    EXPECT_HR(hr, E_INVALIDARG);
+    CHECK(c == (ID3D10Counter *)(ULONG_PTR)1); /* output untouched on failure (probed) */
     DD_END(dev);
 }
 T(counter_check_standard_observed)
@@ -550,13 +553,15 @@ T(counter_create_unsupported_fails_cleanly)
         HRESULT chk = ID3D10Device_CheckCounter(dev, &d, &ty, &act, NULL, &nl, NULL, &ul, NULL, &dl);
         ID3D10Counter *cnt = (ID3D10Counter *)(ULONG_PTR)1;
         HRESULT hr = ID3D10Device_CreateCounter(dev, &d, &cnt);
-        if (FAILED(chk)) { t_check(FAILED(hr) && cnt == NULL, __FILE__, __LINE__, "unsupported => create fails", "counter %d: %s", c, d3dh_hr_name(hr)); }
+        /* on failure Win10 leaves *ppCounter untouched (probed: E_INVALIDARG, output still the sentinel) */
+        if (FAILED(chk)) { t_check(FAILED(hr) && cnt == (ID3D10Counter *)(ULONG_PTR)1, __FILE__, __LINE__, "unsupported => create fails", "counter %d: %s", c, d3dh_hr_name(hr)); cnt = NULL; }
         else if (SUCCEEDED(hr)) {
             D3D10_COUNTER_DESC g; memset(&g, 0xcc, sizeof g);
             ID3D10Counter_GetDesc(cnt, &g);
             EXPECT_EQ(g.Counter, c);
             EXPECT_EQ(ID3D10Counter_GetDataSize(cnt) > 0, 1);
         }
+        if (FAILED(hr)) cnt = NULL; /* untouched sentinel on failure */
         SAFE_RELEASE(cnt);
     }
     DD_END(dev);
@@ -575,13 +580,13 @@ T(counter_create_invalid_value)
     D3D10_COUNTER_DESC d = { (D3D10_COUNTER)0x3fffffff, 0 };
     ID3D10Counter *c = (ID3D10Counter *)(ULONG_PTR)1;
     HRESULT hr = ID3D10Device_CreateCounter(dev, &d, &c);
-    CHECK(FAILED(hr));
-    CHECK(c == NULL);
+    EXPECT_HR(hr, E_INVALIDARG);
+    CHECK(c == (ID3D10Counter *)(ULONG_PTR)1); /* output untouched on failure (probed) */
     d.Counter = (D3D10_COUNTER)0xffffffffu;
     c = (ID3D10Counter *)(ULONG_PTR)1;
     hr = ID3D10Device_CreateCounter(dev, &d, &c);
-    CHECK(FAILED(hr));
-    CHECK(c == NULL);
+    EXPECT_HR(hr, E_INVALIDARG);
+    CHECK(c == (ID3D10Counter *)(ULONG_PTR)1);
     DD_END(dev);
 }
 
@@ -703,6 +708,7 @@ T(query_invalid_misc_flags)
     DD_DEV(dev);
     D3D10_QUERY_DESC d = { D3D10_QUERY_EVENT, 0x80 }; ID3D10Query *q = (ID3D10Query *)(ULONG_PTR)1;
     HRESULT hr = ID3D10Device_CreateQuery(dev, &d, &q);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("EVENT + misc 0x80: %s", d3dh_hr_name(hr));
     if (FAILED(hr)) CHECK(q == NULL); else ID3D10Query_Release(q);
     DD_END(dev);
@@ -742,6 +748,7 @@ T(query_d3d11_identity_observed)
     EXPECT_HR(ID3D10Device_CreatePredicate(dev, &d, &p), S_OK);
     if (p) {
         HRESULT hr = ID3D10Predicate_QueryInterface(p, &IID_ID3D11Predicate, (void **)&p11);
+        EXPECT_HR(hr, S_OK); /* Win10: probed */
         t_note("QI ID3D11Predicate: %s", d3dh_hr_name(hr));
         SAFE_RELEASE(p11); ID3D10Predicate_Release(p);
     }
@@ -766,7 +773,7 @@ T(predication_set_get_roundtrip)
     if (p) {
         ULONG rc = d3dh_refcount(p);
         ID3D10Device_SetPredication(dev, p, TRUE);
-        CHECK(d3dh_refcount(p) > rc);
+        EXPECT_EQ(d3dh_refcount(p), rc); /* binding does not raise the public refcount on Win10 (probed) */
         ID3D10Device_GetPredication(dev, &g, &val);
         CHECK(g == p);
         EXPECT_EQ(val, TRUE);
@@ -828,13 +835,16 @@ T(text_filter_roundtrip_observed)
     ID3D10Device_SetTextFilterSize(dev, 0, 0);
     DD_END(dev);
 }
+struct tfa_ { ID3D10Device *d; UINT *w, *h; };
+static void tf_null_call(void *c) { struct tfa_ *a = c; ID3D10Device_GetTextFilterSize(a->d, a->w, a->h); }
 T(text_filter_null_outputs)
 {
     DD_DEV(dev);
-    UINT v = 0;
-    ID3D10Device_GetTextFilterSize(dev, NULL, NULL);
-    ID3D10Device_GetTextFilterSize(dev, &v, NULL);
-    ID3D10Device_GetTextFilterSize(dev, NULL, &v);
+    struct tfa_ a[3]; UINT v = 0;
+    a[0].d = a[1].d = a[2].d = dev;
+    a[0].w = NULL; a[0].h = NULL; a[1].w = &v; a[1].h = NULL; a[2].w = NULL; a[2].h = &v;
+    /* Win10 d3d10 dereferences both outputs unconditionally: access violation for any NULL (probed) */
+    for (int i = 0; i < 3; i++) EXPECT_EQ(t_try(tf_null_call, &a[i]), 0xc0000005u);
     DD_END(dev);
 }
 T(text_filter_zero_keeps_working)

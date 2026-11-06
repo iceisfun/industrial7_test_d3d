@@ -12,7 +12,7 @@
 #define CR D3D10_CPU_ACCESS_READ
 #define CW D3D10_CPU_ACCESS_WRITE
 #define RGBA DXGI_FORMAT_R8G8B8A8_UNORM
-enum { W_OK, W_BAD, W_NOTE };
+enum { W_OK, W_BAD, W_NOTE, W_LAX }; /* W_LAX: documented as invalid, but the Win10 WARP d3d10 device accepts it (probed) */
 
 /* generous zero-filled initial data for immutable cases: RGBA8 / BC1 sized pitches, up to 16 subresources */
 static void fill_sd(D3D10_SUBRESOURCE_DATA *sd, UINT n, UINT w, UINT h, UINT d, UINT mips, void *mem)
@@ -33,6 +33,8 @@ static void tex2d_case(UINT w, UINT h, UINT mips, UINT arr, DXGI_FORMAT f, UINT 
     ID3D10Texture2D *t = NULL;
     HRESULT hrc, hrv;
     DD_DEV(dev);
+    int lax = (want == W_LAX);
+    if (lax) want = dd_warp() ? W_OK : W_BAD;
     UINT nsub = (mips ? mips : 1) * (arr ? arr : 1);
     if (nsub > 64) nsub = 64;
     fill_sd(sd, nsub, w, h, 1, mips, g_zero);
@@ -50,7 +52,7 @@ static void tex2d_case(UINT w, UINT h, UINT mips, UINT arr, DXGI_FORMAT f, UINT 
             ID3D10Texture2D_GetDesc(t, &g);
             EXPECT_EQ(g.Width, w); EXPECT_EQ(g.Height, h); EXPECT_EQ(g.ArraySize, arr); EXPECT_EQ(g.Format, f);
             EXPECT_EQ(g.SampleDesc.Count, ms); EXPECT_EQ(g.SampleDesc.Quality, 0);
-            EXPECT_EQ(g.Usage, usage); EXPECT_EQ(g.BindFlags, bind); EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, misc);
+            EXPECT_EQ(g.Usage, usage); EXPECT_EQ(g.BindFlags, bind); EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, lax ? 0 : misc); /* an accepted-but-meaningless TEXTURECUBE flag is dropped (probed) */
             if (mips) EXPECT_EQ(g.MipLevels, mips); else CHECK(g.MipLevels >= 1);
         }
     } else {
@@ -86,8 +88,8 @@ C2(size_1x1, 1, 1, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
 C2(size_1x1_auto_mips, 1, 1, 0, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
 C2(size_8192_x1, 8192, 1, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
 C2(size_1_x8192, 1, 8192, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
-C2(size_8193_x1, 8193, 1, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_BAD)
-C2(size_1_x8193, 1, 8193, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_BAD)
+C2(size_8193_x1, 8193, 1, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_LAX)
+C2(size_1_x8193, 1, 8193, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_LAX)
 C2(size_non_pow2, 100, 60, 1, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
 C2(auto_mips_non_pow2, 100, 60, 0, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
 C2(mips_7_ok_100x60, 100, 60, 7, 1, RGBA, 1, DEF, SR, 0, 0, W_OK)
@@ -121,8 +123,8 @@ C2(bc1_staging, 8, 8, 1, 1, DXGI_FORMAT_BC1_UNORM, 1, STG, 0, CR, 0, W_OK)
 C2(usage_99, 16, 16, 1, 1, RGBA, 1, 99, SR, 0, 0, W_BAD)
 C2(imm_cpu_write, 16, 16, 1, 1, RGBA, 1, IMM, SR, CW, 0, W_BAD)
 C2(imm_cpu_read, 16, 16, 1, 1, RGBA, 1, IMM, SR, CR, 0, W_BAD)
-C2(def_cpu_write, 16, 16, 1, 1, RGBA, 1, DEF, SR, CW, 0, W_BAD)
-C2(def_cpu_read, 16, 16, 1, 1, RGBA, 1, DEF, SR, CR, 0, W_BAD)
+C2(def_cpu_write, 16, 16, 1, 1, RGBA, 1, DEF, SR, CW, 0, W_LAX)
+C2(def_cpu_read, 16, 16, 1, 1, RGBA, 1, DEF, SR, CR, 0, W_LAX)
 C2(dyn_cpu0, 16, 16, 1, 1, RGBA, 1, DYN, SR, 0, 0, W_BAD)
 C2(dyn_cpu_read, 16, 16, 1, 1, RGBA, 1, DYN, SR, CR, 0, W_BAD)
 C2(dyn_rt, 16, 16, 1, 1, RGBA, 1, DYN, RT, CW, 0, W_BAD)
@@ -165,7 +167,7 @@ C2(ms4_rt_srv, 16, 16, 1, 1, RGBA, 4, DEF, RT | SR, 0, 0, W_NOTE)
 C2(ms4_ds, 16, 16, 1, 1, DXGI_FORMAT_D24_UNORM_S8_UINT, 4, DEF, DS, 0, 0, W_NOTE)
 C2(ms4_mips_bad, 16, 16, 5, 1, RGBA, 4, DEF, RT, 0, 0, W_BAD)
 C2(ms4_auto_mips_bad, 16, 16, 0, 1, RGBA, 4, DEF, RT, 0, 0, W_BAD)
-C2(ms4_dynamic_bad, 16, 16, 1, 1, RGBA, 4, DYN, SR, CW, 0, W_BAD)
+C2(ms4_dynamic_bad, 16, 16, 1, 1, RGBA, 4, DYN, SR, CW, 0, W_LAX)
 C2(ms4_staging_bad, 16, 16, 1, 1, RGBA, 4, STG, 0, CR, 0, W_BAD)
 C2(ms4_immutable_bad, 16, 16, 1, 1, RGBA, 4, IMM, SR, 0, 0, W_BAD)
 C2(ms_count0, 16, 16, 1, 1, RGBA, 0, DEF, RT, 0, 0, W_NOTE)
@@ -206,6 +208,7 @@ T(t2d_initial_data_ms_bad)
     D3D10_SUBRESOURCE_DATA sd = { g_zero, 32, 0 };
     ID3D10Texture2D *t = (ID3D10Texture2D *)(ULONG_PTR)1;
     HRESULT hr = ID3D10Device_CreateTexture2D(dev, &d, &sd, &t);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("MS texture with initial data: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && t != (void *)1) ID3D10Texture2D_Release(t);
     CHECK(FAILED(hr));
@@ -331,6 +334,8 @@ static void tex1d_case(UINT w, UINT mips, UINT arr, DXGI_FORMAT f, UINT usage, U
     D3D10_SUBRESOURCE_DATA sd[64];
     ID3D10Texture1D *t = NULL; HRESULT hrc, hrv;
     DD_DEV(dev);
+    int lax = (want == W_LAX);
+    if (lax) want = dd_warp() ? W_OK : W_BAD;
     UINT nsub = (mips ? mips : 1) * (arr ? arr : 1); if (nsub > 64) nsub = 64;
     fill_sd(sd, nsub, w, 1, 1, mips, g_zero);
     hrv = ID3D10Device_CreateTexture1D(dev, &d, usage == IMM ? sd : NULL, NULL);
@@ -341,7 +346,7 @@ static void tex1d_case(UINT w, UINT mips, UINT arr, DXGI_FORMAT f, UINT usage, U
         if (t) {
             ID3D10Texture1D_GetDesc(t, &g);
             EXPECT_EQ(g.Width, w); EXPECT_EQ(g.ArraySize, arr); EXPECT_EQ(g.Format, f); EXPECT_EQ(g.Usage, usage);
-            EXPECT_EQ(g.BindFlags, bind); EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, misc);
+            EXPECT_EQ(g.BindFlags, bind); EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, lax ? 0 : misc); /* an accepted-but-meaningless TEXTURECUBE flag is dropped (probed) */
             if (mips) EXPECT_EQ(g.MipLevels, mips);
         }
     } else { EXPECT_HR(hrc, E_INVALIDARG); EXPECT_HR(hrv, E_INVALIDARG); CHECK(t == NULL); }
@@ -367,9 +372,9 @@ C1(dyn_srv, 16, 1, 1, RGBA, DYN, SR, CW, 0, W_OK)
 C1(stg_cr, 16, 1, 1, RGBA, STG, 0, CR, 0, W_OK)
 C1(imm_srv, 16, 1, 1, RGBA, IMM, SR, 0, 0, W_OK)
 C1(imm_cpu, 16, 1, 1, RGBA, IMM, SR, CR, 0, W_BAD)
-C1(def_cpu_write, 16, 1, 1, RGBA, DEF, SR, CW, 0, W_BAD)
+C1(def_cpu_write, 16, 1, 1, RGBA, DEF, SR, CW, 0, W_LAX)
 C1(unknown_format, 16, 1, 1, DXGI_FORMAT_UNKNOWN, DEF, SR, 0, 0, W_BAD)
-C1(cube_misc, 16, 1, 6, RGBA, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE, W_BAD)
+C1(cube_misc, 16, 1, 6, RGBA, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE, W_LAX)
 C1(bc1, 16, 1, 1, DXGI_FORMAT_BC1_UNORM, DEF, SR, 0, 0, W_NOTE)
 C1(bind_vb, 16, 1, 1, RGBA, DEF, D3D10_BIND_VERTEX_BUFFER, 0, 0, W_BAD)
 T(t1d_null_desc)
@@ -408,6 +413,8 @@ static void tex3d_case(UINT w, UINT h, UINT dp, UINT mips, DXGI_FORMAT f, UINT u
     D3D10_SUBRESOURCE_DATA sd[16];
     ID3D10Texture3D *t = NULL; HRESULT hrc, hrv;
     DD_DEV(dev);
+    int lax = (want == W_LAX);
+    if (lax) want = dd_warp() ? W_OK : W_BAD;
     UINT n = mips ? mips : 1; if (n > 16) n = 16;
     fill_sd(sd, n, w, h, dp, mips, g_zero);
     hrv = ID3D10Device_CreateTexture3D(dev, &d, usage == IMM ? sd : NULL, NULL);
@@ -418,7 +425,7 @@ static void tex3d_case(UINT w, UINT h, UINT dp, UINT mips, DXGI_FORMAT f, UINT u
         if (t) {
             ID3D10Texture3D_GetDesc(t, &g);
             EXPECT_EQ(g.Width, w); EXPECT_EQ(g.Height, h); EXPECT_EQ(g.Depth, dp); EXPECT_EQ(g.Format, f); EXPECT_EQ(g.Usage, usage);
-            EXPECT_EQ(g.BindFlags, bind); EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, misc);
+            EXPECT_EQ(g.BindFlags, bind); EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, lax ? 0 : misc); /* an accepted-but-meaningless TEXTURECUBE flag is dropped (probed) */
             if (mips) EXPECT_EQ(g.MipLevels, mips);
         }
     } else { EXPECT_HR(hrc, E_INVALIDARG); EXPECT_HR(hrv, E_INVALIDARG); CHECK(t == NULL); }
@@ -447,8 +454,8 @@ C3(dyn_srv, 8, 8, 8, 1, RGBA, DYN, SR, CW, 0, W_OK)
 C3(stg_cr, 8, 8, 8, 1, RGBA, STG, 0, CR, 0, W_OK)
 C3(imm_srv, 8, 8, 8, 1, RGBA, IMM, SR, 0, 0, W_OK)
 C3(imm_cpu, 8, 8, 8, 1, RGBA, IMM, SR, CW, 0, W_BAD)
-C3(def_cpu, 8, 8, 8, 1, RGBA, DEF, SR, CR, 0, W_BAD)
-C3(cube_misc, 8, 8, 8, 1, RGBA, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE, W_BAD)
+C3(def_cpu, 8, 8, 8, 1, RGBA, DEF, SR, CR, 0, W_LAX)
+C3(cube_misc, 8, 8, 8, 1, RGBA, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE, W_LAX)
 C3(bc1, 8, 8, 4, 1, DXGI_FORMAT_BC1_UNORM, DEF, SR, 0, 0, W_NOTE)
 C3(bc1_rt, 8, 8, 4, 1, DXGI_FORMAT_BC1_UNORM, DEF, RT, 0, 0, W_BAD)
 T(t3d_null_desc)

@@ -85,6 +85,7 @@ T(sdk1_version_29_observed)
     ID3D10Device1 *d = NULL;
     NEED10_1(); NEED_DRV();
     HRESULT hr = DD_C10_1()(NULL, (D3D10_DRIVER_TYPE)DRV(), NULL, 0, D3D10_FEATURE_LEVEL_10_0, D3D10_SDK_VERSION, &d);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("D3D10CreateDevice1 with the 10.0 SDK version 29: %s", d3dh_hr_name(hr));
     if (d) ID3D10Device1_Release(d);
 }
@@ -100,6 +101,7 @@ T(null_output_create_observed)
 {
     NEED10(); NEED_DRV();
     HRESULT hr = DD_C10()(NULL, (D3D10_DRIVER_TYPE)DRV(), NULL, 0, D3D10_SDK_VERSION, NULL);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("D3D10CreateDevice with NULL ppDevice: %s", d3dh_hr_name(hr));
 }
 
@@ -118,6 +120,7 @@ T(driver_type_4_observed)
     ID3D10Device *d = NULL;
     NEED10();
     HRESULT hr = DD_C10()(NULL, (D3D10_DRIVER_TYPE)4, NULL, 0, D3D10_SDK_VERSION, &d);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("undefined driver type 4: %s", d3dh_hr_name(hr));
     if (d) ID3D10Device_Release(d);
 }
@@ -176,6 +179,7 @@ T(adapter_zero_hardware_observed)
     if (FAILED(D3DH_FN("dxgi.dll", CreateDXGIFactory)(&IID_IDXGIFactory, (void **)&f))) { t_skip("no factory"); return; }
     if (FAILED(IDXGIFactory_EnumAdapters(f, 0, &a))) { IDXGIFactory_Release(f); t_skip("no adapter"); return; }
     HRESULT hr = DD_C10()(a, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, D3D10_SDK_VERSION, &d);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("adapter 0 + HARDWARE: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) { CHECK(d != NULL); EXPECT_EQ(ID3D10Device_Release(d), 0); }
     IDXGIAdapter_Release(a); IDXGIFactory_Release(f);
@@ -188,6 +192,7 @@ T(adapter_with_warp_driver_observed)
     if (FAILED(D3DH_FN("dxgi.dll", CreateDXGIFactory)(&IID_IDXGIFactory, (void **)&f))) { t_skip("no factory"); return; }
     if (FAILED(IDXGIFactory_EnumAdapters(f, 0, &a))) { IDXGIFactory_Release(f); t_skip("no adapter"); return; }
     HRESULT hr = DD_C10()(a, D3D10_DRIVER_TYPE_WARP, NULL, 0, D3D10_SDK_VERSION, &d);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("adapter 0 + WARP: %s", d3dh_hr_name(hr));
     if (d) ID3D10Device_Release(d);
     IDXGIAdapter_Release(a); IDXGIFactory_Release(f);
@@ -238,9 +243,8 @@ T(flag_bgra_format_support)
     ID3D10Device *d = NULL; UINT s = 0;
     NEED10(); NEED_DRV();
     if (FAILED(dd_make(D3D10_CREATE_DEVICE_BGRA_SUPPORT, &d))) { t_skip("BGRA flag not accepted"); return; }
-    EXPECT_HR_OK(ID3D10Device_CheckFormatSupport(d, DXGI_FORMAT_B8G8R8A8_UNORM, &s));
-    CHECK(s & D3D10_FORMAT_SUPPORT_RENDER_TARGET);
-    CHECK(s & D3D10_FORMAT_SUPPORT_TEXTURE2D);
+    /* the d3d10 CheckFormatSupport does not know the DXGI 1.1 BGRA formats even with the flag: E_FAIL (probed) */
+    EXPECT_HR(ID3D10Device_CheckFormatSupport(d, DXGI_FORMAT_B8G8R8A8_UNORM, &s), E_FAIL);
     ID3D10Device_Release(d);
 }
 T(flag_singlethreaded_multithread_observed)
@@ -302,6 +306,7 @@ T(level1_device_from_create_device_qi_device1)
     ID3D10Device1 *d1 = NULL;
     DD_DEV(dev);
     HRESULT hr = ID3D10Device_QueryInterface(dev, &IID_ID3D10Device1, (void **)&d1);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("QI ID3D10Device1 on D3D10CreateDevice device: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) { EXPECT_EQ(ID3D10Device1_GetFeatureLevel(d1), D3D10_FEATURE_LEVEL_10_0); ID3D10Device1_Release(d1); }
     DD_END(dev);
@@ -430,7 +435,7 @@ T(iface_dxgi_get_adapter)
     if (dx) {
         EXPECT_HR_OK(IDXGIDevice_GetAdapter(dx, &ad));
         CHECK(ad != NULL);
-        EXPECT_HR(IDXGIDevice_GetAdapter(dx, NULL), DXGI_ERROR_INVALID_CALL);
+        EXPECT_HR(IDXGIDevice_GetAdapter(dx, NULL), E_INVALIDARG); /* Win10 (probed): E_INVALIDARG, not DXGI_ERROR_INVALID_CALL */
         SAFE_RELEASE(ad);
         IDXGIDevice_Release(dx);
     }
@@ -706,6 +711,7 @@ T(sc_create_and_roundtrip)
     t_note("refresh rate in swap chain desc: %u/%u", o.BufferDesc.RefreshRate.Numerator, o.BufferDesc.RefreshRate.Denominator);
     IDXGISwapChain1 *sc1 = NULL;
     HRESULT h1 = IDXGISwapChain_QueryInterface(sc, &IID_IDXGISwapChain1, (void **)&sc1);
+    EXPECT_HR(h1, S_OK); /* Win10: probed */
     t_note("swap chain QI IDXGISwapChain1: %s", d3dh_hr_name(h1));
     SAFE_RELEASE(sc1);
     EXPECT_EQ(IDXGISwapChain_Release(sc), 0);

@@ -202,6 +202,7 @@ T(blend_write_mask_high_bits_observed)
     D3D10_BLEND_DESC d = blend_default(); ID3D10BlendState *s = NULL;
     d.RenderTargetWriteMask[0] = 0x1f;
     HRESULT hr = ID3D10Device_CreateBlendState(dev, &d, &s);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("write mask 0x1f: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(s);
     DD_END(dev);
@@ -301,7 +302,15 @@ T(ds_full_roundtrip)
     d.FrontFace.StencilFailOp = D3D10_STENCIL_OP_INCR; d.FrontFace.StencilDepthFailOp = D3D10_STENCIL_OP_DECR_SAT; d.FrontFace.StencilPassOp = D3D10_STENCIL_OP_REPLACE; d.FrontFace.StencilFunc = D3D10_COMPARISON_EQUAL;
     d.BackFace.StencilFailOp = D3D10_STENCIL_OP_ZERO; d.BackFace.StencilDepthFailOp = D3D10_STENCIL_OP_INVERT; d.BackFace.StencilPassOp = D3D10_STENCIL_OP_INCR_SAT; d.BackFace.StencilFunc = D3D10_COMPARISON_NOT_EQUAL;
     EXPECT_HR_OK(ID3D10Device_CreateDepthStencilState(dev, &d, &s));
-    if (s) { ID3D10DepthStencilState_GetDesc(s, &g); CHECK(!memcmp(&g, &d, sizeof d)); ID3D10DepthStencilState_Release(s); }
+    if (s) { ID3D10DepthStencilState_GetDesc(s, &g); 
+        /* field-wise: the two UINT8 masks are followed by padding that is not preserved */
+        EXPECT_EQ(g.DepthEnable, d.DepthEnable); EXPECT_EQ(g.DepthWriteMask, d.DepthWriteMask); EXPECT_EQ(g.DepthFunc, d.DepthFunc);
+        EXPECT_EQ(g.StencilEnable, d.StencilEnable); EXPECT_EQ(g.StencilReadMask, d.StencilReadMask); EXPECT_EQ(g.StencilWriteMask, d.StencilWriteMask);
+        EXPECT_EQ(g.FrontFace.StencilFailOp, d.FrontFace.StencilFailOp); EXPECT_EQ(g.FrontFace.StencilDepthFailOp, d.FrontFace.StencilDepthFailOp);
+        EXPECT_EQ(g.FrontFace.StencilPassOp, d.FrontFace.StencilPassOp); EXPECT_EQ(g.FrontFace.StencilFunc, d.FrontFace.StencilFunc);
+        EXPECT_EQ(g.BackFace.StencilFailOp, d.BackFace.StencilFailOp); EXPECT_EQ(g.BackFace.StencilDepthFailOp, d.BackFace.StencilDepthFailOp);
+        EXPECT_EQ(g.BackFace.StencilPassOp, d.BackFace.StencilPassOp); EXPECT_EQ(g.BackFace.StencilFunc, d.BackFace.StencilFunc);
+        ID3D10DepthStencilState_Release(s); }
     DD_END(dev);
 }
 T(ds_disabled_is_normalised)
@@ -533,7 +542,9 @@ T(smp_roundtrip)
     if (s) {
         memset(&g, 0xcc, sizeof g); ID3D10SamplerState_GetDesc(s, &g);
         EXPECT_EQ(g.Filter, d.Filter); EXPECT_EQ(g.AddressU, d.AddressU); EXPECT_EQ(g.AddressV, d.AddressV); EXPECT_EQ(g.AddressW, d.AddressW);
-        CHECK(g.MipLODBias == 1.5f); EXPECT_EQ(g.MaxAnisotropy, 8); EXPECT_EQ(g.ComparisonFunc, d.ComparisonFunc);
+        CHECK(g.MipLODBias == 1.5f); EXPECT_EQ(g.MaxAnisotropy, 8);
+        /* a non-comparison filter normalises ComparisonFunc to NEVER (probed) */
+        EXPECT_EQ(g.ComparisonFunc, D3D10_COMPARISON_NEVER);
         CHECK(g.BorderColor[0] == 0.25f && g.BorderColor[1] == 0.5f && g.BorderColor[2] == 0.75f && g.BorderColor[3] == 1.0f);
         CHECK(g.MinLOD == 1.0f && g.MaxLOD == 6.0f);
         ID3D10SamplerState_Release(s);
@@ -598,7 +609,7 @@ T(smp_anisotropy_range)
     for (UINT a = 0; a <= 20; a++) {
         D3D10_SAMPLER_DESC d = smp_default(); ID3D10SamplerState *s = NULL;
         d.Filter = D3D10_FILTER_ANISOTROPIC; d.MaxAnisotropy = a;
-        HRESULT want = (a >= 1 && a <= 16) ? S_OK : E_INVALIDARG;
+        HRESULT want = (a <= 16) ? S_OK : E_INVALIDARG; /* Win10 WARP accepts MaxAnisotropy 0 (probed) */
         HRESULT hr = ID3D10Device_CreateSamplerState(dev, &d, &s);
         t_check(hr == want, __FILE__, __LINE__, "aniso", "MaxAnisotropy %u: %s", a, d3dh_hr_name(hr));
         SAFE_RELEASE(s);
@@ -738,9 +749,9 @@ T(pipeline_blend_set_get_roundtrip)
     if (s) {
         const FLOAT bf[4] = { 0.25f, 0.5f, 0.75f, 1.0f }; FLOAT f[4]; UINT mask = 0; ULONG rc = d3dh_refcount(s);
         ID3D10Device_OMSetBlendState(dev, s, bf, 0x0f0f0f0fu);
-        CHECK(d3dh_refcount(s) > rc);
+        EXPECT_EQ(d3dh_refcount(s), rc); /* binding does not raise the public refcount on Win10 (probed); Get returns an AddRef'd pointer */
         ID3D10Device_OMGetBlendState(dev, &g, f, &mask);
-        CHECK(g == s);
+        CHECK(g == s); EXPECT_EQ(d3dh_refcount(s), rc + 1);
         CHECK(!memcmp(f, bf, sizeof f)); EXPECT_EQ(mask, 0x0f0f0f0fu);
         SAFE_RELEASE(g);
         ID3D10Device_OMSetBlendState(dev, NULL, NULL, 0xffffffffu);

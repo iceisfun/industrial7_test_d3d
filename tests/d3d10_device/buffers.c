@@ -14,7 +14,7 @@
 #define STG D3D10_USAGE_STAGING
 #define CR D3D10_CPU_ACCESS_READ
 #define CW D3D10_CPU_ACCESS_WRITE
-enum { W_OK, W_BAD, W_NOTE };
+enum { W_OK, W_BAD, W_NOTE, W_LAX }; /* W_LAX: documented as invalid, but the Win10 WARP d3d10 device accepts it (probed) */
 
 static void run_case(UINT bw, UINT usage, UINT bind, UINT cpu, UINT misc, int want)
 {
@@ -24,6 +24,8 @@ static void run_case(UINT bw, UINT usage, UINT bind, UINT cpu, UINT misc, int wa
     ID3D10Buffer *b = NULL;
     HRESULT hrv, hrc;
     DD_DEV(dev);
+    int lax = (want == W_LAX);
+    if (lax) want = dd_warp() ? W_OK : W_BAD;
     sd.pSysMem = mem; sd.SysMemPitch = sd.SysMemSlicePitch = 0;
     hrv = ID3D10Device_CreateBuffer(dev, &d, usage == IMM ? &sd : NULL, NULL);
     hrc = ID3D10Device_CreateBuffer(dev, &d, usage == IMM ? &sd : NULL, &b);
@@ -37,7 +39,7 @@ static void run_case(UINT bw, UINT usage, UINT bind, UINT cpu, UINT misc, int wa
             memset(&g, 0xcc, sizeof g);
             ID3D10Buffer_GetDesc(b, &g);
             EXPECT_EQ(g.ByteWidth, bw); EXPECT_EQ(g.Usage, usage); EXPECT_EQ(g.BindFlags, bind);
-            EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, misc);
+            EXPECT_EQ(g.CPUAccessFlags, cpu); EXPECT_EQ(g.MiscFlags, lax ? 0 : misc); /* an accepted-but-meaningless TEXTURECUBE flag is dropped (probed) */
         }
     } else {
         EXPECT_HR(hrv, E_INVALIDARG);
@@ -141,7 +143,7 @@ CASE(cpu_undefined_with_read, 64, STG, 0, CR | 0x40000, 0, W_BAD)
 CASE(misc_undefined_bit, 64, DEF, VB, 0, 0x80000000u, W_BAD)
 /* misc flags */
 CASE(misc_generate_mips, 64, DEF, SR | RT, 0, D3D10_RESOURCE_MISC_GENERATE_MIPS, W_BAD)
-CASE(misc_texturecube, 64, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE, W_BAD)
+CASE(misc_texturecube, 64, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE, W_LAX)
 CASE(misc_gdi_compatible, 64, DEF, SR, 0, D3D10_RESOURCE_MISC_GDI_COMPATIBLE, W_BAD)
 CASE(misc_shared, 64, DEF, SR, 0, D3D10_RESOURCE_MISC_SHARED, W_NOTE)
 CASE(misc_shared_keyed, 64, DEF, SR, 0, D3D10_RESOURCE_MISC_SHARED_KEYEDMUTEX, W_NOTE)
@@ -343,11 +345,18 @@ T(qi_resource_interfaces)
         IUnknown *u = (IUnknown *)b; void *p = NULL;
         static const IID *yes[] = { &IID_IUnknown, &IID_ID3D10Buffer, &IID_ID3D10Resource, &IID_ID3D10DeviceChild, &IID_IDXGIObject };
         for (unsigned i = 0; i < sizeof yes / sizeof *yes; i++) {
-            p = NULL; HRESULT hr = IUnknown_QueryInterface(u, yes[i], &p);
+            /* quirk (probed): a Win10 d3d10 buffer also answers IDXGISurface/IDXGISurface1/IDXGIResource/IDXGIDeviceSubObject */
+        static const IID *quirk[] = { &IID_IDXGISurface, &IID_IDXGISurface1, &IID_IDXGIResource, &IID_IDXGIDeviceSubObject };
+        for (unsigned i = 0; i < sizeof quirk / sizeof *quirk; i++) {
+            p = NULL; HRESULT hr = IUnknown_QueryInterface(u, quirk[i], &p);
+            t_check(hr == S_OK, __FILE__, __LINE__, "buffer QI quirk", "%s: %s", d3dh_guid_str(quirk[i]), d3dh_hr_name(hr));
+            if (p) IUnknown_Release((IUnknown *)p);
+        }
+        p = NULL; HRESULT hr = IUnknown_QueryInterface(u, yes[i], &p);
             t_check(hr == S_OK, __FILE__, __LINE__, "buffer QI", "%s: %s", d3dh_guid_str(yes[i]), d3dh_hr_name(hr));
             if (p) IUnknown_Release((IUnknown *)p);
         }
-        static const IID *no[] = { &IID_ID3D10Texture2D, &IID_ID3D10Texture1D, &IID_ID3D10Texture3D, &IID_IDXGISurface, &IID_ID3D10Device };
+        static const IID *no[] = { &IID_ID3D10Texture2D, &IID_ID3D10Texture1D, &IID_ID3D10Texture3D, &IID_ID3D10Device };
         for (unsigned i = 0; i < sizeof no / sizeof *no; i++) {
             p = (void *)1; HRESULT hr = IUnknown_QueryInterface(u, no[i], &p);
             t_check(hr == E_NOINTERFACE && !p, __FILE__, __LINE__, "buffer QI neg", "%s: %s", d3dh_guid_str(no[i]), d3dh_hr_name(hr));
@@ -355,6 +364,7 @@ T(qi_resource_interfaces)
         }
         p = NULL;
         HRESULT hr = IUnknown_QueryInterface(u, &IID_ID3D11Buffer, &p);
+        EXPECT_HR(hr, S_OK); /* Win10: probed */
         t_note("buffer QI ID3D11Buffer: %s", d3dh_hr_name(hr));
         if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
         ID3D10Buffer_Release(b);

@@ -83,6 +83,7 @@ T(vs_corrupt_checksum)
     copy[4] ^= 0xff; /* container checksum */
     ID3D10VertexShader *vs = (void *)1;
     HRESULT hr = ID3D10Device_CreateVertexShader(dev, copy, n, &vs);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("container checksum altered: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) { ID3D10VertexShader_Release(vs); }
     vs = (void *)1;
@@ -103,6 +104,7 @@ T(vs_trailing_bytes_observed)
     memcpy(copy, BP(b), n);
     ID3D10VertexShader *vs = NULL;
     HRESULT hr = ID3D10Device_CreateVertexShader(dev, copy, n + 64, &vs);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("bytecode length larger than the container: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(vs);
     free(copy);
@@ -200,7 +202,7 @@ T(shader_pipeline_set_get)
     if (vs && ps) {
         ULONG rv = d3dh_refcount(vs), rp = d3dh_refcount(ps);
         ID3D10Device_VSSetShader(dev, vs); ID3D10Device_PSSetShader(dev, ps);
-        CHECK(d3dh_refcount(vs) > rv); CHECK(d3dh_refcount(ps) > rp);
+        EXPECT_EQ(d3dh_refcount(vs), rv); EXPECT_EQ(d3dh_refcount(ps), rp); /* binding does not raise the public refcount on Win10 (probed) */
         ID3D10Device_VSGetShader(dev, &gv); ID3D10Device_PSGetShader(dev, &gp);
         CHECK(gv == vs); CHECK(gp == ps);
         SAFE_RELEASE(gv); SAFE_RELEASE(gp);
@@ -247,6 +249,7 @@ T(shader_model_4_1_on_10_0_observed)
     if (!bv) { t_skip("no sm4.1 compile"); ID3D10Device1_Release(dev); return; }
     ID3D10VertexShader *vs = NULL;
     HRESULT hr = ID3D10Device1_CreateVertexShader(dev, BP(bv), BS(bv), &vs);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("vs_4_1 on a 10_0 device: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(vs);
     ID3D10Blob_Release(bv);
@@ -259,6 +262,7 @@ T(shader_model_5_0_rejected_observed)
     if (!bv) { t_skip("no sm5.0 compile"); DD_END(dev); return; }
     ID3D10VertexShader *vs = NULL;
     HRESULT hr = ID3D10Device_CreateVertexShader(dev, BP(bv), BS(bv), &vs);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("vs_5_0 on a D3D10 device: %s", d3dh_hr_name(hr));
     CHECK(FAILED(hr));
     SAFE_RELEASE(vs);
@@ -286,6 +290,7 @@ T(shader_level9_gs_unsupported)
     if (bg) {
         ID3D10GeometryShader *gs = (void *)1;
         HRESULT hr = ID3D10Device1_CreateGeometryShader(dev, BP(bg), BS(bg), &gs);
+        EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
         t_note("gs_4_0 on a 9_1 device: %s", d3dh_hr_name(hr));
         CHECK(FAILED(hr));
         ID3D10Blob_Release(bg);
@@ -538,6 +543,7 @@ T(il_overlapping_elements_observed)
         EL("COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 8, D3D10_INPUT_PER_VERTEX_DATA, 0),
     };
     HRESULT hr; ID3D10InputLayout *il = mk_il(dev, e, 2, b, &hr);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("overlapping elements: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(il);
     ID3D10Blob_Release(b);
@@ -552,6 +558,7 @@ T(il_duplicate_semantic_observed)
         EL("POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D10_INPUT_PER_VERTEX_DATA, 0),
     };
     HRESULT hr; ID3D10InputLayout *il = mk_il(dev, e, 2, b, &hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("duplicate semantic: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(il);
     ID3D10Blob_Release(b);
@@ -565,6 +572,7 @@ T(il_semantic_null_name)
     D3D10_INPUT_ELEMENT_DESC e = EL(NULL, 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D10_INPUT_PER_VERTEX_DATA, 0);
     ID3D10InputLayout *il = (void *)1;
     HRESULT hr = ID3D10Device_CreateInputLayout(dev, &e, 1, BP(b), BS(b), &il);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("NULL semantic name: %s", d3dh_hr_name(hr));
     CHECK(FAILED(hr));
     ID3D10Blob_Release(b);
@@ -576,6 +584,7 @@ T(il_vertexid_only_shader)
     BLOB(b, DD_VS_ID, "vs_4_0");
     D3D10_INPUT_ELEMENT_DESC e = EL("POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D10_INPUT_PER_VERTEX_DATA, 0);
     HRESULT hr; ID3D10InputLayout *il = mk_il(dev, &e, 1, b, &hr);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("layout with an unused element for a SV_VertexID-only shader: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(il);
     ID3D10Blob_Release(b);
@@ -591,8 +600,8 @@ T(il_set_get_and_clear)
     if (il) {
         ULONG rc = d3dh_refcount(il);
         ID3D10Device_IASetInputLayout(dev, il);
-        CHECK(d3dh_refcount(il) > rc);
-        ID3D10Device_IAGetInputLayout(dev, &g); CHECK(g == il); SAFE_RELEASE(g);
+        EXPECT_EQ(d3dh_refcount(il), rc); /* binding does not raise the public refcount on Win10 (probed) */
+        ID3D10Device_IAGetInputLayout(dev, &g); CHECK(g == il); EXPECT_EQ(d3dh_refcount(il), rc + 1); SAFE_RELEASE(g);
         ID3D10Device_ClearState(dev);
         EXPECT_EQ(d3dh_refcount(il), rc);
         ID3D10Device_IAGetInputLayout(dev, &g); CHECK(g == NULL);
@@ -721,6 +730,7 @@ T(gso_vertex_shader_bytecode_observed)
     D3D10_SO_DECLARATION_ENTRY d[] = { { "SV_Position", 0, 0, 4, 0 } };
     ID3D10GeometryShader *gs = NULL;
     HRESULT hr = ID3D10Device_CreateGeometryShaderWithStreamOutput(dev, BP(b), BS(b), d, 1, 16, &gs);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("stream output from vertex shader bytecode: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(gs);
     ID3D10Blob_Release(b);
@@ -749,6 +759,7 @@ T(gso_hole_entry_observed)
     D3D10_SO_DECLARATION_ENTRY d[] = { { NULL, 0, 0, 2, 0 }, { "SV_Position", 0, 0, 4, 0 } };
     ID3D10GeometryShader *gs = NULL;
     HRESULT hr = ID3D10Device_CreateGeometryShaderWithStreamOutput(dev, BP(b), BS(b), d, 2, 24, &gs);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("hole entry: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(gs);
     ID3D10Blob_Release(b);
@@ -762,7 +773,7 @@ T(gso_set_get_targets)
     if (b) {
         ID3D10Device_SOSetTargets(dev, 1, &b, &off);
         ID3D10Device_SOGetTargets(dev, 4, g, goff);
-        CHECK(g[0] == b); CHECK(!g[1]); EXPECT_EQ(goff[0], 32);
+        CHECK(g[0] == b); CHECK(!g[1]); EXPECT_EQ(goff[0], 0xffffffffu); /* offsets are not retrievable through the d3d10 layer on Win10 (probed) */
         SAFE_RELEASE(g[0]);
         ID3D10Device_SOSetTargets(dev, 0, NULL, NULL);
         ID3D10Device_SOGetTargets(dev, 4, g, goff);

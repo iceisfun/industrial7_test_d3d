@@ -29,7 +29,10 @@ T(infoqueue_app_message_stored)
     DBG(dev); IQ(dev, iq);
     ID3D10InfoQueue_ClearStoredMessages(iq);
     EXPECT_EQ(ID3D10InfoQueue_GetNumStoredMessages(iq), 0);
-    EXPECT_HR_OK(ID3D10InfoQueue_AddApplicationMessage(iq, D3D10_MESSAGE_SEVERITY_INFO, "d3d10_device test message"));
+    /* INFO messages are filtered out by the default storage filter: S_FALSE, nothing stored (probed) */
+    EXPECT_HR(ID3D10InfoQueue_AddApplicationMessage(iq, D3D10_MESSAGE_SEVERITY_INFO, "d3d10_device test message"), S_FALSE);
+    EXPECT_EQ(ID3D10InfoQueue_GetNumStoredMessages(iq), 0);
+    EXPECT_HR_OK(ID3D10InfoQueue_AddApplicationMessage(iq, D3D10_MESSAGE_SEVERITY_WARNING, "d3d10_device test message"));
     EXPECT_EQ(ID3D10InfoQueue_GetNumStoredMessages(iq), 1);
     EXPECT_EQ(ID3D10InfoQueue_GetNumStoredMessagesAllowedByRetrievalFilter(iq), 1);
     EXPECT_EQ(ID3D10InfoQueue_GetNumMessagesAllowedByStorageFilter(iq) >= 1, 1);
@@ -40,7 +43,7 @@ T(infoqueue_app_message_stored)
         D3D10_MESSAGE *m = calloc(1, len);
         EXPECT_HR_OK(ID3D10InfoQueue_GetMessage(iq, 0, m, &len));
         EXPECT_EQ(m->Category, D3D10_MESSAGE_CATEGORY_APPLICATION_DEFINED);
-        EXPECT_EQ(m->Severity, D3D10_MESSAGE_SEVERITY_INFO);
+        EXPECT_EQ(m->Severity, D3D10_MESSAGE_SEVERITY_WARNING);
         CHECK(m->pDescription && strstr(m->pDescription, "d3d10_device test message"));
         free(m);
     }
@@ -108,6 +111,7 @@ T(infoqueue_get_message_out_of_range)
     ID3D10InfoQueue_ClearStoredMessages(iq);
     HRESULT hr = ID3D10InfoQueue_GetMessage(iq, 5, NULL, &len);
     CHECK(FAILED(hr));
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("GetMessage(5) on an empty queue: %s", d3dh_hr_name(hr));
     ID3D10InfoQueue_Release(iq); ID3D10Device_Release(dev);
 }
@@ -129,6 +133,7 @@ T(switch_to_ref_requires_flag)
     if (!dbg_dev(&dev, D3D10_CREATE_DEVICE_SWITCH_TO_REF)) return;
     ID3D10SwitchToRef *sw = NULL;
     HRESULT hr = ID3D10Device_QueryInterface(dev, &IID_ID3D10SwitchToRef, (void **)&sw);
+    EXPECT_HR(hr, E_NOINTERFACE); /* Win10: probed */
     t_note("QI ID3D10SwitchToRef on a SWITCH_TO_REF device: %s", d3dh_hr_name(hr));
     if (sw) {
         t_note("GetUseRef = %d", ID3D10SwitchToRef_GetUseRef(sw));

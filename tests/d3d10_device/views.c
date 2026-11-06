@@ -121,6 +121,7 @@ T(rtv_buffer_requires_desc)
         d.Format = DXGI_FORMAT_R32_FLOAT; d.ViewDimension = D3D10_RTV_DIMENSION_BUFFER; d.Buffer.ElementOffset = 0; d.Buffer.ElementWidth = 16;
         v = NULL;
         HRESULT hr = ID3D10Device_CreateRenderTargetView(dev, R(b), &d, &v);
+        EXPECT_HR(hr, S_OK); /* Win10: probed */
         t_note("buffer RTV with explicit desc: %s", d3dh_hr_name(hr));
         SAFE_RELEASE(v);
         ID3D10Buffer_Release(b);
@@ -190,7 +191,10 @@ T(rtv_dimension_mismatch)
             memset(&d, 0, sizeof d); d.Format = RGBA; d.ViewDimension = (D3D10_RTV_DIMENSION)dims[i];
             if (dims[i] == D3D10_RTV_DIMENSION_TEXTURE1DARRAY || dims[i] == D3D10_RTV_DIMENSION_TEXTURE3D) { d.Texture3D.WSize = 1; }
             HRESULT hr = ID3D10Device_CreateRenderTargetView(dev, R(t), &d, &v);
-            t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "dim mismatch", "dimension %u: %s", dims[i], d3dh_hr_name(hr));
+            /* Win10 WARP accepts a multisampled-dimension RTV on a single-sample texture (probed), everything else is rejected */
+            HRESULT want = (dims[i] == D3D10_RTV_DIMENSION_TEXTURE2DMS && dd_warp()) ? S_OK : E_INVALIDARG;
+            t_check(hr == want, __FILE__, __LINE__, "dim mismatch", "dimension %u: %s", dims[i], d3dh_hr_name(hr));
+            if (SUCCEEDED(hr) && v) ID3D10RenderTargetView_Release(v);
         }
         ID3D10Texture2D_Release(t);
     }
@@ -628,10 +632,12 @@ T(srv_mip_levels_minus_one_observed)
         D3D10_SHADER_RESOURCE_VIEW_DESC d, g; ID3D10ShaderResourceView *v = NULL;
         memset(&d, 0, sizeof d); d.Format = RGBA; d.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D; d.Texture2D.MostDetailedMip = 1; d.Texture2D.MipLevels = (UINT)-1;
         HRESULT hr = ID3D10Device_CreateShaderResourceView(dev, R(t), &d, &v);
+        EXPECT_HR(hr, S_OK); /* Win10: probed */
         t_note("MipLevels=-1 from mip 1: %s", d3dh_hr_name(hr));
         if (v) { ID3D10ShaderResourceView_GetDesc(v, &g); t_note("reads back MostDetailedMip %u MipLevels %u", g.Texture2D.MostDetailedMip, g.Texture2D.MipLevels); ID3D10ShaderResourceView_Release(v); }
         d.Texture2D.MipLevels = 0; v = NULL;
         hr = ID3D10Device_CreateShaderResourceView(dev, R(t), &d, &v);
+        EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
         t_note("MipLevels=0: %s", d3dh_hr_name(hr));
         SAFE_RELEASE(v);
         ID3D10Texture2D_Release(t);
@@ -664,9 +670,10 @@ T(srv_cube_requires_cube_resource)
     memset(&d, 0, sizeof d); d.Format = RGBA; d.ViewDimension = D3D10_SRV_DIMENSION_TEXTURECUBE; d.TextureCube.MipLevels = 1;
     if (plain) { EXPECT_HR(ID3D10Device_CreateShaderResourceView(dev, R(plain), &d, &v), E_INVALIDARG); }
     if (cube) { v = NULL; EXPECT_HR_OK(ID3D10Device_CreateShaderResourceView(dev, R(cube), &d, &v)); SAFE_RELEASE(v);
-        /* a cube texture can also be viewed as an array of 6 faces */
-        d.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipLevels = 1; d.Texture2DArray.ArraySize = 6;
-        EXPECT_HR_OK(ID3D10Device_CreateShaderResourceView(dev, R(cube), &d, &v)); SAFE_RELEASE(v); }
+        /* Win10: a cube texture cannot be viewed as an array of 6 faces (E_INVALIDARG, probed) */
+        memset(&d, 0, sizeof d); d.Format = RGBA; d.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipLevels = 1; d.Texture2DArray.ArraySize = 6;
+        v = (void *)1;
+        EXPECT_HR(ID3D10Device_CreateShaderResourceView(dev, R(cube), &d, &v), E_INVALIDARG); CHECK(v == NULL); }
     SAFE_RELEASE(plain); SAFE_RELEASE(cube);
     DD_END(dev);
 }
@@ -809,6 +816,7 @@ T(srv1_cube_array_on_10_0_observed)
     DD_DEV1(dev, D3D10_FEATURE_LEVEL_10_0);
     D3D10_TEXTURE2D_DESC td = { 8, 8, 1, 12, RGBA, { 1, 0 }, DEF, SR, 0, D3D10_RESOURCE_MISC_TEXTURECUBE }; ID3D10Texture2D *t = NULL;
     HRESULT hr = ID3D10Device1_CreateTexture2D(dev, &td, NULL, &t);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("cube array texture on 10_0: %s", d3dh_hr_name(hr));
     if (t) {
         D3D10_SHADER_RESOURCE_VIEW_DESC1 d; ID3D10ShaderResourceView1 *v = NULL;
