@@ -644,8 +644,8 @@ ST(blend_state_limit_observation)
         if (FAILED(hr)) { if (firstfail < 0) { firstfail = i; lasthr = hr; } keep[n] = NULL; }
         else n++;
     }
-    t_note("unique blend states created: %d of 4200 (first failure at %d, hr %s)", n, firstfail, d3dh_hr_name(lasthr));
-    CHECK(n >= 1000);
+    /* Win10: the runtime allows 4096 unique state objects per device (two are used up by the defaults): the 4095th distinct blend state fails */
+    EXPECT_EQ(n, 4094); EXPECT_EQ(firstfail, 4094); EXPECT_HR(lasthr, (HRESULT)0x887C0001);   /* D3D11_ERROR_TOO_MANY_UNIQUE_STATE_OBJECTS */
     for (i = 0; i < n; i++) SAFE_RELEASE(keep[i]);
     free(keep);
 }
@@ -760,7 +760,7 @@ ST(blend_getdesc_disabled_independent_rt_reports)
     ID3D11BlendState_GetDesc(s, &g);
     EXPECT_EQ(g.RenderTarget[2].RenderTargetWriteMask, 9);
     EXPECT_EQ(g.RenderTarget[2].BlendEnable, 0);
-    t_note("disabled independent rt2 SrcBlend reported as %d (was %d)", (int)g.RenderTarget[2].SrcBlend, (int)d.RenderTarget[2].SrcBlend);
+    EXPECT_EQ((int)g.RenderTarget[2].SrcBlend, (int)D3D11_BLEND_ONE);   /* Win10: factors of a disabled target are normalised to the defaults (ONE) */
     SAFE_RELEASE(s);
 }
 ST(blend_getdesc_write_mask_every_value)

@@ -73,8 +73,11 @@ ST(samp_scan_filter_minmax_range)
             if (hr == S_FALSE) nvalid++;
         }
     }
-    t_note("min/max filters accepted: %d of 18 (capability dependent, all-or-nothing expected)", nvalid);
-    CHECK(nvalid == 0 || nvalid == 18);
+    { /* the accepted count follows D3D11_FEATURE_D3D11_OPTIONS1.MinMaxFiltering */
+      D3D11_FEATURE_DATA_D3D11_OPTIONS1 o1; memset(&o1, 0, sizeof o1);
+      int mm = SUCCEEDED(ID3D11Device_CheckFeatureSupport(so_dev, D3D11_FEATURE_D3D11_OPTIONS1, &o1, sizeof o1)) && o1.MinMaxFiltering;
+      EXPECT_EQ(nvalid, mm ? 18 : 0);
+      if (so_drv == D3D_DRIVER_TYPE_WARP) EXPECT_EQ(mm, 1); }   /* Win10 WARP supports min/max filtering */
 }
 ST(samp_filter_named_constants_accepted)
 {
@@ -197,12 +200,12 @@ ST(samp_maxanisotropy_zero_observation)
     d.Filter = D3D11_FILTER_ANISOTROPIC;
     d.MaxAnisotropy = 0;
     hr = SO_CSAMP(&d, NULL);
-    t_note("anisotropic filter with MaxAnisotropy 0 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE);   /* Win10: MaxAnisotropy 0 is accepted for an anisotropic filter */
     hr = SO_CSAMP(&d, &s);
     if (SUCCEEDED(hr) && s) {
         D3D11_SAMPLER_DESC g;
         ID3D11SamplerState_GetDesc(s, &g);
-        t_note("... GetDesc reports MaxAnisotropy %u", g.MaxAnisotropy);
+        EXPECT_EQ(g.MaxAnisotropy, 0);   /* ... and reported back as given */
     }
     SAFE_RELEASE(s);
 }
@@ -370,7 +373,7 @@ ST(samp_getdesc_swapped_lods_roundtrip)
     EXPECT_HR(SO_CSAMP(&d, &s), S_OK);
     if (!s) return;
     ID3D11SamplerState_GetDesc(s, &g);
-    t_note("MinLOD 6 / MaxLOD 1 reported as %g / %g", g.MinLOD, g.MaxLOD);
+    CHECK(g.MinLOD == 6.f && g.MaxLOD == 1.f);   /* Win10: swapped LODs are accepted and reported unchanged */
     SAFE_RELEASE(s);
 }
 ST(samp_getdesc_bias_values_roundtrip)
@@ -418,7 +421,8 @@ ST(samp_getdesc_inactive_fields_observation)
     if (!s) return;
     ID3D11SamplerState_GetDesc(s, &g);
     EXPECT_EQ(g.Filter, D3D11_FILTER_MIN_MAG_MIP_POINT);
-    t_note("point filter, wrap: ComparisonFunc %d (set 5), MaxAnisotropy %u (set 9), border %g (set 0.3)", g.ComparisonFunc, g.MaxAnisotropy, g.BorderColor[0]);
+    /* Win10: fields that do not apply to the filter / addressing are reset in the stored description */
+    EXPECT_EQ((int)g.ComparisonFunc, (int)D3D11_COMPARISON_NEVER); EXPECT_EQ(g.MaxAnisotropy, 0); CHECK(g.BorderColor[0] == 0.f);
     SAFE_RELEASE(s);
 }
 
@@ -516,8 +520,7 @@ ST(samp_dedup_inactive_fields_observation)
     EXPECT_HR(SO_CSAMP(&e1, &b), S_OK);
     EXPECT_HR(SO_CSAMP(&e2, &c), S_OK);
     EXPECT_HR(SO_CSAMP(&e3, &f), S_OK);
-    t_note("inactive border colour: %s; inactive comparison func: %s; inactive anisotropy: %s",
-           a == b ? "same object" : "distinct", a == c ? "same object" : "distinct", a == f ? "same object" : "distinct");
+    CHECK(a == b); CHECK(a == c); CHECK(a == f);   /* Win10: inactive fields are normalised, so these descriptions share one object */
     SAFE_RELEASE(a); SAFE_RELEASE(b); SAFE_RELEASE(c); SAFE_RELEASE(f);
 }
 ST(samp_many_unique_states)

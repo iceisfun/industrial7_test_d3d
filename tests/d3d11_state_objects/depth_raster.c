@@ -270,7 +270,7 @@ ST(ds_disabled_depth_dedup_observation)
     e.DepthFunc = D3D11_COMPARISON_GREATER;
     EXPECT_HR(SO_CDS(&d, &a), S_OK);
     EXPECT_HR(SO_CDS(&e, &b), S_OK);
-    t_note("depth disabled, different DepthFunc: %s object", a == b ? "same" : "different");
+    CHECK(a == b);   /* Win10: with depth testing off the DepthFunc is normalised away, so the states are one object */
     SAFE_RELEASE(a); SAFE_RELEASE(b);
 }
 
@@ -578,8 +578,8 @@ ST(rast1_forced_sample_count_supported_values_observation)
         HRESULT hr;
         d.ForcedSampleCount = ok[i];
         hr = ID3D11Device1_CreateRasterizerState1(so_dev1(), &d, NULL);
-        t_note("ForcedSampleCount %u (no multisample) -> %s", ok[i], d3dh_hr_name(hr));
-        CHECK(hr == S_FALSE || hr == E_INVALIDARG);
+        /* Win10 (feature level 11_0 WARP): 1, 4 and 8 validate, 16 does not */
+        t_check(hr == (ok[i] == 16 ? E_INVALIDARG : S_FALSE), __FILE__, __LINE__, "forced sample count", "count %u got %s", ok[i], d3dh_hr_name(hr));
     }
 }
 ST(rast1_forced_sample_count_zero_roundtrip)
@@ -674,7 +674,7 @@ ST(rast2_conservative_on_solid_depends_on_tier)
     ID3D11Device_CheckFeatureSupport(so_dev, D3D11_FEATURE_D3D11_OPTIONS2, &o2, sizeof o2);
     d.ConservativeRaster = D3D11_CONSERVATIVE_RASTERIZATION_MODE_ON;
     hr = ID3D11Device3_CreateRasterizerState2(so_dev3(), &d, NULL);
-    t_note("conservative raster tier %d: ON solid -> %s", (int)o2.ConservativeRasterizationTier, d3dh_hr_name(hr));
+    if (so_drv == D3D_DRIVER_TYPE_WARP) EXPECT_EQ((int)o2.ConservativeRasterizationTier, 0);   /* Win10 WARP: not supported */
     if (o2.ConservativeRasterizationTier == D3D11_CONSERVATIVE_RASTERIZATION_NOT_SUPPORTED) EXPECT_HR(hr, E_INVALIDARG);
     else EXPECT_HR(hr, S_FALSE);
 }

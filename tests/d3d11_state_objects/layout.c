@@ -112,8 +112,7 @@ ST(il_corrupt_fourcc_rejected)
     memcpy(copy, d3dh_blob_ptr(b), n);
     copy[0] = 'X';
     hr = ID3D11Device_CreateInputLayout(so_dev, e, 3, copy, n, NULL);
-    EXPECT_HR_FAILED(hr);
-    t_note("DXBC with a bad fourcc -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 */
     free(copy);
 }
 ST(il_bytecode_alignment_irrelevant_copy)
@@ -460,7 +459,9 @@ ST(il_small_component_format_offsets_observation)
         h8 = cil(e, 1, b, NULL);
         e[0] = E("POSITION", 0, DXGI_FORMAT_R16G16_FLOAT, 0, off, V, 0);
         h16 = cil(e, 1, b, NULL);
-        t_note("offset %u: R8G8B8A8_UNORM %s, R16G16_FLOAT %s", off, d3dh_hr_name(h8), d3dh_hr_name(h16));
+        /* Win10: a byte offset that is not a multiple of the component size is rejected for both formats */
+        t_check(h8 == E_INVALIDARG, __FILE__, __LINE__, "R8G8B8A8_UNORM at unaligned offset", "off %u got %s", off, d3dh_hr_name(h8));
+        t_check(h16 == E_INVALIDARG, __FILE__, __LINE__, "R16G16_FLOAT at unaligned offset", "off %u got %s", off, d3dh_hr_name(h16));
     }
 }
 ST(il_core_vertex_formats_accepted)
@@ -512,7 +513,7 @@ ST(il_format_is_independent_of_shader_input_type)
     NEED_VS(b, VS_ONE);
     e[0] = E("POSITION", 0, DXGI_FORMAT_R32_UINT, 0, 0, V, 0);
     hr = cil(e, 1, b, NULL);
-    t_note("uint element for a float4 input -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE);   /* Win10: the element type is not checked against the shader input type */
     e[0] = E("POSITION", 0, DXGI_FORMAT_R32_FLOAT, 0, 0, V, 0);
     EXPECT_HR(cil(e, 1, b, NULL), S_FALSE);
     e[0] = E("POSITION", 0, DXGI_FORMAT_R8_UNORM, 0, 0, V, 0);
@@ -541,7 +542,7 @@ ST(il_vertexid_only_shader_with_zero_elements_observation)
     NEED_VS(b, VS_NOINPUT);
     e[0] = E("POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, V, 0);
     hr = cil(e, 0, b, NULL);
-    t_note("zero elements with a shader that has only SV_VertexID -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE);   /* Win10: a shader that needs no vertex buffers accepts an empty element array */
 }
 
 /* ---- objects ------------------------------------------------------------------------ */
@@ -554,7 +555,7 @@ ST(il_create_twice_distinct_or_same_observation)
     EXPECT_HR(cil(e, 3, b, &a), S_OK);
     EXPECT_HR(cil(e, 3, b, &b2), S_OK);
     CHECK(a != NULL && b2 != NULL);
-    t_note("two identical input layouts are %s", a == b2 ? "the same object" : "distinct objects");
+    CHECK(a != b2);   /* Win10: input layouts are not de-duplicated */
     SAFE_RELEASE(a); SAFE_RELEASE(b2);
 }
 ST(il_getdevice_returns_creating_device)

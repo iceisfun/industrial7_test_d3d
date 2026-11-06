@@ -300,7 +300,7 @@ ST(obj_bound_blend_state_null_factor_defaults)
     ID3D11DeviceContext_OMGetBlendState(so_ctx, &g, gf, &mask);
     CHECK(gf[0] == 1.f && gf[1] == 1.f && gf[2] == 1.f && gf[3] == 1.f);
     EXPECT_EQ(mask, 0xFFFFFFFF);
-    t_note("default blend state pointer after OMSetBlendState(NULL): %p", (void *)g);
+    CHECK(g == NULL);   /* Win10: the default state is reported as NULL, not as an object */
     SAFE_RELEASE(g);
 }
 ST(obj_bound_depth_stencil_roundtrip)

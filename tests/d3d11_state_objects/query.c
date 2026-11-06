@@ -234,7 +234,7 @@ ST(query_getdata_before_end_observation)
     EXPECT_HR(CQ(&d, &q), S_OK);
     if (!q) return;
     hr = ID3D11DeviceContext_GetData(so_ctx, (ID3D11Asynchronous *)q, &v, sizeof v, 0);
-    t_note("GetData on an event query that was never ended -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);   /* Win10: GetData before End */
     SAFE_RELEASE(q);
 }
 
@@ -471,8 +471,8 @@ ST(counter_checkcounterinfo_consistent)
     SO_NEED();
     memset(&ci, 0xEE, sizeof ci);
     ID3D11Device_CheckCounterInfo(so_dev, &ci);
-    t_note("counters: LastDeviceDependentCounter=%d NumSimultaneousCounters=%u NumDetectableParallelUnits=%u",
-           (int)ci.LastDeviceDependentCounter, ci.NumSimultaneousCounters, ci.NumDetectableParallelUnits);
+    if (so_drv == D3D_DRIVER_TYPE_WARP) { EXPECT_EQ((int)ci.LastDeviceDependentCounter, 0); EXPECT_EQ(ci.NumSimultaneousCounters, 0); EXPECT_EQ(ci.NumDetectableParallelUnits, 1); }   /* Win10 WARP exposes no counters */
+    else t_note("counters: LastDeviceDependentCounter=%d NumSimultaneousCounters=%u NumDetectableParallelUnits=%u", (int)ci.LastDeviceDependentCounter, ci.NumSimultaneousCounters, ci.NumDetectableParallelUnits);
     CHECK(ci.LastDeviceDependentCounter == 0 || ci.LastDeviceDependentCounter >= D3D11_COUNTER_DEVICE_DEPENDENT_0);
 }
 ST(counter_create_without_device_counters_fails)
@@ -488,8 +488,7 @@ ST(counter_create_without_device_counters_fails)
     d.MiscFlags = 0;
     if (ci.LastDeviceDependentCounter != 0) { t_skip("device exposes counters"); return; }
     hr = ID3D11Device_CreateCounter(so_dev, &d, &c);
-    EXPECT_HR_FAILED(hr);
-    t_note("CreateCounter(DEVICE_DEPENDENT_0) without counters -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     hr = ID3D11Device_CreateCounter(so_dev, &d, NULL);
     EXPECT_HR_FAILED(hr);
 }
@@ -520,6 +519,5 @@ ST(counter_check_counter_unsupported)
     d.MiscFlags = 0;
     t = (D3D11_COUNTER_TYPE)99;
     hr = ID3D11Device_CheckCounter(so_dev, &d, &t, &active, NULL, &nl, NULL, &nu, NULL, &nd);
-    EXPECT_HR_FAILED(hr);
-    t_note("CheckCounter(0x12345) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
 }
