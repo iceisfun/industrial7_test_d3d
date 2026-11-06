@@ -47,7 +47,7 @@ DWORD t_try(void (*fn)(void *), void *ctx) {
 /* A crash inside a test is reported as a failure of that test and the run continues. */
 static LONG CALLBACK veh(PEXCEPTION_POINTERS ep) {
     DWORD c = ep->ExceptionRecord->ExceptionCode;
-    if (g_gactive && (c & 0xF0000000) == 0xC0000000) { g_gcode = c; g_gactive = 0; longjmp(g_gjb, 1); }
+    if (g_gactive && GetCurrentThreadId() == g_gtid && (c & 0xF0000000) == 0xC0000000) { g_gcode = c; g_gactive = 0; longjmp(g_gjb, 1); }
     if (!g_in_test) return EXCEPTION_CONTINUE_SEARCH;
     if (c == 0x40010006 || c == 0x406D1388 || c == DBG_PRINTEXCEPTION_C || c == 0x4001000A) return EXCEPTION_CONTINUE_SEARCH;
     if ((c & 0xF0000000) != 0xC0000000) return EXCEPTION_CONTINUE_SEARCH;

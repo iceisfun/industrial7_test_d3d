@@ -187,7 +187,8 @@ TEST(d3d11_views_query_interface_table)
         t_check(p != (void *)h.v, __FILE__, __LINE__, "IUnknown pointer differs from the typed pointer", "%s", kname[k]);
         { void *p2 = NULL; ID3D11View *vw = NULL; ID3D11View_QueryInterface(h.view, &IID_IUnknown, &p2);
           t_check(p2 == p, __FILE__, __LINE__, "IUnknown identity stable via ID3D11View", "%s", kname[k]);
-          if (p2) IUnknown_Release((IUnknown *)p2); (void)vw; }
+          (void)vw;
+          if (p2) { IUnknown_Release((IUnknown *)p2); } }
         if (p) IUnknown_Release((IUnknown *)p);
         p = NULL; EXPECT_HR(IUnknown_QueryInterface(h.v, &IID_ID3D11DeviceChild, &p), S_OK);
         t_check(p == (void *)h.v, __FILE__, __LINE__, "DeviceChild identity", "%s", kname[k]);
