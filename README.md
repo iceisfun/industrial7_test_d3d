@@ -62,11 +62,11 @@ Writers own only their `tests/<area>/`; `common/`, `assets/` and the Makefile ar
 | group | areas |
 |---|---|
 | harness | core_smoke, d3dh_selftest, exports_modules, formats_pitch_tables |
-| D3D11 | d3d11_device_create, d3d11_caps_formats, d3d11_buffers, d3d11_textures, d3d11_views, d3d11_state_objects, d3d11_shaders, d3d11_context_state, d3d11_render_exec, d3d11_debug_refcount, d3d11_interfaces_video |
+| D3D11 | d3d11_device_create, d3d11_caps_formats, d3d11_buffers, d3d11_textures, d3d11_views, d3d11_state_objects, d3d11_shaders, d3d11_context_state, d3d11_render_exec, d3d11_debug_refcount, d3d11_interfaces_video, d3d11_gapfill |
 | D3D10 / compiler | d3d10_device, d3d10_utils_effects, d3dcompiler_compile, d3dcompiler_reflect_blob, hlsl_semantics_exec |
-| D3D12 | d3d12_entry_points, d3d12_objects, d3d12_rootsig_cpu |
+| D3D12 | d3d12_entry_points, d3d12_objects, d3d12_rootsig_cpu, d3d12_cmdlist_ext |
 | D3D9 / legacy | d3d9_core, d3d9_device_resources, d3d9_state_draw, ddraw_legacy, d3dx_redist_optional |
-| DXGI | dxgi_factory, dxgi_adapter_output, dxgi_objects_resources, dxgi_swapchain |
+| DXGI | dxgi_factory, dxgi_adapter_output, dxgi_objects_resources, dxgi_swapchain, dxgi_debug_ext |
 | misc | d3d_on12_dxcore_misc, dxva2_monitor_video, cross_com_threads_stress, gap_00..gap_04 (export depth and arg validation) |
 | state-changing (opt-in) | dx_gap_00..dx_gap_03 (run only with `run_all.bat /destructive`) |
 

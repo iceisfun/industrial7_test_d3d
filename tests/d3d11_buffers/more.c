@@ -87,8 +87,8 @@ TEST(d3d11_buffers_more_update1_flags)
     }
     SAFE_RELEASE(b); ID3D11DeviceContext1_Release(c);
 }
-/* UpdateSubresource1 with a box on a default constant buffer is the supported partial update (ConstantBufferPartialUpdate) */
-TEST(d3d11_buffers_more_update1_cb_partial)
+/* UpdateSubresource1 with a box on a default constant buffer: the device reports ConstantBufferPartialUpdate but the box update is dropped (pinned below) */
+TEST(d3d11_buffers_more_update1_cb_partial_dropped)
 {
     ID3D11DeviceContext1 *c = ctx1();
     ID3D11Buffer *b = mk(64, DEF, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0, 1, 0x66);
