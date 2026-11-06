@@ -166,7 +166,8 @@ TEST(d3d_on12_dxcore_misc_wrap_same_resource_twice) {
     HRESULT ha = ID3D11On12Device_CreateWrappedResource(c.o, (IUnknown *)r, &f, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON, &IID_ID3D11Texture2D, (void **)&a);
     HRESULT hb = ID3D11On12Device_CreateWrappedResource(c.o, (IUnknown *)r, &f, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON, &IID_ID3D11Texture2D, (void **)&b);
     EXPECT_HR(ha, S_OK);
-    t_note("second wrap of the same D3D12 resource: %s same-object=%d", d3dh_hr_name(hb), a == b);
+    EXPECT_HR(hb, S_OK);   /* a second wrapper over the same D3D12 resource is allowed and is a distinct object (probed) */
+    CHECK(a != NULL && b != NULL && a != b);
     SAFE_RELEASE(a); SAFE_RELEASE(b); SAFE_RELEASE(r); on12_free(&c);
 }
 TEST(d3d_on12_dxcore_misc_wrap_misc_flags_passthrough) {

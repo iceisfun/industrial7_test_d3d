@@ -466,33 +466,28 @@ TEST(d3d_on12_dxcore_misc_kmt_gdi32_null_arguments_fail) {
         kmt_fn f = (kmt_fn)gdi(n[i]);
         if (!f) { t_skip("gdi32 D3DKMT unavailable"); return; }
         LONG st = f(NULL);
-        CHECKF(st < 0, "%s(NULL) = 0x%08lx", n[i], (unsigned long)st);
-        t_note("%s(NULL) = 0x%08lx", n[i], (unsigned long)st);
+        CHECKF(st == (LONG)0xC000000D, "%s(NULL) = 0x%08lx (want STATUS_INVALID_PARAMETER)", n[i], (unsigned long)st);
     }
 }
 TEST(d3d_on12_dxcore_misc_kmt_gdi32_close_invalid_handle) {
     kmt_fn f = (kmt_fn)gdi("D3DKMTCloseAdapter"); REQUIRE(f);
     odm_close c = {0}; LONG st = f(&c);
-    CHECKF(st < 0, "0x%08lx", (unsigned long)st);
-    t_note("CloseAdapter(0) = 0x%08lx", (unsigned long)st);
+    CHECKF(st == (LONG)0xC000000D, "CloseAdapter(0) = 0x%08lx", (unsigned long)st);
     c.hAdapter = 0x7FFFFFF0; st = f(&c);
-    CHECKF(st < 0, "0x%08lx", (unsigned long)st);
-    t_note("CloseAdapter(0x7FFFFFF0) = 0x%08lx", (unsigned long)st);
+    CHECKF(st == (LONG)0xC000000D, "CloseAdapter(0x7FFFFFF0) = 0x%08lx", (unsigned long)st);
 }
 TEST(d3d_on12_dxcore_misc_kmt_gdi32_query_info_invalid_handle) {
     kmt_fn f = (kmt_fn)gdi("D3DKMTQueryAdapterInfo"); REQUIRE(f);
     UINT v = 0; odm_qai q = {0x7FFFFFF0, 15, &v, 4};
     LONG st = f(&q);
-    CHECKF(st < 0, "0x%08lx", (unsigned long)st);
-    t_note("QueryAdapterInfo(bad handle) = 0x%08lx", (unsigned long)st);
+    CHECKF(st == (LONG)0xC000000D, "QueryAdapterInfo(bad handle) = 0x%08lx", (unsigned long)st);
 }
 TEST(d3d_on12_dxcore_misc_kmt_gdi32_open_luid_unknown) {
     kmt_fn f = (kmt_fn)gdi("D3DKMTOpenAdapterFromLuid"); REQUIRE(f);
     odm_openluid o; memset(&o, 0, sizeof o); o.Luid.LowPart = 0x7FFFFF01; o.Luid.HighPart = 0x7FFF;
     LONG st = f(&o);
-    CHECKF(st < 0, "0x%08lx", (unsigned long)st);
+    CHECKF(st == (LONG)0xC000000D, "OpenAdapterFromLuid(unknown) = 0x%08lx", (unsigned long)st);
     CHECK(o.hAdapter == 0);
-    t_note("OpenAdapterFromLuid(unknown) = 0x%08lx", (unsigned long)st);
 }
 TEST(d3d_on12_dxcore_misc_kmt_gdi32_enum_adapters_protocol) {
     kmt_fn f = (kmt_fn)gdi("D3DKMTEnumAdapters2"); REQUIRE(f);
@@ -522,8 +517,7 @@ TEST(d3d_on12_dxcore_misc_kmt_gdi32_enum_adapters_too_small_buffer) {
     UINT total = e.NumAdapters;
     e.pAdapters = &one; e.NumAdapters = 1;
     LONG st = f(&e);
-    t_note("EnumAdapters2 with 1-entry buffer for %u adapters: 0x%08lx, NumAdapters=%u", total, (unsigned long)st, e.NumAdapters);
-    CHECK(st == (LONG)0xC0000023 || st == 0);
+    CHECKF(st == (LONG)0xC0000023, "EnumAdapters2 with a 1-entry buffer for %u adapters: 0x%08lx", total, (unsigned long)st);   /* STATUS_BUFFER_TOO_SMALL (probed) */
     kmt_fn closef = (kmt_fn)gdi("D3DKMTCloseAdapter");
     if (closef && one.hAdapter) { odm_close c = {one.hAdapter}; closef(&c); }
 }
@@ -543,14 +537,14 @@ TEST(d3d_on12_dxcore_misc_kmt_gdi32_open_luid_roundtrip_query_close) {
         CHECK(o.hAdapter != 0);
         UINT type = 0xFFFFFFFF; odm_qai q = {o.hAdapter, 15 /* KMTQAITYPE_ADAPTERTYPE */, &type, 4};
         st = qf(&q);
-        t_note("ADAPTERTYPE query: 0x%08lx value 0x%x", (unsigned long)st, type);
+        CHECKF(st == 0, "ADAPTERTYPE query: 0x%08lx value 0x%x", (unsigned long)st, type);
+        CHECK(type != 0xFFFFFFFF);
         odm_close c = {o.hAdapter};
         EXPECT_EQ(cl(&c), 0);
         st = cl(&c);
-        CHECKF(st < 0, "double close 0x%08lx", (unsigned long)st);
-        t_note("second CloseAdapter = 0x%08lx", (unsigned long)st);
+        CHECKF(st == (LONG)0xC000000D, "double close 0x%08lx", (unsigned long)st);
         st = qf(&q);
-        CHECKF(st < 0, "query after close 0x%08lx", (unsigned long)st);
+        CHECKF(st == (LONG)0xC000000D, "query after close 0x%08lx", (unsigned long)st);
     }
 }
 

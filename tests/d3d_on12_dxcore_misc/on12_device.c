@@ -262,7 +262,7 @@ TEST(d3d_on12_dxcore_misc_on12_create_default) {
     MAKE_ON12(0, 0, NULL);
     CHECK(dev != NULL); CHECK(ctx != NULL);
     CHECK(fl_known(fl));
-    t_note("on12 feature level 0x%x", fl);
+    EXPECT_EQ(fl, D3D_FEATURE_LEVEL_11_0);   /* the 11On12 layer reports 11_0 over a WARP D3D12 device (probed) */
     SAFE_RELEASE(ctx); SAFE_RELEASE(dev); END_ON12();
 }
 TEST(d3d_on12_dxcore_misc_on12_create_no_context_output) {
@@ -323,8 +323,9 @@ TEST(d3d_on12_dxcore_misc_on12_feature_level_unsupported_request) {
     D3D_FEATURE_LEVEL only = D3D_FEATURE_LEVEL_9_1, got = (D3D_FEATURE_LEVEL)0x77;
     ID3D11Device *dev = (ID3D11Device *)1;
     HRESULT hr = create((IUnknown *)d12, 0, &only, 1, NULL, 0, 0, &dev, NULL, &got);
-    t_note("create with only FL 9_1: %s got=0x%x", d3dh_hr_name(hr), got);
-    if (FAILED(hr)) { CHECK(dev == NULL); CHECK(got == 0); } else SAFE_RELEASE(dev);
+    EXPECT_HR(hr, S_OK);   /* a request for only 9_1 is honoured (probed) */
+    EXPECT_EQ(got, D3D_FEATURE_LEVEL_9_1);
+    SAFE_RELEASE(dev);
     END_ON12();
 }
 TEST(d3d_on12_dxcore_misc_on12_with_explicit_direct_queue) {
@@ -437,7 +438,7 @@ TEST(d3d_on12_dxcore_misc_on12_d3d11_device_threading_cap) {
     D3D11_FEATURE_DATA_THREADING th; memset(&th, 0xCD, sizeof th);
     HRESULT hr = ID3D11Device_CheckFeatureSupport(dev, D3D11_FEATURE_THREADING, &th, sizeof th);
     EXPECT_HR(hr, S_OK);
-    t_note("threading: concurrent creates=%d command lists=%d", th.DriverConcurrentCreates, th.DriverCommandLists);
+    EXPECT_EQ(th.DriverConcurrentCreates, TRUE); EXPECT_EQ(th.DriverCommandLists, FALSE);   /* probed */
     SAFE_RELEASE(ctx); SAFE_RELEASE(dev); END_ON12();
 }
 TEST(d3d_on12_dxcore_misc_on12_create_texture_without_wrapping) {
