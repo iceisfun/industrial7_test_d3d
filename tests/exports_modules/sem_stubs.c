@@ -82,7 +82,8 @@ TEST(exports_modules_d3d11_d3dkmt_getdevicestate) {
     EXPECT_EQ(D3DKMTGetDeviceState_fn(b), 0);
     for (int k = 8; k < 0x30; k++) if (b[k] != 0) { CHECKF(0, "byte +0x%x not cleared", k); break; }
     EXPECT_EQ(b[0x30], 0xCC);
-    EXPECT_EQ(b[0x07], 0xCC);
+    EXPECT_EQ(b[0x03], 0xCC);                          /* the StateType dword at +4 is input; +0..3 untouched */
+    EXPECT_EQ(*(DWORD *)(b + 4), 2);
     /* any other type is unsupported: STATUS_UNSUCCESSFUL, buffer untouched */
     static const DWORD others[] = { 0, 3, 4, 5, 100 };
     for (int k = 0; k < 5; k++) {

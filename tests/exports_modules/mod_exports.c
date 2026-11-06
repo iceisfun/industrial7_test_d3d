@@ -116,7 +116,7 @@ static void p_holes(int i) {
         SetLastError(0);
         FARPROC p = GetProcAddress(h, ORD(o));
         XC(p == NULL, "ordinal %lu has RVA 0 but resolves to %p", o, p);
-        XERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_INVALID_ORDINAL);   /* Win10: a hole in the ordinal table reports 182, not 127 */
     }
     if (!holes) t_note("%s: export ordinal range is dense", g_xm[i].dll);
 }
@@ -186,18 +186,18 @@ static void p_bad(int i) {
     XERR(ERROR_PROC_NOT_FOUND);
     SetLastError(0);
     XC(GetProcAddress(h, "") == NULL, "empty name");
-    { DWORD e = GetLastError(); if (e != ERROR_PROC_NOT_FOUND) t_note("GetProcAddress(\"\") last error %lu", e); }
+    XERR(ERROR_PROC_NOT_FOUND);
     SetLastError(0);
     XC(GetProcAddress(h, ORD(0)) == NULL, "ordinal 0");
-    { DWORD e = GetLastError(); if (e != ERROR_PROC_NOT_FOUND) t_note("GetProcAddress(ordinal 0) last error %lu", e); }
+    XERR(ERROR_INVALID_PARAMETER);   /* Win10: ordinal 0 is rejected before the export table is consulted */
     SetLastError(0);
     XC(GetProcAddress(h, ORD(0xFFFF)) == NULL, "ordinal 0xFFFF");
-    XERR(ERROR_PROC_NOT_FOUND);
+    XERR(ERROR_INVALID_ORDINAL);
     if (ed) {
         SetLastError(0);
         FARPROC p = GetProcAddress(h, ORD(ed->Base + ed->NumberOfFunctions));
         XC(p == NULL, "first ordinal past the table");
-        XERR(ERROR_PROC_NOT_FOUND);
+        XERR(ERROR_INVALID_ORDINAL);
     }
     if (!first) return;
     char buf[256];

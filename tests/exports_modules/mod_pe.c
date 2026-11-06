@@ -211,11 +211,28 @@ static void p_version(int i) {
     if (!q(blob, L"\\", (LPVOID *)&fi, &l) || !fi) { XC(0, "fixed info"); HeapFree(GetProcessHeap(), 0, blob); return; }
     XC(l == sizeof *fi, "fixed info size %u", l);
     XC(fi->dwSignature == 0xFEEF04BD, "fixed info signature");
-    XC(HIWORD(fi->dwFileVersionMS) == 10 && LOWORD(fi->dwFileVersionMS) == 0, "FileVersion %u.%u.%u.%u", HIWORD(fi->dwFileVersionMS), LOWORD(fi->dwFileVersionMS), HIWORD(fi->dwFileVersionLS), LOWORD(fi->dwFileVersionLS));
-    XC(HIWORD(fi->dwFileVersionLS) >= 10240, "build number %u", HIWORD(fi->dwFileVersionLS));
-    XC(HIWORD(fi->dwProductVersionMS) == 10 && LOWORD(fi->dwProductVersionMS) == 0, "ProductVersion %u.%u", HIWORD(fi->dwProductVersionMS), LOWORD(fi->dwProductVersionMS));
+    /* The version API applies a compatibility shim for executables without a Win10 manifest (this test executable has none):
+     * the major.minor words of the fixed FILE version read back as 6.2, the build words and the product version are untouched. The raw
+     * RT_VERSION resource of the module, read as a data file, has the real 10.0. Both are measured on Win10 22H2. */
+    {
+        HMODULE dm = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+        HRSRC rs = dm ? FindResourceW(dm, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16)) : NULL;
+        const BYTE *rd = rs ? (const BYTE *)LockResource(LoadResource(dm, rs)) : NULL;
+        const VS_FIXEDFILEINFO *raw = NULL;
+        for (int o = 0; rd && o < 64; o += 4) if (*(const DWORD *)(rd + o) == 0xFEEF04BD) { raw = (const VS_FIXEDFILEINFO *)(rd + o); break; }
+        XC(raw != NULL, "raw RT_VERSION resource has a fixed file info block");
+        if (raw) {
+            XC(HIWORD(raw->dwFileVersionMS) == 10 && LOWORD(raw->dwFileVersionMS) == 0, "raw FileVersion %u.%u.%u.%u", HIWORD(raw->dwFileVersionMS), LOWORD(raw->dwFileVersionMS), HIWORD(raw->dwFileVersionLS), LOWORD(raw->dwFileVersionLS));
+            XC(HIWORD(raw->dwProductVersionMS) == 10 && LOWORD(raw->dwProductVersionMS) == 0, "raw ProductVersion %u.%u", HIWORD(raw->dwProductVersionMS), LOWORD(raw->dwProductVersionMS));
+            XC(raw->dwFileVersionLS == fi->dwFileVersionLS && raw->dwProductVersionLS == fi->dwProductVersionLS, "API build words equal the raw ones");
+        }
+        if (dm) FreeLibrary(dm);
+    }
+    XC(HIWORD(fi->dwFileVersionMS) == 6 && LOWORD(fi->dwFileVersionMS) == 2, "API FileVersion %u.%u.%u.%u (version shim: FileVersion reads 6.2 without a manifest)", HIWORD(fi->dwFileVersionMS), LOWORD(fi->dwFileVersionMS), HIWORD(fi->dwFileVersionLS), LOWORD(fi->dwFileVersionLS));
+    XC(HIWORD(fi->dwFileVersionLS) >= 19041, "build number %u", HIWORD(fi->dwFileVersionLS));
+    XC(HIWORD(fi->dwProductVersionMS) == 10 && LOWORD(fi->dwProductVersionMS) == 0, "API ProductVersion %u.%u (not affected by the shim)", HIWORD(fi->dwProductVersionMS), LOWORD(fi->dwProductVersionMS));
     XC(fi->dwFileOS == VOS_NT_WINDOWS32, "FileOS 0x%lx", fi->dwFileOS);
-    XC(fi->dwFileType == VFT_DLL, "FileType %lu", fi->dwFileType);
+    XC(fi->dwFileType == (i == XM_dxcore ? VFT_APP : VFT_DLL), "FileType %lu (dxcore.dll is flagged VFT_APP on Win10 22H2, all others VFT_DLL)", fi->dwFileType);
     XC(fi->dwFileSubtype == 0, "FileSubtype %lu", fi->dwFileSubtype);
     XC(!(fi->dwFileFlags & fi->dwFileFlagsMask & VS_FF_PRIVATEBUILD), "not a private build");
     XC(!(fi->dwFileFlags & fi->dwFileFlagsMask & VS_FF_DEBUG), "not a debug build");
@@ -226,7 +243,9 @@ static void p_version(int i) {
     WCHAR s[160];
     char want[64];
     if (verstr(blob, tr, "FileVersion", s, 160)) {
-        snprintf(want, sizeof want, "%u.%u.%u.%u", HIWORD(fi->dwFileVersionMS), LOWORD(fi->dwFileVersionMS), HIWORD(fi->dwFileVersionLS), LOWORD(fi->dwFileVersionLS));
+        /* d3dscache.dll (19041.746) has FileVersion string 10.0.19041.1 against a fixed info of .746: only the build is comparable */
+        if (i == XM_d3dscache) snprintf(want, sizeof want, "10.0.%u.", HIWORD(fi->dwFileVersionLS));
+        else snprintf(want, sizeof want, "10.0.%u.%u", HIWORD(fi->dwFileVersionLS), LOWORD(fi->dwFileVersionLS));
         WCHAR w[64]; MultiByteToWideChar(CP_ACP, 0, want, -1, w, 64);
         XC(!wcsncmp(s, w, wcslen(w)), "FileVersion string \"%ls\" starts with %s", s, want);
     } else XC(0, "FileVersion string present");
