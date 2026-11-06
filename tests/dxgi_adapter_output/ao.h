@@ -64,6 +64,12 @@ static int ao_same_object(IUnknown *a, IUnknown *b) {
     if (ub) IUnknown_Release(ub);
     return r;
 }
+/* SetVideoMemoryReservation answers E_INVALIDARG until a D3D device exists in the process (probed on Win10); keep one for the exe lifetime. */
+static int ao_keep_device(void) {
+    static ID3D11Device *dev; static ID3D11DeviceContext *ctx; static int tried;
+    if (!tried) { tried = 1; D3D_FEATURE_LEVEL fl; D3D_DRIVER_TYPE dt; if (FAILED(d3dh_make_device11(&dev, &ctx, &fl, &dt, 0))) dev = NULL; }
+    return dev != NULL;
+}
 static int ao_luid_eq(LUID a, LUID b) { return a.LowPart == b.LowPart && a.HighPart == b.HighPart; }
 static int ao_wide_terminated(const WCHAR *s, int cap) { for (int i = 0; i < cap; i++) if (!s[i]) return 1; return 0; }
 

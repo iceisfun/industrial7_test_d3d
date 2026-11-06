@@ -89,10 +89,11 @@ AO_TEST_OUTPUT(dxgi_adapter_output_out_getdesc_monitor_valid) {
     CHECK(mi.rcMonitor.left == d.DesktopCoordinates.left && mi.rcMonitor.top == d.DesktopCoordinates.top);
     CHECK(mi.rcMonitor.right == d.DesktopCoordinates.right && mi.rcMonitor.bottom == d.DesktopCoordinates.bottom);
 }
+static void out_getdesc_null_call(void *p) { IDXGIOutput_GetDesc(((struct { IDXGIOutput *o; } *)p)->o, NULL); }
 AO_TEST_OUTPUT(dxgi_adapter_output_out_getdesc_null) {
-    HRESULT hr = IDXGIOutput_GetDesc(o, NULL);
-    EXPECT_HR_FAILED(hr);
-    t_note("Output::GetDesc(NULL) -> %s", d3dh_hr_name(hr));
+    /* Win10 (probed): the output descriptor is written unconditionally, NULL raises an access violation */
+    struct { IDXGIOutput *o; } c = { o };
+    EXPECT_EQ(t_try(out_getdesc_null_call, &c), 0xc0000005u);
 }
 AO_TEST_OUTPUT(dxgi_adapter_output_out_names_unique) {
     DXGI_OUTPUT_DESC d[16]; UINT n = 0;

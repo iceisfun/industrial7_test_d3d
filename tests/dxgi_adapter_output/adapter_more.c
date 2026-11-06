@@ -31,6 +31,7 @@ AO_TEST_FACTORY(dxgi_adapter_output_warp_enum_bad_iid) {
     void *p = (void *)(UINT_PTR)1;
     HRESULT hr = IDXGIFactory4_EnumWarpAdapter(f4, &IID_IDXGIFactory, &p);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_NOINTERFACE); /* Win10: probed */
     t_note("EnumWarpAdapter(IDXGIFactory) -> %s", d3dh_hr_name(hr));
     CHECK(p == NULL || p == (void *)(UINT_PTR)1);
     IDXGIFactory4_Release(f4);
@@ -40,6 +41,7 @@ AO_TEST_FACTORY(dxgi_adapter_output_warp_enum_null_out) {
     if (!f4) return;
     HRESULT hr = IDXGIFactory4_EnumWarpAdapter(f4, &IID_IDXGIAdapter1, NULL);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("EnumWarpAdapter(NULL out) -> %s", d3dh_hr_name(hr));
     IDXGIFactory4_Release(f4);
 }
@@ -92,6 +94,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_luid_enum_iids) {
     void *bad = (void *)(UINT_PTR)1;
     HRESULT hr = IDXGIFactory4_EnumAdapterByLuid(f4, d.AdapterLuid, &IID_IDXGIFactory, &bad);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_NOINTERFACE); /* Win10: probed */
     t_note("EnumAdapterByLuid(IDXGIFactory iid) -> %s", d3dh_hr_name(hr));
     IDXGIFactory4_Release(f4);
 }
@@ -102,6 +105,7 @@ AO_TEST_FACTORY(dxgi_adapter_output_luid_zero_not_found) {
     void *p = (void *)(UINT_PTR)1;
     HRESULT hr = IDXGIFactory4_EnumAdapterByLuid(f4, z, &IID_IDXGIAdapter1, &p);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, DXGI_ERROR_NOT_FOUND); /* Win10: probed */
     t_note("EnumAdapterByLuid(0:0) -> %s", d3dh_hr_name(hr));
     if (FAILED(hr)) CHECK(p == NULL);
     IDXGIFactory4_Release(f4);
@@ -163,7 +167,7 @@ AO_TEST_FACTORY(dxgi_adapter_output_gpupref_bad_preference) {
     if (!f6) return;
     void *p = (void *)(UINT_PTR)1;
     HRESULT hr = IDXGIFactory6_EnumAdapterByGpuPreference(f6, 0, (DXGI_GPU_PREFERENCE)77, &IID_IDXGIAdapter1, &p);
-    EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, S_OK); /* Win10 (probed): an undefined preference value is treated like UNSPECIFIED */
     t_note("EnumAdapterByGpuPreference(77) -> %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
     IDXGIFactory6_Release(f6);
@@ -173,6 +177,7 @@ AO_TEST_FACTORY(dxgi_adapter_output_gpupref_null_out) {
     if (!f6) return;
     HRESULT hr = IDXGIFactory6_EnumAdapterByGpuPreference(f6, 0, DXGI_GPU_PREFERENCE_UNSPECIFIED, &IID_IDXGIAdapter1, NULL);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("EnumAdapterByGpuPreference(NULL out) -> %s", d3dh_hr_name(hr));
     IDXGIFactory6_Release(f6);
 }

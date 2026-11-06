@@ -217,6 +217,7 @@ AO_TEST_FACTORY(dxgi_adapter_output_luid_unknown_not_found) {
     LUID bogus = { 0x7eadbeefu, 0x12345 };
     HRESULT hr = IDXGIFactory4_EnumAdapterByLuid(f4, bogus, &IID_IDXGIAdapter1, (void **)&b);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, DXGI_ERROR_NOT_FOUND); /* Win10: probed */
     t_note("EnumAdapterByLuid(unknown) -> %s", d3dh_hr_name(hr));
     CHECK(b == NULL);
     IDXGIFactory4_Release(f4);
@@ -249,6 +250,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_qi_unsupported) {
 AO_TEST_ADAPTER(dxgi_adapter_output_qi_null_out) {
     HRESULT hr = IDXGIAdapter1_QueryInterface(a, &IID_IUnknown, NULL);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_POINTER); /* Win10: probed */
     t_note("QI(NULL out) -> %s", d3dh_hr_name(hr));
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_refcount_balance) {
@@ -300,6 +302,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_getparent_wrong_iid) {
 AO_TEST_ADAPTER(dxgi_adapter_output_getparent_null_out) {
     HRESULT hr = IDXGIAdapter1_GetParent(a, &IID_IDXGIFactory, NULL);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_POINTER); /* Win10: probed */
     t_note("GetParent(NULL out) -> %s", d3dh_hr_name(hr));
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_getparent_factory_from_each_adapter) {
@@ -368,8 +371,9 @@ AO_TEST_ADAPTER(dxgi_adapter_output_privdata_interface) {
 AO_TEST_ADAPTER(dxgi_adapter_output_privdata_bad_args) {
     BYTE b = 1;
     HRESULT hr = IDXGIAdapter1_SetPrivateData(a, &AO_G1, 4, NULL);
-    EXPECT_HR_FAILED(hr);
-    t_note("SetPrivateData(size 4, NULL) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE); /* Win10 (probed): S_FALSE, not a failure; nothing is stored */
+    UINT psz = 99; BYTE pd[4] = { 0 };
+    EXPECT_HR(IDXGIAdapter1_GetPrivateData(a, &AO_G1, &psz, pd), DXGI_ERROR_NOT_FOUND);
     hr = IDXGIAdapter1_GetPrivateData(a, &AO_G1, NULL, &b);
     EXPECT_HR_FAILED(hr);
     t_note("GetPrivateData(NULL size) -> %s", d3dh_hr_name(hr));

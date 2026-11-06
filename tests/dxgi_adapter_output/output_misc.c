@@ -60,9 +60,11 @@ AO_TEST_OUTPUT(dxgi_adapter_output_closest_width_height_zero_pair) {
     t_note("FindClosestMatchingMode(0x0) -> %s result %ux%u", d3dh_hr_name(hr), res.Width, res.Height);
     want.Width = 800; want.Height = 0;
     hr = IDXGIOutput_FindClosestMatchingMode(o, &want, &res, NULL);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("FindClosestMatchingMode(800x0) -> %s", d3dh_hr_name(hr));
     want.Width = 0; want.Height = 600;
     hr = IDXGIOutput_FindClosestMatchingMode(o, &want, &res, NULL);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("FindClosestMatchingMode(0x600) -> %s", d3dh_hr_name(hr));
 }
 AO_TEST_OUTPUT(dxgi_adapter_output_closest1_null_args) {
@@ -174,8 +176,7 @@ AO_TEST_OUTPUT(dxgi_adapter_output_release_ownership_unowned) {
 }
 AO_TEST_OUTPUT(dxgi_adapter_output_take_ownership_null_device) {
     HRESULT hr = IDXGIOutput_TakeOwnership(o, NULL, FALSE);
-    EXPECT_HR_FAILED(hr);
-    t_note("TakeOwnership(NULL) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK); /* Win10 (probed): a NULL device is accepted */
     if (SUCCEEDED(hr)) IDXGIOutput_ReleaseOwnership(o);
 }
 
@@ -193,6 +194,7 @@ AO_TEST_OUTPUT(dxgi_adapter_output_check_overlay_support_null_args) {
     if (FAILED(IDXGIOutput_QueryInterface(o, &IID_IDXGIOutput3, (void **)&o3))) { t_skip("IDXGIOutput3 unavailable"); return; }
     HRESULT hr = IDXGIOutput3_CheckOverlaySupport(o3, DXGI_FORMAT_B8G8R8A8_UNORM, NULL, &fl);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("CheckOverlaySupport(NULL device) -> %s", d3dh_hr_name(hr));
     IDXGIOutput3_Release(o3);
 }
@@ -201,6 +203,7 @@ AO_TEST_OUTPUT(dxgi_adapter_output_check_overlay_colorspace_null_args) {
     if (FAILED(IDXGIOutput_QueryInterface(o, &IID_IDXGIOutput4, (void **)&o4))) { t_skip("IDXGIOutput4 unavailable"); return; }
     HRESULT hr = IDXGIOutput4_CheckOverlayColorSpaceSupport(o4, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, NULL, &fl);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("CheckOverlayColorSpaceSupport(NULL device) -> %s", d3dh_hr_name(hr));
     IDXGIOutput4_Release(o4);
 }
@@ -210,6 +213,7 @@ AO_TEST_OUTPUT(dxgi_adapter_output_duplicate_output_null_device) {
     DXGI_FORMAT f1 = DXGI_FORMAT_B8G8R8A8_UNORM;
     HRESULT hr = IDXGIOutput5_DuplicateOutput1(o5, NULL, 0, 1, &f1, &dup);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("DuplicateOutput1(NULL device) -> %s", d3dh_hr_name(hr));
     CHECK(dup == NULL || dup == (IDXGIOutputDuplication *)(UINT_PTR)1);
     IDXGIOutput5_Release(o5);

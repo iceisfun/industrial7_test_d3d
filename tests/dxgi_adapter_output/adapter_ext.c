@@ -6,10 +6,11 @@ AO_TEST_WARP(dxgi_adapter_output_cis_dxgidevice) {
     LARGE_INTEGER v; v.QuadPart = 0x5555;
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIDevice, &v);
     t_note("CheckInterfaceSupport(IDXGIDevice) -> %s", d3dh_hr_name(hr));
-    CHECK(hr == S_OK || hr == DXGI_ERROR_UNSUPPORTED);
-    if (hr == S_OK) t_note("WARP UMD version %u.%u.%u.%u", (unsigned)(v.HighPart >> 16), (unsigned)(v.HighPart & 0xffff),
+    EXPECT_HR(hr, S_OK);
+    t_note("WARP UMD version %u.%u.%u.%u", (unsigned)(v.HighPart >> 16), (unsigned)(v.HighPart & 0xffff),
                            (unsigned)(v.LowPart >> 16), (unsigned)(v.LowPart & 0xffff));
-    if (hr == S_OK) CHECK(v.QuadPart != 0x5555);
+    CHECK(v.QuadPart != 0x5555);
+    EXPECT_EQ((UINT)v.HighPart, 0x000a0000u);   /* UMD file version is 10.0.x.y (build numbers depend on the servicing level) */
 }
 AO_TEST_WARP(dxgi_adapter_output_cis_d3d10device) {
     LARGE_INTEGER v; v.QuadPart = 0;
@@ -20,17 +21,18 @@ AO_TEST_WARP(dxgi_adapter_output_cis_d3d10device) {
 AO_TEST_WARP(dxgi_adapter_output_cis_d3d10device1) {
     LARGE_INTEGER v; v.QuadPart = 0;
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_ID3D10Device1, &v);
-    t_note("CheckInterfaceSupport(ID3D10Device1) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
+    CHECK(v.QuadPart != 0);
 }
 AO_TEST_WARP(dxgi_adapter_output_cis_d3d11device) {
     LARGE_INTEGER v; v.QuadPart = 0;
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_ID3D11Device, &v);
-    t_note("CheckInterfaceSupport(ID3D11Device) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);   /* D3D11 / D3D12 are not UMD interfaces of the d3d10warp driver object: unsupported (probed) */
 }
 AO_TEST_WARP(dxgi_adapter_output_cis_d3d12device) {
     LARGE_INTEGER v; v.QuadPart = 0;
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_ID3D12Device, &v);
-    t_note("CheckInterfaceSupport(ID3D12Device) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);
 }
 AO_TEST_WARP(dxgi_adapter_output_cis_same_version_dxgi_and_d3d10) {
     LARGE_INTEGER v1, v2; v1.QuadPart = v2.QuadPart = 0;
@@ -54,7 +56,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_cis_random_guid) {
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_cis_null_version) {
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIDevice, NULL);
-    t_note("CheckInterfaceSupport(IDXGIDevice, NULL version) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* a NULL version out-pointer is tolerated (probed) */
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_cis_each_adapter_dxgidevice) {
     UINT n = ao_count_adapters(f);
@@ -145,7 +147,8 @@ AO_TEST_WARP(dxgi_adapter_output_desc3_warp) {
     CHECK((d.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE) != 0);
     CHECK((d.Flags & DXGI_ADAPTER_FLAG3_REMOTE) == 0);
     EXPECT_EQ(d.DedicatedVideoMemory, 0);
-    t_note("WARP desc3 flags 0x%x", (UINT)d.Flags);
+    /* SOFTWARE | ACG_COMPATIBLE | SUPPORT_MONITORED_FENCES | KEYED_MUTEX_CONFORMANCE (probed) */
+    EXPECT_EQ((UINT)d.Flags, 0x2eu);
     IDXGIAdapter4_Release(a4);
 }
 AO_TEST_FACTORY(dxgi_adapter_output_desc3_all_adapters) {
@@ -201,6 +204,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_vmem_query_bad_group) {
     if (!a3) return;
     HRESULT hr = IDXGIAdapter3_QueryVideoMemoryInfo(a3, 0, (DXGI_MEMORY_SEGMENT_GROUP)2, &m);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("QueryVideoMemoryInfo(group 2) -> %s", d3dh_hr_name(hr));
     hr = IDXGIAdapter3_QueryVideoMemoryInfo(a3, 0, (DXGI_MEMORY_SEGMENT_GROUP)0x7fffffff, &m);
     EXPECT_HR_FAILED(hr);
@@ -211,18 +215,21 @@ AO_TEST_ADAPTER(dxgi_adapter_output_vmem_query_bad_node) {
     if (!a3) return;
     HRESULT hr = IDXGIAdapter3_QueryVideoMemoryInfo(a3, 0xFFFF, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &m);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("QueryVideoMemoryInfo(node 0xffff) -> %s", d3dh_hr_name(hr));
     IDXGIAdapter3_Release(a3);
 }
+static void vmem_null_call(void *p) { IDXGIAdapter3_QueryVideoMemoryInfo(((struct { IDXGIAdapter3 *a; } *)p)->a, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, NULL); }
 AO_TEST_ADAPTER(dxgi_adapter_output_vmem_query_null_info) {
     IDXGIAdapter3 *a3 = ao_a3(a);
     if (!a3) return;
-    HRESULT hr = IDXGIAdapter3_QueryVideoMemoryInfo(a3, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, NULL);
-    EXPECT_HR_FAILED(hr);
-    t_note("QueryVideoMemoryInfo(NULL) -> %s", d3dh_hr_name(hr));
+    /* Win10 (probed): the output struct is written unconditionally, NULL raises an access violation */
+    struct { IDXGIAdapter3 *a; } c = { a3 };
+    EXPECT_EQ(t_try(vmem_null_call, &c), 0xc0000005u);
     IDXGIAdapter3_Release(a3);
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_zero) {
+    if (!ao_keep_device()) { t_skip("no D3D device to reserve against"); return; }
     IDXGIAdapter3 *a3 = ao_a3(a);
     if (!a3) return;
     EXPECT_HR(IDXGIAdapter3_SetVideoMemoryReservation(a3, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, 0), S_OK);
@@ -230,6 +237,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_zero) {
     IDXGIAdapter3_Release(a3);
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_roundtrip) {
+    if (!ao_keep_device()) { t_skip("no D3D device to reserve against"); return; }
     IDXGIAdapter3 *a3 = ao_a3(a); DXGI_QUERY_VIDEO_MEMORY_INFO m;
     if (!a3) return;
     if (IDXGIAdapter3_QueryVideoMemoryInfo(a3, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &m) != S_OK) { t_skip("query failed"); IDXGIAdapter3_Release(a3); return; }
@@ -247,6 +255,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_roundtrip) {
     IDXGIAdapter3_Release(a3);
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_per_adapter_object) {
+    if (!ao_keep_device()) { t_skip("no D3D device to reserve against"); return; }
     /* Reservation is tracked per adapter object: set on one, query on another enumeration. */
     IDXGIAdapter3 *a3 = ao_a3(a), *b3 = NULL; IDXGIAdapter1 *b = NULL; DXGI_QUERY_VIDEO_MEMORY_INFO m;
     if (!a3) return;
@@ -272,6 +281,7 @@ AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_bad_group) {
     IDXGIAdapter3_Release(a3);
 }
 AO_TEST_ADAPTER(dxgi_adapter_output_vmem_reserve_over_available) {
+    if (!ao_keep_device()) { t_skip("no D3D device to reserve against"); return; }
     IDXGIAdapter3 *a3 = ao_a3(a); DXGI_QUERY_VIDEO_MEMORY_INFO m;
     if (!a3) return;
     if (IDXGIAdapter3_QueryVideoMemoryInfo(a3, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &m) == S_OK && m.AvailableForReservation < (UINT64)1 << 60) {
@@ -312,12 +322,15 @@ AO_TEST_ADAPTER(dxgi_adapter_output_vmem_notification_bad_args) {
     if (!a3) return;
     HRESULT hr = IDXGIAdapter3_RegisterVideoMemoryBudgetChangeNotificationEvent(a3, NULL, &cookie);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("Register(NULL event) -> %s", d3dh_hr_name(hr));
     ev = CreateEventW(NULL, FALSE, FALSE, NULL);
     hr = IDXGIAdapter3_RegisterVideoMemoryBudgetChangeNotificationEvent(a3, ev, NULL);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("Register(NULL cookie) -> %s", d3dh_hr_name(hr));
     hr = IDXGIAdapter3_RegisterVideoMemoryBudgetChangeNotificationEvent(a3, (HANDLE)(UINT_PTR)0xFFFFFFFFFFFFFFFFull, &cookie);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("Register(INVALID_HANDLE_VALUE) -> %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) IDXGIAdapter3_UnregisterVideoMemoryBudgetChangeNotification(a3, cookie);
     CloseHandle(ev);
@@ -336,4 +349,19 @@ AO_TEST_FACTORY(dxgi_adapter_output_vmem_all_adapters_consistent) {
         }
         IDXGIAdapter1_Release(x);
     }
+}
+
+/* in a fresh process with no device, reservations are rejected with E_INVALIDARG even for 0 bytes (probed) */
+CHILD(vmem_reserve_cold) {
+    IDXGIFactory1 *f = ao_factory(); IDXGIAdapter1 *a = NULL; IDXGIAdapter3 *a3 = NULL;
+    if (!f || IDXGIFactory1_EnumAdapters1(f, 0, &a) != S_OK) return 77;
+    if (FAILED(IDXGIAdapter1_QueryInterface(a, &IID_IDXGIAdapter3, (void **)&a3))) return 77;
+    HRESULT h0 = IDXGIAdapter3_SetVideoMemoryReservation(a3, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, 0);
+    HRESULT h1 = IDXGIAdapter3_SetVideoMemoryReservation(a3, 0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, 4096);
+    return (h0 == E_INVALIDARG && h1 == E_INVALIDARG) ? 0 : 1;
+}
+TEST(dxgi_adapter_output_vmem_reserve_requires_device) {
+    DWORD rc = t_run_child("vmem_reserve_cold", "", 30000);
+    if (rc == 77) { t_skip("IDXGIAdapter3 unavailable"); return; }
+    EXPECT_EQ(rc, 0);
 }
