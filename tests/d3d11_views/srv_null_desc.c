@@ -151,7 +151,7 @@ TEST(d3d11_views_srv_null_typeless_fails)
         DXGI_FORMAT_R32G32B32A32_TYPELESS, DXGI_FORMAT_B8G8R8A8_TYPELESS, DXGI_FORMAT_R16G16_TYPELESS };
     for (unsigned i = 0; i < sizeof f / sizeof *f; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, f[i], D3D11_BIND_SHADER_RESOURCE, 0, 1);
-        if (!t) { t_note("typeless format %d not creatable", f[i]); continue; }
+        if (!t) { CHECKF(0, "typeless format %d not creatable", f[i]); continue; }
         get_null_srv(dev, t, &d, &hr);
         EXPECT_HR(hr, E_INV);
         SAFE_RELEASE(t);
@@ -176,7 +176,7 @@ TEST(d3d11_views_srv_null_typed_formats_table)
         DXGI_FORMAT_R32G32B32_FLOAT };
     for (unsigned i = 0; i < sizeof f / sizeof *f; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, f[i], D3D11_BIND_SHADER_RESOURCE, 0, 1);
-        if (!t) { t_note("format %d texture not creatable", f[i]); continue; }
+        if (!t) { CHECKF(0, "format %d texture not creatable", f[i]); continue; }
         CHECK(get_null_srv(dev, t, &d, &hr));
         EXPECT_HR(hr, S_OK);
         EXPECT_EQ(d.Format, f[i]);
@@ -201,8 +201,9 @@ TEST(d3d11_views_srv_null_structured_buffer)
     ID3D11Buffer *b = mkbuf(dev, 16 * 12, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 12);
     REQUIRE(b);
     if (get_null_srv(dev, b, &d, &hr)) {
-        t_note("structured buffer NULL-desc SRV succeeded: fmt=%d dim=%d first=%u num=%u", d.Format, d.ViewDimension, d.Buffer.FirstElement, d.Buffer.NumElements);
-    } else t_note("structured buffer NULL-desc SRV hr=%s", d3dh_hr_name(hr));
+        EXPECT_EQ(d.Format, DXGI_FORMAT_UNKNOWN); EXPECT_EQ(d.ViewDimension, D3D11_SRV_DIMENSION_BUFFER);
+        EXPECT_EQ(d.Buffer.FirstElement, 0); EXPECT_EQ(d.Buffer.NumElements, 16);
+    } else CHECKF(0, "structured buffer NULL-desc SRV hr=%s", d3dh_hr_name(hr));
     SAFE_RELEASE(b); DONE();
 }
 TEST(d3d11_views_srv_null_raw_buffer)
@@ -210,8 +211,8 @@ TEST(d3d11_views_srv_null_raw_buffer)
     NEED_DEV(); D3D11_SHADER_RESOURCE_VIEW_DESC d; HRESULT hr;
     ID3D11Buffer *b = mkbuf(dev, 256, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0);
     REQUIRE(b);
-    if (get_null_srv(dev, b, &d, &hr)) t_note("raw buffer NULL-desc SRV succeeded: fmt=%d dim=%d", d.Format, d.ViewDimension);
-    else t_note("raw buffer NULL-desc SRV hr=%s", d3dh_hr_name(hr));
+    /* Win10: a NULL desc cannot describe a raw-capable buffer (no format) and fails */
+    CHECK(!get_null_srv(dev, b, &d, &hr)); EXPECT_HR(hr, E_INV);
     SAFE_RELEASE(b); DONE();
 }
 TEST(d3d11_views_srv_null_resource)

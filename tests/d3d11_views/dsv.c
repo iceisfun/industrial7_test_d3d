@@ -17,7 +17,7 @@ TEST(d3d11_views_dsv_null_typed_formats)
     static const DXGI_FORMAT f[] = { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_D32_FLOAT_S8X24_UINT };
     for (unsigned i = 0; i < 4; i++) {
         ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, f[i], D3D11_BIND_DEPTH_STENCIL, 0, 1);
-        if (!t) { t_note("depth format %d not creatable", f[i]); continue; }
+        if (!t) { CHECKF(0, "depth format %d not creatable", f[i]); continue; }
         CHECK(get_null_dsv(dev, t, &d, &hr)); EXPECT_HR(hr, S_OK);
         EXPECT_EQ(d.Format, f[i]);
         EXPECT_EQ(d.ViewDimension, D3D11_DSV_DIMENSION_TEXTURE2D);
@@ -73,7 +73,7 @@ TEST(d3d11_views_dsv_null_typeless_fails)
     static const DXGI_FORMAT f[] = { DXGI_FORMAT_R24G8_TYPELESS, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R32G8X24_TYPELESS };
     for (unsigned i = 0; i < 4; i++) {
         ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, f[i], D3D11_BIND_DEPTH_STENCIL, 0, 1);
-        if (!t) { t_note("typeless depth %d not creatable", f[i]); continue; }
+        if (!t) { CHECKF(0, "typeless depth %d not creatable", f[i]); continue; }
         get_null_dsv(dev, t, &d, &hr);
         EXPECT_HR(hr, E_INV);
         SAFE_RELEASE(t);
@@ -130,7 +130,7 @@ TEST(d3d11_views_dsv_typeless_cast_table)
     };
     for (unsigned i = 0; i < sizeof tab / sizeof *tab; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, tab[i].res, D3D11_BIND_DEPTH_STENCIL, 0, 1);
-        if (!t) { t_note("depth res %d not creatable", tab[i].res); continue; }
+        if (!t) { CHECKF(0, "depth res %d not creatable", tab[i].res); continue; }
         D3D11_DEPTH_STENCIL_VIEW_DESC d = dsvd(D3D11_DSV_DIMENSION_TEXTURE2D, tab[i].view, 0);
         HRESULT hr = try_dsv(dev, R(t), &d);
         t_check(hr == tab[i].want, __FILE__, __LINE__, "dsv cast", "res %d view %d got %s want %s", tab[i].res, tab[i].view, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));
@@ -145,7 +145,7 @@ TEST(d3d11_views_dsv_read_only_flags_stencil_formats)
     static const DXGI_FORMAT f[] = { DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT };
     for (unsigned k = 0; k < 2; k++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, f[k], D3D11_BIND_DEPTH_STENCIL, 0, 1);
-        if (!t) { t_note("format %d not creatable", f[k]); continue; }
+        if (!t) { CHECKF(0, "format %d not creatable", f[k]); continue; }
         for (unsigned i = 0; i < 4; i++) {
             D3D11_DEPTH_STENCIL_VIEW_DESC d = dsvd(D3D11_DSV_DIMENSION_TEXTURE2D, f[k], fl_tab[i]), o;
             ID3D11DepthStencilView *v = NULL;
@@ -164,16 +164,16 @@ TEST(d3d11_views_dsv_read_only_flags_depth_only_formats)
     static const DXGI_FORMAT f[] = { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D16_UNORM };
     for (unsigned k = 0; k < 2; k++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, f[k], D3D11_BIND_DEPTH_STENCIL, 0, 1);
-        if (!t) continue;
+        if (!t) { CHECKF(0, "depth format %d not creatable", f[k]); continue; }
         D3D11_DEPTH_STENCIL_VIEW_DESC d = dsvd(D3D11_DSV_DIMENSION_TEXTURE2D, f[k], D3D11_DSV_READ_ONLY_DEPTH);
         EXPECT_HR(try_dsv(dev, R(t), &d), S_OK);
         d.Flags = D3D11_DSV_READ_ONLY_STENCIL;
         HRESULT hr = try_dsv(dev, R(t), &d);
-        t_note("READ_ONLY_STENCIL on format %d (no stencil) -> %s", f[k], d3dh_hr_name(hr));
+        CHECKF(hr == E_INV, "READ_ONLY_STENCIL on format %d (no stencil) -> %s", f[k], d3dh_hr_name(hr));
         d.Flags = 0x4;
-        t_note("DSV undefined flag 0x4 -> %s", d3dh_hr_name(try_dsv(dev, R(t), &d)));
+        EXPECT_HR(try_dsv(dev, R(t), &d), E_INV);          /* undefined flag bits are rejected for DSVs */
         d.Flags = 0x80000000u;
-        t_note("DSV undefined flag 0x80000000 -> %s", d3dh_hr_name(try_dsv(dev, R(t), &d)));
+        EXPECT_HR(try_dsv(dev, R(t), &d), E_INV);
         SAFE_RELEASE(t);
     }
     DONE();
@@ -199,13 +199,23 @@ TEST(d3d11_views_dsv_read_only_array_and_ms)
     }
     DONE();
 }
+/* Win10: Texture2DMS is accepted for a single-sample depth texture; Texture2DMSArray is not. */
+TEST(d3d11_views_dsv_ms_dim_accepted_on_single_sample_texture)
+{
+    NEED_DEV();
+    ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, DXGI_FORMAT_D32_FLOAT, D3D11_BIND_DEPTH_STENCIL, 0, 1);
+    REQUIRE(t);
+    D3D11_DEPTH_STENCIL_VIEW_DESC d = dsvd(D3D11_DSV_DIMENSION_TEXTURE2DMS, DXGI_FORMAT_D32_FLOAT, 0);
+    EXPECT_HR(try_dsv(dev, R(t), &d), S_OK);
+    SAFE_RELEASE(t); DONE();
+}
 TEST(d3d11_views_dsv_dimension_mismatch_table)
 {
     NEED_DEV();
     ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, DXGI_FORMAT_D32_FLOAT, D3D11_BIND_DEPTH_STENCIL, 0, 1);
     REQUIRE(t);
     static const D3D11_DSV_DIMENSION bad[] = { D3D11_DSV_DIMENSION_UNKNOWN, D3D11_DSV_DIMENSION_TEXTURE1D, D3D11_DSV_DIMENSION_TEXTURE1DARRAY,
-        D3D11_DSV_DIMENSION_TEXTURE2DMS, D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY, (D3D11_DSV_DIMENSION)7 };
+        D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY, (D3D11_DSV_DIMENSION)7 };
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
         D3D11_DEPTH_STENCIL_VIEW_DESC d = dsvd(bad[i], DXGI_FORMAT_D32_FLOAT, 0);
         d.Texture2DArray.ArraySize = 1;
@@ -254,7 +264,7 @@ TEST(d3d11_views_dsv_array_size_minus1)
     D3D11_DEPTH_STENCIL_VIEW_DESC d = dsvd(D3D11_DSV_DIMENSION_TEXTURE2DARRAY, DXGI_FORMAT_D32_FLOAT, 0);
     d.Texture2DArray.FirstArraySlice = 1; d.Texture2DArray.ArraySize = UI_ALL;
     HRESULT hr = try_dsv(dev, R(t), &d);
-    t_note("DSV ArraySize=-1 first=1 of 4 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_dsv_desc_roundtrip)

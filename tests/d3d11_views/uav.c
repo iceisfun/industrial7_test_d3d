@@ -58,7 +58,7 @@ TEST(d3d11_views_uav_null_tex3d)
     EXPECT_EQ(d.ViewDimension, D3D11_UAV_DIMENSION_TEXTURE3D);
     EXPECT_EQ(d.Texture3D.MipSlice, 0);
     EXPECT_EQ(d.Texture3D.FirstWSlice, 0);
-    t_note("NULL-desc 3D UAV WSize = %u (depth is 4)", d.Texture3D.WSize);
+    EXPECT_EQ(d.Texture3D.WSize, 4); /* the whole depth */
     SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_uav_null_typeless_fails)
@@ -178,18 +178,18 @@ TEST(d3d11_views_uav_format_cast_table)
         {DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, E_INVALIDARG},
         {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, S_OK},
         {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UINT, S_OK},
-        {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_UINT, E_INVALIDARG},
+        {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_UINT, S_OK},   /* Win10: 32-bit texel typeless resources may be viewed as R32_UINT (atomics) */
         {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R16G16_FLOAT, E_INVALIDARG},
         {DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R16_UINT, S_OK},
         {DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R16_FLOAT, S_OK},
-        {DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_FLOAT, S_OK},
+        {DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_FLOAT, E_INVALIDARG},   /* typed resources only accept their own format */
         {DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_UINT, S_OK},
         {DXGI_FORMAT_R32_UINT, DXGI_FORMAT_UNKNOWN, S_OK},
         {DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_UNKNOWN, E_INVALIDARG},
     };
     for (unsigned i = 0; i < sizeof tab / sizeof *tab; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, tab[i].res, UB, 0, 1);
-        if (!t) { t_note("format %d not creatable as UAV texture", tab[i].res); continue; }
+        if (!t) { CHECKF(0, "format %d not creatable as UAV texture", tab[i].res); continue; }
         D3D11_UNORDERED_ACCESS_VIEW_DESC d = uavd(D3D11_UAV_DIMENSION_TEXTURE2D, tab[i].view);
         HRESULT hr = try_uav(dev, R(t), &d);
         t_check(hr == tab[i].want, __FILE__, __LINE__, "uav cast", "res %d view %d got %s want %s", tab[i].res, tab[i].view, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));

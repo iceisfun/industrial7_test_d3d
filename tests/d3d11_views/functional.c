@@ -282,7 +282,7 @@ TEST(d3d11_views_cs_get_unordered_access_views_addrefs)
     SAFE_RELEASE(g);
     ID3D11UnorderedAccessView *nullv = NULL;
     ID3D11DeviceContext_CSSetUnorderedAccessViews(ctx, 0, 1, &nullv, NULL);
-    EXPECT_EQ(d3dh_refcount(v), base - 1);
+    EXPECT_EQ(d3dh_refcount(v), base); /* Win10: binding holds no public reference, so unbinding changes nothing */
     SAFE_RELEASE(v); SAFE_RELEASE(b); DONE();
 }
 TEST(d3d11_views_ps_srv_and_om_rtv_bind_get_roundtrip)

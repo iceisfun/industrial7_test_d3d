@@ -75,7 +75,7 @@ TEST(d3d11_views_rtv_null_tex3d)
     EXPECT_EQ(d.ViewDimension, D3D11_RTV_DIMENSION_TEXTURE3D);
     EXPECT_EQ(d.Texture3D.MipSlice, 0);
     EXPECT_EQ(d.Texture3D.FirstWSlice, 0);
-    t_note("NULL-desc 3D RTV WSize = %u (depth is 8)", d.Texture3D.WSize);
+    EXPECT_EQ(d.Texture3D.WSize, 8); /* the whole depth */
     SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_rtv_null_ms)
@@ -99,7 +99,7 @@ TEST(d3d11_views_rtv_null_typeless_fails)
     static const DXGI_FORMAT f[] = { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R16G16B16A16_TYPELESS, DXGI_FORMAT_B8G8R8A8_TYPELESS };
     for (unsigned i = 0; i < sizeof f / sizeof *f; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, f[i], D3D11_BIND_RENDER_TARGET, 0, 1);
-        if (!t) { t_note("typeless %d not creatable as RT", f[i]); continue; }
+        if (!t) { CHECKF(0, "typeless %d not creatable as RT", f[i]); continue; }
         get_null_rtv(dev, t, &d, &hr);
         EXPECT_HR(hr, E_INV);
         SAFE_RELEASE(t);
@@ -137,13 +137,23 @@ TEST(d3d11_views_rtv_depth_texture_fails)
     EXPECT_HR(try_rtv(dev, R(t), NULL), E_INV);
     SAFE_RELEASE(t); DONE();
 }
+/* Win10: Texture2DMS is accepted for a single-sample texture; Texture2DMSArray is not. */
+TEST(d3d11_views_rtv_ms_dim_accepted_on_single_sample_texture)
+{
+    NEED_DEV();
+    ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET, 0, 1);
+    REQUIRE(t);
+    D3D11_RENDER_TARGET_VIEW_DESC d = rtvd(D3D11_RTV_DIMENSION_TEXTURE2DMS, DXGI_FORMAT_R8G8B8A8_UNORM);
+    EXPECT_HR(try_rtv(dev, R(t), &d), S_OK);
+    SAFE_RELEASE(t); DONE();
+}
 TEST(d3d11_views_rtv_dimension_mismatch_table)
 {
     NEED_DEV();
     ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET, 0, 1);
     REQUIRE(t);
     static const D3D11_RTV_DIMENSION bad[] = { D3D11_RTV_DIMENSION_UNKNOWN, D3D11_RTV_DIMENSION_BUFFER, D3D11_RTV_DIMENSION_TEXTURE1D,
-        D3D11_RTV_DIMENSION_TEXTURE1DARRAY, D3D11_RTV_DIMENSION_TEXTURE2DMS, D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY, D3D11_RTV_DIMENSION_TEXTURE3D };
+        D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY, D3D11_RTV_DIMENSION_TEXTURE3D };
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
         D3D11_RENDER_TARGET_VIEW_DESC d = rtvd(bad[i], DXGI_FORMAT_R8G8B8A8_UNORM);
         d.Texture3D.WSize = 1;
@@ -192,8 +202,8 @@ TEST(d3d11_views_rtv_array_size_minus1)
     d.Texture2DArray.FirstArraySlice = 1; d.Texture2DArray.ArraySize = UI_ALL;
     ID3D11RenderTargetView *v = NULL;
     HRESULT hr = MK_RTV(dev, t, &d, &v);
-    t_note("RTV ArraySize=-1 first=1 of 4 -> %s", d3dh_hr_name(hr));
-    if (v) { D3D11_RENDER_TARGET_VIEW_DESC o; ID3D11RenderTargetView_GetDesc(v, &o); t_note("  GetDesc ArraySize=%u", o.Texture2DArray.ArraySize); }
+    EXPECT_HR(hr, S_OK);
+    if (v) { D3D11_RENDER_TARGET_VIEW_DESC o; ID3D11RenderTargetView_GetDesc(v, &o); EXPECT_EQ(o.Texture2DArray.ArraySize, 3); /* -1 resolves to the remaining slices */ }
     SAFE_RELEASE(v); SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_rtv_tex3d_wslice_table)
@@ -222,7 +232,8 @@ TEST(d3d11_views_rtv_tex3d_wsize_minus1)
     d.Texture3D.FirstWSlice = 2; d.Texture3D.WSize = UI_ALL;
     ID3D11RenderTargetView *v = NULL;
     HRESULT hr = MK_RTV(dev, t, &d, &v);
-    t_note("3D RTV WSize=-1 first=2 depth=8 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
+    if (v) { D3D11_RENDER_TARGET_VIEW_DESC o; ID3D11RenderTargetView_GetDesc(v, &o); EXPECT_EQ(o.Texture3D.WSize, 6); }
     SAFE_RELEASE(v); SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_rtv_tex1d_ranges)
@@ -271,8 +282,9 @@ TEST(d3d11_views_rtv_format_cast_table)
         {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_UINT, E_INVALIDARG},
         {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_B8G8R8A8_UNORM, E_INVALIDARG},
         {DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R16G16_FLOAT, E_INVALIDARG},
-        {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, S_OK},
-        {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UINT, S_OK},
+        {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, E_INVALIDARG}, /* Win10: typed resources only accept their own format */
+        {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UINT, E_INVALIDARG},
+        {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, S_OK},
         {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_FLOAT, E_INVALIDARG},
         {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, E_INVALIDARG},
         {DXGI_FORMAT_B8G8R8A8_TYPELESS, DXGI_FORMAT_B8G8R8A8_UNORM, S_OK},
@@ -295,7 +307,7 @@ TEST(d3d11_views_rtv_format_cast_table)
     };
     for (unsigned i = 0; i < sizeof tab / sizeof *tab; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, tab[i].res, D3D11_BIND_RENDER_TARGET, 0, 1);
-        if (!t) { t_note("format %d not creatable as render target", tab[i].res); continue; }
+        if (!t) { CHECKF(0, "format %d not creatable as render target", tab[i].res); continue; }
         D3D11_RENDER_TARGET_VIEW_DESC d = rtvd(D3D11_RTV_DIMENSION_TEXTURE2D, tab[i].view);
         HRESULT hr = try_rtv(dev, R(t), &d);
         t_check(hr == tab[i].want, __FILE__, __LINE__, "rtv cast", "res %d view %d got %s want %s", tab[i].res, tab[i].view, d3dh_hr_name(hr), d3dh_hr_name(tab[i].want));
@@ -358,7 +370,7 @@ TEST(d3d11_views_rtv_buffer_view_rules)
     D3D11_RENDER_TARGET_VIEW_DESC d = rtvd(D3D11_RTV_DIMENSION_BUFFER, DXGI_FORMAT_R32_FLOAT);
     d.Buffer.FirstElement = 0; d.Buffer.NumElements = 64;
     HRESULT hr = try_rtv(dev, R(b), &d);
-    t_note("buffer RTV R32_FLOAT 64 elems -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     d.Buffer.NumElements = 65;
     EXPECT_HR(try_rtv(dev, R(b), &d), E_INV);
     d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;

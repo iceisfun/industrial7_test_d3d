@@ -81,7 +81,7 @@ TEST(d3d11_views_srv_legacy_view_supports_srv1_interface)
     EXPECT_HR(MK_SRV(dev, t, NULL, &v0), S_OK);
     REQUIRE(v0);
     HRESULT hr = ID3D11ShaderResourceView_QueryInterface(v0, &IID_ID3D11ShaderResourceView1, (void **)&v1);
-    t_note("QI ID3D11ShaderResourceView1 on a view made by CreateShaderResourceView -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
         D3D11_SHADER_RESOURCE_VIEW_DESC1 d; memset(&d, 0xCD, sizeof d);
         ID3D11ShaderResourceView1_GetDesc1(v1, &d);
@@ -175,11 +175,11 @@ TEST(d3d11_views_srv1_nv12_planes)
     ID3D11ShaderResourceView1 *v = NULL; HRESULT hr;
     d.Format = DXGI_FORMAT_R8_UNORM; d.Texture2D.PlaneSlice = 0;
     hr = ID3D11Device3_CreateShaderResourceView1(d3, R(t), &d, &v);
-    t_note("NV12 plane 0 as R8_UNORM -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     SAFE_RELEASE(v);
     d.Format = DXGI_FORMAT_R8G8_UNORM; d.Texture2D.PlaneSlice = 1;
     hr = ID3D11Device3_CreateShaderResourceView1(d3, R(t), &d, &v);
-    t_note("NV12 plane 1 as R8G8_UNORM -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     SAFE_RELEASE(v);
     d.Format = DXGI_FORMAT_R8G8_UNORM; d.Texture2D.PlaneSlice = 2;
     hr = ID3D11Device3_CreateShaderResourceView1(d3, R(t), &d, &v);
@@ -194,7 +194,7 @@ static ID3D11VideoDevice *get_vdev(ID3D11Device *dev)
     if (FAILED(ID3D11Device_QueryInterface(dev, &IID_ID3D11VideoDevice, (void **)&vd))) return NULL;
     return vd;
 }
-#define NEED_VDEV() ID3D11VideoDevice *vd = get_vdev(dev); if (!vd) { DONE(); t_skip("ID3D11VideoDevice unavailable"); return; }
+#define NEED_VDEV() ID3D11VideoDevice *vd = get_vdev(dev); if (!vd) { DONE(); t_skip("ID3D11VideoDevice: QueryInterface on the device returns E_NOINTERFACE on both WARP and the hardware-type Basic Render Driver (Win10 22H2 VM)"); return; }
 
 TEST(d3d11_views_video_device_view_methods_exist)
 {

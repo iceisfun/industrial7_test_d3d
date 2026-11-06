@@ -20,7 +20,7 @@ TEST(d3d11_views_srv_dim_mismatch_table)
     ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, 0, 1);
     REQUIRE(t);
     static const D3D11_SRV_DIMENSION bad[] = { D3D11_SRV_DIMENSION_BUFFER, D3D11_SRV_DIMENSION_TEXTURE1D, D3D11_SRV_DIMENSION_TEXTURE1DARRAY,
-        D3D11_SRV_DIMENSION_TEXTURE3D, D3D11_SRV_DIMENSION_TEXTURE2DMS, D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY, D3D11_SRV_DIMENSION_TEXTURECUBE,
+        D3D11_SRV_DIMENSION_TEXTURE3D, D3D11_SRV_DIMENSION_TEXTURECUBE,
         D3D11_SRV_DIMENSION_TEXTURECUBEARRAY, D3D11_SRV_DIMENSION_BUFFEREX };
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
         D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(bad[i], DXGI_FORMAT_R8G8B8A8_UNORM);
@@ -28,6 +28,19 @@ TEST(d3d11_views_srv_dim_mismatch_table)
         HRESULT hr = TRY_SRV(dev, t, &d);
         t_check(hr == E_INV, __FILE__, __LINE__, "dimension mismatch", "dim %d got %s", bad[i], d3dh_hr_name(hr));
     }
+    SAFE_RELEASE(t); DONE();
+}
+/* Win10 does not validate the sample count against the view dimension: MS views of a single-sample 2D texture are created. */
+TEST(d3d11_views_srv_ms_dims_accepted_on_single_sample_texture)
+{
+    NEED_DEV();
+    ID3D11Texture2D *t = mk2d(dev, 16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, 0, 1);
+    REQUIRE(t);
+    D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2DMS, DXGI_FORMAT_R8G8B8A8_UNORM);
+    EXPECT_HR(TRY_SRV(dev, t, &d), S_OK);
+    d = srvd(D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY, DXGI_FORMAT_R8G8B8A8_UNORM);
+    d.Texture2DMSArray.ArraySize = 1;
+    EXPECT_HR(TRY_SRV(dev, t, &d), S_OK);
     SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_srv_dim_unknown_fails)
@@ -105,7 +118,7 @@ TEST(d3d11_views_srv_mip_minus1_getdesc)
     REQUIRE(v);
     ID3D11ShaderResourceView_GetDesc(v, &o);
     EXPECT_EQ(o.Texture2D.MostDetailedMip, 1);
-    t_note("MipLevels=-1 reads back from GetDesc as %u", o.Texture2D.MipLevels);
+    EXPECT_EQ(o.Texture2D.MipLevels, 4); /* -1 is resolved against the texture (5 mips from MostDetailedMip 1) */
     EXPECT_EQ(o.ViewDimension, D3D11_SRV_DIMENSION_TEXTURE2D);
     SAFE_RELEASE(v); SAFE_RELEASE(t); DONE();
 }
@@ -137,7 +150,7 @@ TEST(d3d11_views_srv_array_size_minus1)
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2DARRAY, DXGI_FORMAT_R8G8B8A8_UNORM);
     d.Texture2DArray.MipLevels = 1; d.Texture2DArray.FirstArraySlice = 2; d.Texture2DArray.ArraySize = UI_ALL;
     HRESULT hr = TRY_SRV(dev, t, &d);
-    t_note("ArraySize=-1 (first slice 2 of 6) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_srv_array_view_on_single_texture)
@@ -148,7 +161,7 @@ TEST(d3d11_views_srv_array_view_on_single_texture)
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2DARRAY, DXGI_FORMAT_R8G8B8A8_UNORM);
     d.Texture2DArray.MipLevels = 1; d.Texture2DArray.ArraySize = 1;
     HRESULT hr = TRY_SRV(dev, t, &d);
-    t_note("Texture2DArray view of non-array 2D texture -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK); /* a one-slice array view of a plain 2D texture is allowed */
     d.Texture2DArray.ArraySize = 2;
     EXPECT_HR(TRY_SRV(dev, t, &d), E_INV);
     SAFE_RELEASE(t); DONE();
@@ -161,7 +174,7 @@ TEST(d3d11_views_srv_tex2d_view_on_array_texture)
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM);
     d.Texture2D.MipLevels = 1;
     HRESULT hr = TRY_SRV(dev, t, &d);
-    t_note("Texture2D view of a 4-slice array texture -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK); /* views the first slice */
     SAFE_RELEASE(t); DONE();
 }
 
@@ -233,7 +246,7 @@ TEST(d3d11_views_srv_cube_array_view_on_plain_cube)
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURECUBEARRAY, DXGI_FORMAT_R8G8B8A8_UNORM);
     d.TextureCubeArray.MipLevels = 1; d.TextureCubeArray.NumCubes = 1;
     HRESULT hr = TRY_SRV(dev, t, &d);
-    t_note("TextureCubeArray view (1 cube) of a plain cube -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     d.TextureCubeArray.NumCubes = 2;
     EXPECT_HR(TRY_SRV(dev, t, &d), E_INV);
     SAFE_RELEASE(t); DONE();
@@ -249,7 +262,7 @@ TEST(d3d11_views_srv_ms_dimension_rules)
     REQUIRE(ms); REQUIRE(ss);
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2DMS, DXGI_FORMAT_R8G8B8A8_UNORM);
     EXPECT_HR(TRY_SRV(dev, ms, &d), S_OK);
-    EXPECT_HR(TRY_SRV(dev, ss, &d), E_INV);
+    EXPECT_HR(TRY_SRV(dev, ss, &d), S_OK);          /* Win10: not validated against the sample count */
     d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; d.Texture2D.MipLevels = 1;
     EXPECT_HR(TRY_SRV(dev, ms, &d), E_INV);
     d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipLevels = 1; d.Texture2DArray.ArraySize = 1;
@@ -323,7 +336,7 @@ TEST(d3d11_views_srv_format_cast_typeless_table)
     NEED_DEV();
     for (unsigned i = 0; i < sizeof cast_tab / sizeof *cast_tab; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, cast_tab[i].typeless, D3D11_BIND_SHADER_RESOURCE, 0, 1);
-        if (!t) { t_note("typeless %d not creatable as SRV texture", cast_tab[i].typeless); continue; }
+        if (!t) { CHECKF(0, "typeless %d not creatable as SRV texture", cast_tab[i].typeless); continue; }
         D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2D, cast_tab[i].view);
         d.Texture2D.MipLevels = 1;
         HRESULT hr = TRY_SRV(dev, t, &d);
@@ -332,6 +345,7 @@ TEST(d3d11_views_srv_format_cast_typeless_table)
     }
     DONE();
 }
+/* Win10: a fully typed texture only accepts its own format (or UNKNOWN); SRGB/UINT siblings are rejected, only TYPELESS resources can be recast. */
 TEST(d3d11_views_srv_format_cast_typed_resource_same_family)
 {
     NEED_DEV();
@@ -339,8 +353,10 @@ TEST(d3d11_views_srv_format_cast_typed_resource_same_family)
     REQUIRE(t);
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
     d.Texture2D.MipLevels = 1;
-    EXPECT_HR(TRY_SRV(dev, t, &d), S_OK);
+    EXPECT_HR(TRY_SRV(dev, t, &d), E_INV);
     d.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+    EXPECT_HR(TRY_SRV(dev, t, &d), E_INV);
+    d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     EXPECT_HR(TRY_SRV(dev, t, &d), S_OK);
     d.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     EXPECT_HR(TRY_SRV(dev, t, &d), E_INV);
@@ -403,7 +419,7 @@ TEST(d3d11_views_srv_depth_typeless_formats)
     };
     for (unsigned i = 0; i < sizeof tab / sizeof *tab; i++) {
         ID3D11Texture2D *t = mk2d(dev, 8, 8, 1, 1, tab[i].res, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_DEPTH_STENCIL, 0, 1);
-        if (!t) { t_note("depth typeless %d not creatable", tab[i].res); continue; }
+        if (!t) { CHECKF(0, "depth typeless %d not creatable", tab[i].res); continue; }
         D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_TEXTURE2D, tab[i].view);
         d.Texture2D.MipLevels = 1;
         HRESULT hr = TRY_SRV(dev, t, &d);
@@ -520,8 +536,10 @@ TEST(d3d11_views_srv_bufferex_flags_basic)
     EXPECT_HR(TRY_SRV(dev, b, &d), S_OK);
     d.BufferEx.NumElements = 65;
     EXPECT_HR(TRY_SRV(dev, b, &d), E_INV);
-    d.BufferEx.NumElements = 64; d.BufferEx.Flags = 0x2;
-    EXPECT_HR(TRY_SRV(dev, b, &d), E_INV);          /* undefined flag bit */
+    /* Win10 ignores undefined BufferEx flag bits (only bit 0, RAW, has meaning) */
+    for (unsigned bit = 1; bit < 32; bit++) { d.BufferEx.NumElements = 64; d.BufferEx.Flags = 1u << bit; CHECKF(TRY_SRV(dev, b, &d) == S_OK, "undefined flag bit %u", bit); }
+    d.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+    EXPECT_HR(TRY_SRV(dev, b, &d), E_INV);          /* RAW needs R32_TYPELESS and ALLOW_RAW_VIEWS */
     SAFE_RELEASE(b); DONE();
 }
 TEST(d3d11_views_srv_raw_buffer_rules)
@@ -538,8 +556,16 @@ TEST(d3d11_views_srv_raw_buffer_rules)
     EXPECT_HR(TRY_SRV(dev, raw, &d), E_INV);
     d.BufferEx.NumElements = 64; d.BufferEx.FirstElement = 1;
     EXPECT_HR(TRY_SRV(dev, raw, &d), E_INV);
-    d.BufferEx.FirstElement = 63; d.BufferEx.NumElements = 1;
-    EXPECT_HR(TRY_SRV(dev, raw, &d), S_OK);
+    /* Win10: FirstElement of a raw view must be a multiple of 4 (16 bytes); NumElements may be any count that fits */
+    static const struct { UINT first, num; HRESULT want; } rt[] = {
+        { 63, 1, E_INVALIDARG }, { 62, 2, E_INVALIDARG }, { 3, 1, E_INVALIDARG }, { 2, 2, E_INVALIDARG }, { 1, 63, E_INVALIDARG },
+        { 60, 4, S_OK }, { 4, 4, S_OK }, { 8, 8, S_OK }, { 16, 48, S_OK }, { 32, 32, S_OK }, { 0, 1, S_OK }, { 0, 63, S_OK }, { 0, 65, E_INVALIDARG }, { 4, 61, E_INVALIDARG } };
+    for (unsigned i = 0; i < sizeof rt / sizeof rt[0]; i++) {
+        d.BufferEx.FirstElement = rt[i].first; d.BufferEx.NumElements = rt[i].num;
+        HRESULT hr = TRY_SRV(dev, raw, &d);
+        CHECKF(hr == rt[i].want, "raw SRV first %u num %u got %s", rt[i].first, rt[i].num, d3dh_hr_name(hr));
+    }
+    d.BufferEx.NumElements = 64; d.BufferEx.FirstElement = 0;
     d.BufferEx.FirstElement = 0; d.BufferEx.NumElements = 64; d.Format = DXGI_FORMAT_R32_FLOAT;
     EXPECT_HR(TRY_SRV(dev, raw, &d), E_INV);        /* RAW requires R32_TYPELESS */
     d.Format = DXGI_FORMAT_UNKNOWN;
@@ -548,6 +574,7 @@ TEST(d3d11_views_srv_raw_buffer_rules)
     EXPECT_HR(TRY_SRV(dev, raw, &d), E_INV);
     d.Format = DXGI_FORMAT_R32_TYPELESS; d.BufferEx.Flags = 0;
     EXPECT_HR(TRY_SRV(dev, raw, &d), E_INV);        /* typeless without RAW flag */
+    for (unsigned bit = 1; bit < 32; bit++) { d.BufferEx.Flags = 1u << bit; CHECKF(TRY_SRV(dev, raw, &d) == E_INV, "typeless with undefined bit %u only", bit); }
     SAFE_RELEASE(plain); SAFE_RELEASE(raw); DONE();
 }
 TEST(d3d11_views_srv_raw_buffer_as_typed_view_ok)
@@ -557,8 +584,7 @@ TEST(d3d11_views_srv_raw_buffer_as_typed_view_ok)
     REQUIRE(raw);
     D3D11_SHADER_RESOURCE_VIEW_DESC d = srvd(D3D11_SRV_DIMENSION_BUFFER, DXGI_FORMAT_R32_FLOAT);
     d.Buffer.NumElements = 64;
-    HRESULT hr = TRY_SRV(dev, raw, &d);
-    t_note("typed SRV on ALLOW_RAW_VIEWS buffer -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(TRY_SRV(dev, raw, &d), S_OK); /* a typed view of an ALLOW_RAW_VIEWS buffer is fine */
     SAFE_RELEASE(raw); DONE();
 }
 TEST(d3d11_views_srv_raw_flag_on_structured_buffer_fails)

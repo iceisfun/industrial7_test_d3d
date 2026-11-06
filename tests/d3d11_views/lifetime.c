@@ -40,7 +40,7 @@ TEST(d3d11_views_getresource_identity_all_kinds)
     NEED_DEV(); NEED_FL11();
     FOR_KINDS(k) {
         ID3D11Resource *r = tex_for(dev, k); vh h; ID3D11Resource *got = NULL;
-        if (!r) { t_note("%s resource not creatable", kname[k]); continue; }
+        if (!r) { CHECKF(0, "%s resource not creatable", kname[k]); continue; }
         CHECK(make_view(dev, k, r, &h));
         ID3D11View_GetResource(h.view, &got);
         t_check(got == r, __FILE__, __LINE__, "GetResource identity", "%s got %p want %p", kname[k], (void *)got, (void *)r);
@@ -102,7 +102,7 @@ TEST(d3d11_views_view_keeps_resource_alive)
             D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
             ID3D11Resource_GetType(got, &dim);
             EXPECT_EQ(dim, D3D11_RESOURCE_DIMENSION_TEXTURE2D);
-            t_note("refcount after resurrect via GetResource: %lu", d3dh_refcount(got));
+            EXPECT_EQ(d3dh_refcount(got), 1); /* Win10: GetResource on a resource whose public count was 0 returns it with count 1 */
             SAFE_RELEASE(got);
         }
         free_view(&h);
@@ -171,7 +171,8 @@ TEST(d3d11_views_view_does_not_change_device_public_refcount)
     ULONG with_tex = d3dh_refcount(dev);
     ID3D11ShaderResourceView *s = NULL;
     EXPECT_HR(MK_SRV(dev, t, NULL, &s), S_OK);
-    t_note("device refcount: base=%lu with texture=%lu with view=%lu", base, with_tex, d3dh_refcount(dev));
+    /* Win10: each child object holds one public reference on its device */
+    EXPECT_EQ(with_tex, base + 1); EXPECT_EQ(d3dh_refcount(dev), base + 2);
     SAFE_RELEASE(s); SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_query_interface_table)
@@ -181,8 +182,12 @@ TEST(d3d11_views_query_interface_table)
         ID3D11Resource *r = tex_for(dev, k); vh h; void *p;
         if (!r) continue;
         CHECK(make_view(dev, k, r, &h));
+        /* Win10: the canonical IUnknown is a different pointer than the typed interface, but stable across QueryInterface paths */
         p = NULL; EXPECT_HR(IUnknown_QueryInterface(h.v, &IID_IUnknown, &p), S_OK);
-        t_check(p == (void *)h.v, __FILE__, __LINE__, "IUnknown identity", "%s", kname[k]);
+        t_check(p != (void *)h.v, __FILE__, __LINE__, "IUnknown pointer differs from the typed pointer", "%s", kname[k]);
+        { void *p2 = NULL; ID3D11View *vw = NULL; ID3D11View_QueryInterface(h.view, &IID_IUnknown, &p2);
+          t_check(p2 == p, __FILE__, __LINE__, "IUnknown identity stable via ID3D11View", "%s", kname[k]);
+          if (p2) IUnknown_Release((IUnknown *)p2); (void)vw; }
         if (p) IUnknown_Release((IUnknown *)p);
         p = NULL; EXPECT_HR(IUnknown_QueryInterface(h.v, &IID_ID3D11DeviceChild, &p), S_OK);
         t_check(p == (void *)h.v, __FILE__, __LINE__, "DeviceChild identity", "%s", kname[k]);
@@ -321,7 +326,7 @@ TEST(d3d11_views_private_data_interface_holds_reference)
     EXPECT_EQ(got, dev);
     if (got) IUnknown_Release(got);
     SAFE_RELEASE(s);
-    EXPECT_EQ(d3dh_refcount(dev), base);
+    EXPECT_EQ(d3dh_refcount(dev), base - 1); /* the view's own device reference goes too, the private-data reference was dropped with it */
     SAFE_RELEASE(t); DONE();
 }
 TEST(d3d11_views_debug_object_name_private_data)
