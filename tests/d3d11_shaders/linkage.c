@@ -216,8 +216,9 @@ TEST(d3d11_shaders_linkage_set_get_with_instances)
     EXPECT_HR(ID3D11Device_CreateClassLinkage(e.dev, &cl), S_OK);
     ID3D11PixelShader *ps = mk_iface_ps(&e, b, cl, &hr); if (!ps) { CHECK(0); return; }
     ID3D11ClassInstance *red = NULL, *phantom = NULL;
-    /* An instance fetched by name (GetClassInstance) is not usable for binding on Win10 22H2: PSSetShader with it leaves NO
-     * pixel shader bound at all (PSGetShader returns NULL and zero instances). */
+    /* An instance of an EMPTY class (cRed/cBlue have no data members) fetched by name is not usable for binding on Win10 22H2:
+     * PSSetShader with it leaves NO pixel shader bound at all (PSGetShader returns NULL and zero instances). Instances of classes
+     * with data members are fine: see ext_shaders.c (linkage_data_instance_*). */
     EXPECT_HR(ID3D11ClassLinkage_GetClassInstance(cl, "g_red", 0, &phantom), S_OK);
     if (phantom) {
         ID3D11PixelShader *gp = (ID3D11PixelShader *)(ULONG_PTR)1; ID3D11ClassInstance *got[4] = { 0 }; UINT n = 4;
