@@ -82,7 +82,7 @@ TEST(gap0_dbginfo_zero_filled_container)
 
 TEST(gap0_dbginfo_compiled_shader)
 {
-    /* Shader compiled with and without debug info; the outcome is version dependent -> notes. */
+    /* Shader compiled with and without debug info. */
     int dbg;
     for (dbg = 0; dbg < 2; dbg++) {
         ID3DBlob *sh = NULL, *out = NULL;
@@ -91,8 +91,9 @@ TEST(gap0_dbginfo_compiled_shader)
         REQUIRE(fn);
         if (FAILED(d3dh_compile(GAP0_PS_SRC, "main", "ps_4_0", dbg ? D3DCOMPILE_DEBUG : 0, &sh))) { t_skip("no compiler"); return; }
         hr = fn(d3dh_blob_ptr(sh), d3dh_blob_size(sh), &out);
-        t_note("D3D10GetShaderDebugInfo(%s) = %s, blob size %u", dbg ? "debug build" : "plain build", d3dh_hr_name(hr), out ? (unsigned)d3dh_blob_size(out) : 0);
-        if (FAILED(hr)) CHECK(out == NULL);
+        t_note("D3D10GetShaderDebugInfo(%s) = %s, blob %p size %u", dbg ? "debug build" : "plain build", d3dh_hr_name(hr), (void *)out, out ? (unsigned)d3dh_blob_size(out) : 0);
+        if (dbg) { EXPECT_HR(hr, INVALIDCALL_HR); CHECK(out == NULL); }   /* a debug-flag build has no SDBG chunk d3d10 understands */
+        else { EXPECT_HR(hr, S_OK); }
         SAFE_RELEASE(out); SAFE_RELEASE(sh);
     }
 }
@@ -108,6 +109,26 @@ static char *blob_str(ID3DBlob *b)
     char *s = malloc(n + 1);
     memcpy(s, d3dh_blob_ptr(b), n); s[n] = 0;
     return s;
+}
+
+static void dump_blob(const char *tag, ID3DBlob *b)
+{
+    char *s = blob_str(b), *q; char esc[600]; size_t n = 0;
+    for (q = s; *q && n < sizeof esc - 5; q++) {
+        if (*q == '\n') { esc[n++] = '\\'; esc[n++] = 'n'; } else if (*q == '\r') { esc[n++] = '\\'; esc[n++] = 'r'; } else esc[n++] = *q;
+    }
+    esc[n] = 0; t_note("PROBE %s len=%u: %s", tag, (unsigned)d3dh_blob_size(b), esc); free(s);
+}
+
+/* Pin the exact preprocessed text: Windows emits one token stream, tokens separated by single spaces, one source line per output line. */
+static void expect_text(const char *tag, ID3DBlob *b, const char *want)
+{
+    char *s = blob_str(b);
+    SIZE_T n = d3dh_blob_size(b);
+    /* the blob carries the terminating NUL */
+    CHECKF(n == strlen(want) + 1 && !memcmp(s, want, n), "%s: preprocessed text mismatch (len %u want %u)", tag, (unsigned)n, (unsigned)strlen(want) + 1);
+    if (strcmp(s, want)) dump_blob(tag, b);
+    free(s);
 }
 
 TEST(gap0_prep_invalid_args)
@@ -139,11 +160,7 @@ TEST(gap0_prep_plain_text)
         hr = fn(src, sizeof src - 1, "plain.hlsl", NULL, NULL, &out, &err);
         EXPECT_HR(hr, S_OK);
         if (out) {
-            s = blob_str(out);
-            CHECK(strstr(s, "float4 a;") != NULL);
-            CHECK(strstr(s, "float4 b;") != NULL);
-            CHECK(strstr(s, "float4 a;") < strstr(s, "float4 b;"));
-            free(s);
+            expect_text("plain", out, "float4 a ;\nfloat4 b ;\n");
         }
         SAFE_RELEASE(out); SAFE_RELEASE(err);
         /* the error blob is optional */
@@ -170,22 +187,12 @@ TEST(gap0_prep_macros)
         if (!fn) { t_skip("missing export"); return; }
         EXPECT_HR(fn(src, sizeof src - 1, "m.hlsl", defs, NULL, &out, NULL), S_OK);
         if (out) {
-            s = blob_str(out);
-            CHECK(strstr(s, "float x = 42;") != NULL);
-            CHECK(strstr(s, "float y = (1+2);") != NULL);
-            CHECK(strstr(s, "z_on") != NULL);
-            CHECK(strstr(s, "z_off") == NULL);
-            CHECK(strstr(s, "FOO_VALUE") == NULL);
-            free(s);
+            expect_text("macros defs", out, "float x = 42 ;\nfloat y = ( 1 + 2 ) ;\nfloat z_on ;\n");
         }
         SAFE_RELEASE(out);
         EXPECT_HR(fn(src, sizeof src - 1, "m.hlsl", defs2, NULL, &out, NULL), S_OK);
         if (out) {
-            s = blob_str(out);
-            CHECK(strstr(s, "float x = 7;") != NULL);
-            CHECK(strstr(s, "z_off") != NULL);
-            CHECK(strstr(s, "z_on") == NULL);
-            free(s);
+            expect_text("macros defs2", out, "float x = 7 ;\nfloat y = BAR_VALUE ;\nfloat z_off ;\n");
         }
         SAFE_RELEASE(out);
     }
@@ -200,12 +207,7 @@ TEST(gap0_prep_inline_define_and_comments)
     REQUIRE(fn);
     EXPECT_HR(fn(src, sizeof src - 1, "d.hlsl", NULL, NULL, &out, NULL), S_OK);
     if (out) {
-        s = blob_str(out);
-        CHECK(strstr(s, "((3)*2)") != NULL);
-        CHECK(strstr(s, "comment line gone") == NULL);
-        CHECK(strstr(s, "block */") == NULL);
-        CHECK(strstr(s, "float w;") != NULL);
-        free(s);
+        expect_text("inline define", out, "float v = ( ( 3 ) * 2 ) ;\nfloat w ;\n");
     }
     SAFE_RELEASE(out);
 }
@@ -237,11 +239,13 @@ TEST(gap0_prep_error_directive)
         HRESULT hr;
         if (!fn) { t_skip("missing export"); return; }
         hr = fn(src, sizeof src - 1, "e.hlsl", NULL, NULL, &out, &err);
-        EXPECT_HR_FAILED(hr);
-        t_note("#error preprocess hr=%s out=%p err=%p", d3dh_hr_name(hr), (void *)out, (void *)err);
+        EXPECT_HR(hr, E_FAIL_HR);
+        CHECK(out == NULL);
+        CHECK(err != NULL);
         if (err) {
             char *s = blob_str(err);
-            if (!strstr(s, "stop_here_marker")) t_note("error text lacks the #error message: %s", s);
+            CHECKF(!strcmp(s, "e.hlsl(2): error: stop_here_marker\n"), "error text: %s", s);
+            CHECKF(strstr(s, "stop_here_marker") != NULL, "error text lacks the #error message: %s", s);
             free(s);
         }
         SAFE_RELEASE(out); SAFE_RELEASE(err);
@@ -256,7 +260,15 @@ TEST(gap0_prep_unbalanced_if)
     HRESULT hr;
     REQUIRE(fn);
     hr = fn(src, sizeof src - 1, "u.hlsl", NULL, NULL, &out, &err);
-    EXPECT_HR_FAILED(hr);
+    /* An unterminated #if is only diagnosed: the call succeeds, returns the text, and reports the error in the message blob. */
+    EXPECT_HR(hr, S_OK);
+    CHECK(out != NULL && err != NULL);
+    if (out) expect_text("unbalanced out", out, "float a ;\n");
+    if (err) {
+        char *m = blob_str(err);
+        CHECKF(strstr(m, "u.hlsl(3): error X1502: unexpected end of file") != NULL, "error text: %s", m);
+        free(m);
+    }
     SAFE_RELEASE(out); SAFE_RELEASE(err);
 }
 
@@ -384,9 +396,12 @@ TEST(gap0_prep_matches_d3dpreprocess)
     if (t_is_wine()) { t_skip("emulated D3DPreprocess faults on this input"); return; }
     if (SUCCEEDED(fn(src, sizeof src - 1, "k.hlsl", NULL, NULL, &a, &e1)) && SUCCEEDED(dp(src, sizeof src - 1, "k.hlsl", NULL, NULL, &b, &e2))) {
         char *x = blob_str(a), *y = blob_str(b);
-        CHECK(strstr(x, "float a = 5;") != NULL);
-        CHECK(strstr(y, "float a = 5;") != NULL);
-        if (strcmp(x, y)) t_note("D3D10PreprocessShader and D3DPreprocess text differ");
+        /* d3d10 emits bare token text; D3DPreprocess prefixes a #line with the (absolute) file name and keeps a trailing blank. */
+        expect_text("D3D10PreprocessShader", a, "float a = 5 ;\n");
+        CHECKF(!strncmp(y, "#line 1 \"", 9), "D3DPreprocess does not start with a #line directive: %.40s", y);
+        { size_t ny = strlen(y), nt = strlen("k.hlsl\"\n\nfloat a = 5 ; \n");
+          CHECKF(ny > nt && !strcmp(y + ny - nt, "k.hlsl\"\n\nfloat a = 5 ; \n"), "D3DPreprocess tail mismatch"); }
+        CHECK(strcmp(x, y) != 0);
         free(x); free(y);
     }
     SAFE_RELEASE(a); SAFE_RELEASE(b); SAFE_RELEASE(e1); SAFE_RELEASE(e2);

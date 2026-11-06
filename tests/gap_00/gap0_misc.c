@@ -252,7 +252,7 @@ TEST(gap0_dxc_converter_iunknown)
         v = (IUnknown *)(ULONG_PTR)0x10;
         hr = IUnknown_QueryInterface(u, &IID_IMalloc, (void **)&v);
         EXPECT_HR(hr, E_NOINTERFACE_HR);
-        CHECK(v == NULL);
+        CHECK(v == (IUnknown *)(ULONG_PTR)0x10);   /* unlike COM convention, this object leaves *ppv untouched on E_NOINTERFACE */
         rc = IUnknown_Release(u);
         EXPECT_EQ(rc, 0);
     }
@@ -280,10 +280,10 @@ TEST(gap0_dxc2_custom_malloc)
     hr = fn((IMalloc *)&cm, &CLSID_DxbcConv, &IID_IUnknown, (void **)&u);
     if (hr == CLASSNOTREG_HR) { t_note("DXBC converter CLSID not accepted"); return; }
     EXPECT_HR(hr, S_OK);
-    t_note("custom IMalloc after create: allocs=%ld frees=%ld live=%ld refs=%ld", cm.allocs, cm.frees, cm.live, cm.refs);
+    /* exactly one block comes from the caller's allocator and the object keeps one reference on it */
+    EXPECT_EQ(cm.allocs, 1); EXPECT_EQ(cm.frees, 0); EXPECT_EQ(cm.live, 1); EXPECT_EQ(cm.refs, 2);
     if (u) IUnknown_Release(u);
-    t_note("custom IMalloc after release: allocs=%ld frees=%ld live=%ld refs=%ld", cm.allocs, cm.frees, cm.live, cm.refs);
-    EXPECT_EQ(cm.live, 0);
+    EXPECT_EQ(cm.allocs, 1); EXPECT_EQ(cm.frees, 1); EXPECT_EQ(cm.live, 0); EXPECT_EQ(cm.refs, 1);
 }
 
 TEST(gap0_dxc2_null_malloc_matches_dxc)
@@ -334,9 +334,13 @@ TEST(gap0_flg_refcount_and_qi)
     EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_ID3D11FunctionLinkingGraph, (void **)&g2), S_OK);
     CHECK(g2 == g);
     if (g2) g2->lpVtbl->Release(g2);
-    EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_IUnknown, (void **)&u), S_OK);
-    CHECK(u != NULL);
-    if (u) IUnknown_Release(u);
+    /* The graph object answers only its own IID: even IID_IUnknown is E_NOINTERFACE, and *ppv is zeroed. */
+    u = (IUnknown *)(ULONG_PTR)0x10;
+    EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_IUnknown, (void **)&u), E_NOINTERFACE_HR);
+    CHECK(u == NULL);
+    u = (IUnknown *)(ULONG_PTR)0x10;
+    EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_IDispatch, (void **)&u), E_NOINTERFACE_HR);
+    CHECK(u == NULL);
     u = (IUnknown *)(ULONG_PTR)0x10;
     EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_IMalloc, (void **)&u), E_NOINTERFACE_HR);
     CHECK(u == NULL);
@@ -384,8 +388,8 @@ TEST(gap0_flg_signatures_and_hlsl)
         if (hlsl) {
             const char *p = d3dh_blob_ptr(hlsl);
             SIZE_T n = d3dh_blob_size(hlsl);
-            CHECK(n > 0);
-            t_note("generated HLSL (%u bytes): %.200s", (unsigned)n, p);
+            static const char want[] = "\nvoid main(in float4 inputPos : POSITION, out float4 outputPos : SV_POSITION)\n{\n    outputPos = inputPos;\n}\n";
+            CHECKF(n == sizeof want && !memcmp(p, want, sizeof want), "generated HLSL (%u bytes): %.120s", (unsigned)n, p);   /* includes the terminating NUL */
         }
         hr = g->lpVtbl->GetLastError(g, &err);
         t_note("GetLastError after a successful graph = %s, blob=%p", d3dh_hr_name(hr), (void *)err);

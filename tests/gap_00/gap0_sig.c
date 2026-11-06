@@ -55,7 +55,11 @@ static void run_valid(const char *src, const char *profile, int strict)
         HRESULT hr;
         if (!fn) { t_skip("%s!%s missing", sig_mods[m], sig_fns[f].name); return; }
         hr = fn(d3dh_blob_ptr(sh), d3dh_blob_size(sh), &out);
-        if (!strict && FAILED(hr)) { t_note("%s!%s on %s: %s", sig_mods[m], sig_fns[f].name, profile, d3dh_hr_name(hr)); continue; }
+        if (!strict) { /* SM5 containers are not understood by the d3d10 signature helpers */
+            CHECKF(hr == E_FAIL_HR && out == NULL, "%s!%s on %s: %s", sig_mods[m], sig_fns[f].name, profile, d3dh_hr_name(hr));
+            SAFE_RELEASE(out);
+            continue;
+        }
         EXPECT_HR(hr, S_OK);
         if (FAILED(hr) || !out) continue;
         if (sig_fns[f].in) fc[nf++] = FOURCC('I','S','G','N');
@@ -113,7 +117,7 @@ TEST(gap0_sig_d3d10_null_out_success)
         if (!fn) continue;
         /* the output pointer is only dereferenced when the container is built; a NULL one is not an error here */
         HRESULT hr = fn(d3dh_blob_ptr(sh), d3dh_blob_size(sh), NULL);
-        t_note("%s!%s(valid, NULL out) = %s", sig_mods[m], sig_fns[f].name, d3dh_hr_name(hr));
+        CHECKF(hr == S_OK, "%s!%s(valid, NULL out) = %s", sig_mods[m], sig_fns[f].name, d3dh_hr_name(hr));
     }
     SAFE_RELEASE(sh);
 }
@@ -144,12 +148,12 @@ TEST(gap0_sig_d3d10_malformed)
           for (i = 0; i < 4; i++) { out = NULL; hr = fn(copy, sizes[i], &out); EXPECT_HR_FAILED(hr); CHECK(out == NULL); } }
         /* container cut one byte short (declared size > supplied size) */
         out = NULL; hr = fn(copy, n - 1, &out);
-        if (SUCCEEDED(hr)) t_note("%s!%s accepted a container truncated by one byte", sig_mods[m], sig_fns[f].name);
+        CHECKF(FAILED(hr), "%s!%s accepted a container truncated by one byte", sig_mods[m], sig_fns[f].name);
         SAFE_RELEASE(out);
         /* corrupted hash */
         memcpy(copy, d3dh_blob_ptr(sh), n); copy[4] ^= 0xff; out = NULL;
         hr = fn(copy, n, &out);
-        t_note("%s!%s with corrupted checksum = %s", sig_mods[m], sig_fns[f].name, d3dh_hr_name(hr));
+        CHECKF(hr == E_FAIL_HR && out == NULL, "%s!%s with corrupted checksum = %s", sig_mods[m], sig_fns[f].name, d3dh_hr_name(hr));
         SAFE_RELEASE(out);
     }
     free(copy);
