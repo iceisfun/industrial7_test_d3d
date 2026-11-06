@@ -539,7 +539,7 @@ T(video_device_private_data) {
     ifv_video_close(&v);
 }
 
-/* The oracle's only adapter (Basic Render Driver) has no video processor/decoder: pin exactly how that shows up so the 70+ skipped video
+/* The reference VM's only adapter (Basic Render Driver) has no video processor/decoder: pin exactly how that shows up so the 70+ skipped video
  * tests are explained by a measured fact rather than a guess. */
 T(video_unavailable_on_basic_render_driver) {
     IFV_DEV(d, c);

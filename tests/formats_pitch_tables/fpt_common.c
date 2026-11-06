@@ -72,7 +72,7 @@ UINT fpt_support11(ID3D11Device *dev, UINT fmt, HRESULT *hr_out)
     return FAILED(hr) ? 0 : s;
 }
 
-/* True when the D3D11/D3D12 device runs on the Microsoft Basic Render Driver (WARP: vendor 0x1414, device 0x008c), the adapter of the Win10 oracle.
+/* True when the D3D11/D3D12 device runs on the Microsoft Basic Render Driver (WARP: vendor 0x1414, device 0x008c), the adapter of the Win10 reference VM.
  * Several size limits and pitch rules below were measured there and only pinned for it; other adapters are recorded with t_note. */
 int fpt_is_warp(void)
 {

@@ -263,7 +263,7 @@ TEST(fpt_d3d12_format_info_undefined_ids_fail)
     }
 }
 
-/* Row pitch alignment of multi-plane footprints (planar video, depth+stencil): 512 on the WARP oracle (all single-plane formats use 256). */
+/* Row pitch alignment of multi-plane footprints (planar video, depth+stencil): 512 on the WARP reference (all single-plane formats use 256). */
 static UINT plane_align(void) { return fpt_is_warp() ? 512 : 256; }
 
 static HRESULT create_tex(ID3D12Device *dev, D3D12_RESOURCE_DIMENSION dim, UINT w, UINT h, UINT dp, UINT mips, DXGI_FORMAT f, ID3D12Resource **out);
@@ -383,7 +383,7 @@ TEST(fpt_d3d12_limit_texture_dimensions)
     hr = create_tex(dev, T2, 1, D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
     hr = create_tex(dev, T2, 0, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
     hr = create_tex(dev, T2, 1, 0, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
-    /* WARP (the oracle adapter) goes far beyond the 16384 that D3D12 guarantees: 1x2^23 works, one more does not. Hardware limits vary, so elsewhere only the guarantee is checked. */
+    /* WARP (the reference adapter) goes far beyond the 16384 that D3D12 guarantees: 1x2^23 works, one more does not. Hardware limits vary, so elsewhere only the guarantee is checked. */
     for (i = 0; i < 2; i++) {
         static const UINT over[] = { D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 1u << 20, 1u << 23 }, beyond[] = { (1u << 23) + 1, 1u << 24, 0x7fffffff, 0xffffffffu };
         UINT k;

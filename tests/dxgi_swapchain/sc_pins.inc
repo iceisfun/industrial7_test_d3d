@@ -1,4 +1,4 @@
-/* Measured on Windows 10 22H2 (WARP). key = the formatted description, value = the HRESULT name. Generated from oracle runs; edit with care. */
+/* Measured on Windows 10 22H2 (WARP). key = the formatted description, value = the HRESULT name. Generated from Windows 10 runs; edit with care. */
     { "4x MSAA bitblt effect 0", "S_OK" },
     { "4x MSAA bitblt effect 1", "S_OK" },
     { "BufferUsage 0x10", "S_OK" },

@@ -33,7 +33,7 @@ static D3D11_BOX box(UINT l, UINT r)
     return b;
 }
 
-/* Behaviours the runtime leaves to the driver are pinned only on the oracle adapter (Basic Render Driver); elsewhere they are logged. */
+/* Behaviours the runtime leaves to the driver are pinned only on the reference adapter (Basic Render Driver); elsewhere they are logged. */
 #define BRD_CHECK(c) do { if (bufh_is_brd(g_dev)) CHECK(c); else t_note("non-BRD adapter: %s", #c); } while (0)
 
 /* ================= UpdateSubresource ================= */
@@ -625,7 +625,7 @@ TEST(d3d11_buffers_copyregion_sequence_tiles)
 }
 
 /* Invalid CopySubresourceRegion arguments on a buffer. The retail runtime does not validate them; what happens is up to the driver.
- * On the oracle (Basic Render Driver / WARP) an out-of-range or malformed box removes the device (DXGI_ERROR_DEVICE_REMOVED) while an
+ * On the reference VM (Basic Render Driver / WARP) an out-of-range or malformed box removes the device (DXGI_ERROR_DEVICE_REMOVED) while an
  * empty box or a nonzero subresource index is ignored. Each case therefore runs on its own private device so it cannot poison the others. */
 enum { CSR_IGNORED, CSR_REMOVED };
 static void csr_bad(const char *what, UINT dx, UINT dy, UINT dz, UINT dsub, UINT ssub, const D3D11_BOX *bx, int brd_expect)

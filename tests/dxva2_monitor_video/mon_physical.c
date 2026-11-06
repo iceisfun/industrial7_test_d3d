@@ -60,7 +60,7 @@ TEST(dxva2_monitor_video_mon_num_each_monitor) {
     EnumDisplayMonitors(NULL, NULL, enum_cb, (LPARAM)&c);
     t_note("%d HMONITOR(s), %d answered GetNumberOfPhysicalMonitorsFromHMONITOR", c.n, c.ok);
 }
-/* A monitor without DDC/CI (the oracle's virtual "Generic PnP Monitor") comes back as a physical-monitor entry with a NULL handle: the
+/* A monitor without DDC/CI (the reference VM's virtual "Generic PnP Monitor") comes back as a physical-monitor entry with a NULL handle: the
  * enumeration succeeds, nothing can be configured through it (low-level calls fail with ERROR_NOT_SUPPORTED) and DestroyPhysicalMonitors
  * accepts it. A real DDC/CI monitor has a non-NULL handle. */
 static void phys_handle_rules(HANDLE h, const WCHAR *desc)

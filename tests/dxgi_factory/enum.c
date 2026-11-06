@@ -12,7 +12,7 @@ static UINT count_adapters0(IDXGIFactory *f) {
     return n;
 }
 
-/* True on the Win10 oracle VM: adapter 0 is the Microsoft Basic Render Driver (1414:008c). That configuration enumerates
+/* True on the Win10 reference VM: adapter 0 is the Microsoft Basic Render Driver (1414:008c). That configuration enumerates
  * exactly two adapters (the display adapter plus the software WARP adapter); other machines only get relational checks. */
 static int basic_vm(IDXGIFactory1 *f) {
     IDXGIAdapter1 *a; DXGI_ADAPTER_DESC1 d; int r;

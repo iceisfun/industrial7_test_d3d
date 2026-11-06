@@ -1,5 +1,5 @@
-/* Win10 22H2 pins found in the oracle review pass: limits, format table, argument validation, creation flags, info queue defaults.
- * Everything here was measured on the oracle (WARP only); WARP-lenient results are guarded with dd_warp(). */
+/* Win10 22H2 pins found in the reference VM review pass: limits, format table, argument validation, creation flags, info queue defaults.
+ * Everything here was measured on the reference VM (WARP only); WARP-lenient results are guarded with dd_warp(). */
 #include "dd.h"
 
 #define T(n) TEST(d3d10_device_extra_##n)

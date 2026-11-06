@@ -81,7 +81,7 @@ TEST(fpt_d3d12_support2_and_info_table)
       EXPECT_HR(ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_FORMAT_SUPPORT, &s, sizeof s + 1), E_INVALIDARG); }
 }
 
-/* GetResourceAllocationInfo for textures: size/alignment on the oracle adapter. */
+/* GetResourceAllocationInfo for textures: size/alignment on the reference adapter. */
 TEST(fpt_d3d12_allocation_info_textures)
 {
     ID3D12Device *dev = fpt_dev12(); UINT i;

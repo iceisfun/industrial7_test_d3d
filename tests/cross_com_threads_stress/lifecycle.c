@@ -220,7 +220,7 @@ T(lifecycle_adapter_enumeration_protocol)
         if (FAILED(h) || n > 64) break;
         SAFE_RELEASE(a);
     }
-    {   /* the oracle has the Microsoft Basic Render Driver twice (one with the display output, one WARP adapter without) */
+    {   /* the reference VM has the Microsoft Basic Render Driver twice (one with the display output, one WARP adapter without) */
         IDXGIAdapter1 *a0 = NULL; DXGI_ADAPTER_DESC1 ad;
         if (SUCCEEDED(IDXGIFactory1_EnumAdapters1(f, 0, &a0)) && SUCCEEDED(IDXGIAdapter1_GetDesc1(a0, &ad)) && ad.VendorId == 0x1414) EXPECT_EQ(n, 2);
         else t_note("adapter count %u (not the Basic Render Driver machine)", n);

@@ -82,10 +82,10 @@ ID3D10Device *fpt_dev10(void);
 ID3D12Device *fpt_dev12(void);
 IDirect3DDevice9 *fpt_dev9(IDirect3D9 **d3d);
 
-/* Compare a measured table entry: golden key -> printf-formatted value. Enforced on WARP (the oracle adapter), only noted elsewhere. */
+/* Compare a measured table entry: golden key -> printf-formatted value. Enforced on WARP (the reference adapter), only noted elsewhere. */
 void fpt_golden(const char *file, int line, const char *key, const char *fmt, ...);
 #define FPT_GOLDEN(key, ...) fpt_golden(__FILE__, __LINE__, key, __VA_ARGS__)
-/* Golden HRESULT by formatted description (fpt_pins.inc, measured on the WARP oracle). */
+/* Golden HRESULT by formatted description (fpt_pins.inc, measured on the WARP reference). */
 void fpt_pinf(const char *file, int line, HRESULT hr, const char *fmt, ...);
 #define PINF(hr, ...) fpt_pinf(__FILE__, __LINE__, (hr), __VA_ARGS__)
 int fpt_is_warp(void);   /* default D3D11 adapter is the Microsoft Basic Render Driver */

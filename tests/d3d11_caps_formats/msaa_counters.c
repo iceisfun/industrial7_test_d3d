@@ -344,7 +344,7 @@ static void limits_at(D3D_FEATURE_LEVEL fl, UINT max2d, UINT maxcube, UINT max3d
         /* Windows 10 (WARP and the basic render driver): the per-dimension 2D limit is not enforced for a 16-wide R8 texture
            (1M wide succeeds); only the total size limits it.  Tex1D, cube and arrays are enforced. */
         HRESULT hr = mk2d(d, max2d + 1, 16, 1, 0);
-        if (hr != S_OK) t_note("2D width %u above the %s limit: %s (Win10 oracle: S_OK)", max2d + 1, cf_fl_name(fl), d3dh_hr_name(hr));
+        if (hr != S_OK) t_note("2D width %u above the %s limit: %s (Win10 reference VM: S_OK)", max2d + 1, cf_fl_name(fl), d3dh_hr_name(hr));
         EXPECT_HR(mk2d(d, 1u << 20, 16, 1, 0), S_OK);
     }
     EXPECT_HR(mk2d(d, 0, 16, 1, 0), E_INVALIDARG);

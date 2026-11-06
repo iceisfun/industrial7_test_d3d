@@ -27,6 +27,6 @@ UINT bufh_bytes(ID3D11Buffer *b);
 const char *bufh_hrn(HRESULT hr);
 /* A private device (own lifetime, may be destroyed/removed by the test). Returns the HRESULT of creation. */
 HRESULT bufh_priv_device(UINT flags, ID3D11Device **dev, ID3D11DeviceContext **ctx);
-/* 1 when the adapter behind dev is the Microsoft Basic Render Driver (vendor 0x1414, WARP-backed: the oracle's only adapter). */
+/* 1 when the adapter behind dev is the Microsoft Basic Render Driver (vendor 0x1414, WARP-backed: the reference VM's only adapter). */
 int bufh_is_brd(ID3D11Device *dev);
 #endif

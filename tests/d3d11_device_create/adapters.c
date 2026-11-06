@@ -1,5 +1,5 @@
 /* Device creation on explicit adapters, concurrent device creation, device identity, and CheckFormatSupport cross-checks
- * (Win10 22H2 oracle: adapter 0 and adapter 1 are both "Microsoft Basic Render Driver", the second one without outputs). */
+ * (Win10 22H2 reference VM: adapter 0 and adapter 1 are both "Microsoft Basic Render Driver", the second one without outputs). */
 #include "dc.h"
 
 #define T(n) TEST(d3d11_device_create_##n)
@@ -13,7 +13,7 @@ static int adapters_enum(IDXGIFactory1 **f, IDXGIAdapter1 **a, int max)
     return n;
 }
 
-T(adapter_enumeration_matches_oracle)
+T(adapter_enumeration_matches_reference_vm)
 {
     IDXGIFactory1 *f; IDXGIAdapter1 *a[4] = { 0 }; int n = adapters_enum(&f, a, 4);
     if (!n) { t_skip("no DXGI adapters"); SAFE_RELEASE(f); return; }

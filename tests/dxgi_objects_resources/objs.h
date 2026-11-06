@@ -31,7 +31,7 @@ static void objs_close(objs_ctx *c)
 #define NEED_DEV(c) objs_ctx c; \
     do { if (!objs_open(&c)) { t_skip("no D3D11 device"); return; } } while (0)
 
-/* The display adapter that owns the output. On the oracle this is factory adapter 0 (Microsoft Basic Render Driver, flags 0, one output on
+/* The display adapter that owns the output. On the reference VM this is factory adapter 0 (Microsoft Basic Render Driver, flags 0, one output on
  * the desktop), which is NOT the adapter D3D11CreateDevice(NULL, HARDWARE/WARP) ends up on (factory adapter 1, software, no outputs). */
 static int objs_first_output(IDXGIAdapter **adapter, IDXGIOutput **output)
 {

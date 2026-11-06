@@ -356,7 +356,7 @@ TEST(d3d_on12_dxcore_misc_on12_debug_flag_without_layers) {
     NEED_ON12();
     ID3D11Device *dev = NULL;
     HRESULT hr = create((IUnknown *)d12, D3D11_CREATE_DEVICE_DEBUG, NULL, 0, NULL, 0, 0, &dev, NULL, NULL);
-    CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D, "debug flag: %s", d3dh_hr_name(hr)); /* S_OK with the Graphics Tools feature (oracle image), SDK_COMPONENT_MISSING without */
+    CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D, "debug flag: %s", d3dh_hr_name(hr)); /* S_OK with the Graphics Tools feature (reference VM image), SDK_COMPONENT_MISSING without */
     t_note("create with DEBUG flag: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) CHECK(dev != NULL); else CHECK(dev == NULL);
     SAFE_RELEASE(dev); END_ON12();

@@ -322,7 +322,7 @@ TEST(dxgi_swapchain_present_tearing_with_flag)
         hr = IDXGIFactory5_CheckFeatureSupport(f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &sup, sizeof sup);
         EXPECT_HR(hr, S_OK);
         CHECKF(sup == 1 || sup == 0, "PRESENT_ALLOW_TEARING feature support %d", sup);
-        t_note("PRESENT_ALLOW_TEARING feature support -> %d", sup);   /* 1 on the WARP oracle; follows the display stack */
+        t_note("PRESENT_ALLOW_TEARING feature support -> %d", sup);   /* 1 on the WARP reference; follows the display stack */
         EXPECT_HR(IDXGIFactory5_CheckFeatureSupport(f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &sup, 1), DXGI_ERROR_INVALID_CALL);
         EXPECT_HR(IDXGIFactory5_CheckFeatureSupport(f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &sup, 0), DXGI_ERROR_INVALID_CALL);
         EXPECT_HR(IDXGIFactory5_CheckFeatureSupport(f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &sup, 8), DXGI_ERROR_INVALID_CALL);

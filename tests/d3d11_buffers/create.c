@@ -687,7 +687,7 @@ TEST(d3d11_buffers_create_bw_ffffffff_oom_private_device)
     ID3D11DeviceContext_ClearState(ctx); ID3D11DeviceContext_Release(ctx); ID3D11Device_Release(dev);
 }
 
-/* Whole-matrix pins (WARP/BRD == the default hardware adapter on the oracle): every subset of the bind flags for a DEFAULT buffer. */
+/* Whole-matrix pins (WARP/BRD == the default hardware adapter on the reference VM): every subset of the bind flags for a DEFAULT buffer. */
 static int default_bind_valid(UINT b)
 {
     if (b & D3D11_BIND_CONSTANT_BUFFER) return b == D3D11_BIND_CONSTANT_BUFFER;

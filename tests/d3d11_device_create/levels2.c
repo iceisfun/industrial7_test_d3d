@@ -1,5 +1,5 @@
 /* Per-feature-level resource limits and capability values of the WARP rasteriser (Win10 22H2). Every value below was
- * measured on the oracle; WARP is the device under test here (d3dh prefers it), so the table is WARP specific. */
+ * measured on the reference VM; WARP is the device under test here (d3dh prefers it), so the table is WARP specific. */
 #include "dc.h"
 
 #define T(n) TEST(d3d11_device_create_##n)

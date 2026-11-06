@@ -291,7 +291,7 @@ TEST(objs_parent_output_to_adapter)
 {
     NEED_DEV(c);
     IDXGIAdapter *a = NULL; IDXGIOutput *o = NULL; IUnknown *p = NULL;
-    {   /* the device's own adapter (software, factory adapter 1 on the oracle) has no outputs: DXGI_ERROR_NOT_FOUND */
+    {   /* the device's own adapter (software, factory adapter 1 on the reference VM) has no outputs: DXGI_ERROR_NOT_FOUND */
         IDXGIOutput *none = (IDXGIOutput *)(ULONG_PTR)1;
         EXPECT_HR_OK(IDXGIDevice_GetAdapter(c.dx, &a));
         EXPECT_HR(IDXGIAdapter_EnumOutputs(a, 0, &none), DXGI_ERROR_NOT_FOUND);

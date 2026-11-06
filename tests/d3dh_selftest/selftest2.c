@@ -1,4 +1,4 @@
-/* More d3dh helper checks, pinned to what the helpers produce on Windows 10 22H2 (oracle: Basic Render Driver / WARP only). */
+/* More d3dh helper checks, pinned to what the helpers produce on Windows 10 22H2 (reference VM: Basic Render Driver / WARP only). */
 #include "d3dh.h"
 #include "shaders.h"
 #include "meshes.h"
