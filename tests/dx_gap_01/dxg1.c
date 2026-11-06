@@ -232,3 +232,41 @@ TEST(dx_gap_01_hmonitor_entry_points_invalid_handles) {
     r = U(DestroyPhysicalMonitors)(0, NULL);
     EXPECT_EQ(r, TRUE);
 }
+
+/* ---- DXGIDumpJournal: internal DXGI error journal (Windows 10: a ring of 64 entries, all unwritten in a fresh process; no return value) ---- */
+static volatile LONG g1_jcount, g1_jbad;
+static void __cdecl g1_jcb(const char *s) {
+    InterlockedIncrement(&g1_jcount);
+    if (!s || strncmp(s, "DXGI Error 00000000: (0@0) at 0000000000000000 - ", 49)) InterlockedIncrement(&g1_jbad);
+}
+CHILD(dxg1_dump_journal) {
+    void (WINAPI *f)(void *) = (void (WINAPI *)(void *))t_proc_in("dxgi.dll", "DXGIDumpJournal");
+    if (!f) return 90;
+    f((void *)g1_jcb);
+    if (g1_jcount != 64) return 41;
+    if (g1_jbad) return 43;
+    g1_jcount = 0;
+    ID3D11Device *dev = NULL; ID3D11DeviceContext *ctx = NULL;
+    if (SUCCEEDED(d3dh_make_device11(&dev, &ctx, NULL, NULL, 0)) && dev) {
+        f((void *)g1_jcb);                               /* a healthy device adds nothing to the journal */
+        if (g1_jcount != 64 || g1_jbad) return 44;
+        ID3D11DeviceContext_Release(ctx); ID3D11Device_Release(dev);
+    }
+    return 0;
+}
+CHILD(dxg1_dump_journal_null) {
+    ULONG_PTR (WINAPI *f)(void *) = (ULONG_PTR (WINAPI *)(void *))t_proc_in("dxgi.dll", "DXGIDumpJournal");
+    if (!f) return 90;
+    f(NULL);                                            /* faults: the callback is called without a NULL check */
+    return 0;
+}
+TEST(dx_gap_01_dxgi_dump_journal_callback_protocol) {
+    REQUIRE(t_proc_in("dxgi.dll", "DXGIDumpJournal"));
+    if (t_is_wine()) { t_skip("emulated dxgi"); return; }
+    EXPECT_EQ(t_run_child("dxg1_dump_journal", "", 30000), 0);
+}
+TEST(dx_gap_01_dxgi_dump_journal_null_callback_faults) {
+    REQUIRE(t_proc_in("dxgi.dll", "DXGIDumpJournal"));
+    if (t_is_wine()) { t_skip("emulated dxgi"); return; }
+    EXPECT_EQ(t_run_child("dxg1_dump_journal_null", "", 30000), 0xc0000005u);
+}
