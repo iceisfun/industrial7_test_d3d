@@ -58,4 +58,16 @@ typedef struct { const void *p; SIZE_T n; } gap0_buf;
 #define GAP0_MODS_D3D10 "d3d10.dll", "d3d10_1.dll"
 
 static inline int gap0_is_all_zero(const unsigned char *p, size_t n) { size_t i; for (i = 0; i < n; i++) if (p[i]) return 0; return 1; }
+
+/* Access-violation probe: GAP0_CALL(call) yields the call's HRESULT, or GAP0_AVHR if it faulted. */
+#include <setjmp.h>
+#define GAP0_AVHR ((HRESULT)0x7ff9a001)
+static jmp_buf g_gap0_jb; static volatile int g_gap0_guard, g_gap0_veh;
+static LONG CALLBACK gap0_veh(PEXCEPTION_POINTERS ep)
+{
+    if (g_gap0_guard && ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) { g_gap0_guard = 0; longjmp(g_gap0_jb, 1); }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#define GAP0_CALL(call) ({ volatile HRESULT hr_ = E_FAIL; volatile int av_ = 0; if (!g_gap0_veh) { AddVectoredExceptionHandler(1, gap0_veh); g_gap0_veh = 1; } \
+    if (!setjmp(g_gap0_jb)) { g_gap0_guard = 1; hr_ = (HRESULT)(call); g_gap0_guard = 0; } else av_ = 1; av_ ? GAP0_AVHR : hr_; })
 #endif

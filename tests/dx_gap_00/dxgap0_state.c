@@ -41,9 +41,9 @@ TEST(dxgap0_stateblock_create_release)
     CHECK(sb != NULL);
     if (sb) {
         EXPECT_EQ(d3dh_refcount(sb), 1);
-        EXPECT_HR(sb->lpVtbl->QueryInterface(sb, &IID_ID3D10StateBlock, (void **)&sb2), S_OK);
-        CHECK(sb2 == sb);
-        SAFE_RELEASE(sb2);
+        /* Win10: the state block object answers QueryInterface with E_NOINTERFACE even for IID_IUnknown and for its own IID */
+        sb2 = (ID3D10StateBlock *)1; EXPECT_HR(sb->lpVtbl->QueryInterface(sb, &IID_IUnknown, (void **)&sb2), E_NOINTERFACE_HR); CHECK(sb2 == NULL);
+        sb2 = (ID3D10StateBlock *)1; EXPECT_HR(sb->lpVtbl->QueryInterface(sb, &IID_ID3D10StateBlock, (void **)&sb2), E_NOINTERFACE_HR); CHECK(sb2 == NULL);
         EXPECT_HR(sb->lpVtbl->GetDevice(sb, &d2), S_OK);
         CHECK(d2 == dev);
         SAFE_RELEASE(d2);
@@ -164,8 +164,8 @@ TEST(dxgap0_stateblock_null_mask_and_release_objects)
     HRESULT hr;
     REQUIRE(fn);
     if (!open10(&dev)) return;
-    hr = fn(dev, NULL, &sb);
-    t_note("D3D10CreateStateBlock with NULL mask = %s", d3dh_hr_name(hr));
+    hr = GAP0_CALL(fn(dev, NULL, &sb));
+    EXPECT_HR(hr, GAP0_AVHR);   /* Win10: the NULL mask is dereferenced */
     SAFE_RELEASE(sb);
     enable_all(&mask);
     EXPECT_HR(fn(dev, &mask, &sb), S_OK);

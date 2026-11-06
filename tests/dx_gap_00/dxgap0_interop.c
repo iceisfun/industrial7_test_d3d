@@ -78,12 +78,11 @@ TEST(dxgap0_interop_device_null_args)
     HRESULT hr;
     REQUIRE(fn);
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    hr = fn(NULL, &out);
-    EXPECT_HR_FAILED(hr);
-    CHECK(out == NULL);
+    hr = GAP0_CALL(fn(NULL, &out));
     t_note("CreateDirect3D11DeviceFromDXGIDevice(NULL) = %s", d3dh_hr_name(hr));
+    CHECK(out == NULL);
     if (!dev_and_dxgi(&dev, &dx)) return;
-    hr = fn(dx, NULL);
+    hr = GAP0_CALL(fn(dx, NULL));
     t_note("CreateDirect3D11DeviceFromDXGIDevice(dev, NULL out) = %s", d3dh_hr_name(hr));
     SAFE_RELEASE(dx); SAFE_RELEASE(dev);
 }
