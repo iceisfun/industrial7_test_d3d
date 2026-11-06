@@ -731,9 +731,12 @@ TEST(d3d11_render_exec_tess_quad_pow2_and_fractional_exact_factors)
 TEST(d3d11_render_exec_tess_quad_pow2_non_power_of_two_factor)
 {
     rx r; if (!rx_open(&r)) return;
-    /* REAL DIVERGENCE (Win10 22H2 WARP): "pow2" partitioning is specified to round a factor up to the next power of two (3 -> 4: 32 triangles,
-     * 5 -> 8: 128 triangles). WARP does not round: it tessellates factors 3, 5, 6 and 7 like "integer" (18 and 50 triangles, 72 for 6, 98 for 7: 2*f*f, i.e. no rounding at all).
-     * The specified counts are enforced on other adapters, the measured WARP counts are pinned on the Microsoft adapter (vendor 0x1414). */
+    /* UNCLASSIFIED (Win10 22H2 WARP): with raw factors 3, 5, 6 and 7 the "pow2" shader produces 18, 50, 72 and 98 triangles (2*f*f, the same as
+     * "integer"). Per the D3D11.3 functional spec the fixed-function tessellator treats pow2 as integer partitioning and the rounding to a power
+     * of two is done by the HLSL factor helpers, so this is NOT yet shown to be a WARP divergence: it is a wrong expectation unless this hull
+     * shader already feeds rounded factors. Controls still to run (bb #1037): disassemble the patch-constant phase, emit 4 and 8 directly
+     * (32 and 128 expected), and ProcessQuadTessFactorsAvg with the rounded outputs. Until then the measured counts are pinned on the Microsoft
+     * adapter (vendor 0x1414) and the originally specified counts are enforced on other adapters. */
     static const struct { float f; int tris, warp_tris; } tab[] = { { 3, 32, 18 }, { 5, 128, 50 }, { 6, 128, 72 }, { 7, 128, 98 } };
     int ms = rx_on_ms_adapter(&r);
     for (unsigned i = 0; i < A(tab); i++) {

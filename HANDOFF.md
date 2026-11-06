@@ -34,7 +34,7 @@ Fix, rebuild, re-run only that test, commit with a short message using specific 
 
 ## Known WARP divergences (pinned, no longer failing)
 These two tests asserted the specified behaviour and failed on WARP. They now pin the measured Microsoft-adapter result (vendor 0x1414) and keep the specified result for every other adapter, so a real GPU still gets the specified check:
-- `d3d11_render_exec_tess_quad_pow2_non_power_of_two_factor`: "pow2" partitioning does not round on WARP; quad factors 3, 5, 6, 7 give 18, 50, 72, 98 triangles (2*f*f, same as "integer"); specified are 32, 128, 128, 128.
+- `d3d11_render_exec_tess_quad_pow2_non_power_of_two_factor`: "pow2" partitioning gives integer-partitioning counts on WARP (UNCLASSIFIED: the fixed-function tessellator does not round, the HLSL helpers do; controls pending, see the test comment); quad factors 3, 5, 6, 7 give 18, 50, 72, 98 triangles (2*f*f, same as "integer"); specified are 32, 128, 128, 128.
 - `d3d12_objects_dheap_copy_descriptors_spanning_ranges`: CopyDescriptors with destination ranges {1x3, 5x1} and source ranges {0x2, 4x2} restarts the offset inside the current source range at the second destination range (d5 gets s4, not s5); texture 4 reads white and texture 5 stays untouched.
 
 ## Expected skips (all measured on the reference VM)
