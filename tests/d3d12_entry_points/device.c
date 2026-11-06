@@ -8,7 +8,7 @@ TEST(d3d12_entry_points_device_nodecount) {
     UINT n = ID3D12Device_GetNodeCount(d);
     CHECK(n >= 1 && n <= 32);
     CHECK(n == ID3D12Device_GetNodeCount(d));
-    t_note("node count %u", n);
+    if (ep_on_warp(d)) EP_EQ(n, 1); else t_note("node count %u", n);
     ID3D12Device_Release(d);
 }
 
@@ -42,8 +42,11 @@ TEST(d3d12_entry_points_device_adapter_luid_matches_dxgi) {
 TEST(d3d12_entry_points_device_stable_power_state_off) {
     EP_NEED_DEVICE(d);
     HRESULT hr = ID3D12Device_SetStablePowerState(d, FALSE);
-    t_note("SetStablePowerState(FALSE) -> %s", d3dh_hr_name(hr));
-    EXPECT_HR_IN(hr, S_OK, HR_UNSUPPORTED, E_NOTIMPL, DXGI_ERROR_NOT_CURRENTLY_AVAILABLE);
+    /* Win10 22H2 without developer mode: turning the stable power state OFF fails with E_FAIL (it was never on) */
+    EXPECT_HR(hr, E_FAIL);
+    hr = ID3D12Device_SetStablePowerState(d, TRUE);
+    t_note("SetStablePowerState(TRUE) -> %s", d3dh_hr_name(hr));
+    if (SUCCEEDED(hr)) ID3D12Device_SetStablePowerState(d, FALSE);
     ID3D12Device_Release(d);
 }
 
@@ -83,7 +86,9 @@ TEST(d3d12_entry_points_device_qi_ladder_monotonic) {
         if (ok[i]) highest = i;
     }
     for (int i = 0; i <= highest; i++) CHECKF(ok[i], "Device%d missing while Device%d present", i, highest);
+    /* Win10 22H2 d3d12.dll implements ID3D12Device up to Device8; Device9/Device10 arrived with later Windows builds */
     t_note("highest supported ID3D12Device interface: ID3D12Device%d", highest);
+    EP_EQ(highest, 8);
     ID3D12Device_Release(d);
 }
 
@@ -130,11 +135,11 @@ TEST(d3d12_entry_points_device_qi_debug_device_observed) {
     EP_NEED_DEVICE(d);
     void *p = NULL;
     HRESULT hr = ID3D12Device_QueryInterface(d, &IID_ID3D12DebugDevice, &p);
-    t_note("ID3D12DebugDevice on a non-debug device -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
     if (SUCCEEDED(hr) && p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
     p = NULL;
     hr = ID3D12Device_QueryInterface(d, &IID_ID3D12InfoQueue, &p);
-    t_note("ID3D12InfoQueue on a non-debug device -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
     if (SUCCEEDED(hr) && p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
     ID3D12Device_Release(d);
 }
@@ -251,7 +256,8 @@ TEST(d3d12_entry_points_device_set_name) {
     EXPECT_HR(ID3D12Device_SetName(d, L"d3dt-entry-device"), S_OK);
     UINT sz = 0;
     HRESULT hr = ID3D12Device_GetPrivateData(d, &EP_WKPDID_NameW, &sz, NULL);
-    t_note("name private data query -> %s size %u", d3dh_hr_name(hr), sz);
+    t_note("name private data query -> %s size %u", d3dh_hr_name(hr), sz);   /* Win10 22H2: DXGI_ERROR_NOT_FOUND, size 0 (the debug name is not stored without the layer) */
+    EXPECT_HR(hr, DXGI_ERROR_NOT_FOUND); EP_EQ(sz, 0);
     if (SUCCEEDED(hr)) {
         WCHAR buf[64] = {0}; UINT s2 = sizeof buf;
         EXPECT_HR(ID3D12Device_GetPrivateData(d, &EP_WKPDID_NameW, &s2, buf), S_OK);
@@ -375,7 +381,8 @@ TEST(d3d12_entry_points_checkfeature_matrix_repeatable) {
 
 TEST(d3d12_entry_points_checkfeature_unknown_values) {
     EP_NEED_DEVICE(d);
-    static const int unk[] = { 9, 11, 13, 14, 15, 17, 1000, 0x7fff, 0x7fffffff, -1 };
+    /* feature value 17 is not in the public headers; on Win10 22H2 it answers S_OK (checkfeature_undocumented_17) */
+    static const int unk[] = { 9, 11, 13, 14, 15, 1000, 0x7fff, 0x7fffffff, -1 };
     for (unsigned i = 0; i < sizeof unk / sizeof unk[0]; i++) {
         fbuf b; memset(&b, 0, sizeof b);
         HRESULT hr = CFS(d, (D3D12_FEATURE)unk[i], &b, 4);
@@ -402,6 +409,7 @@ TEST(d3d12_entry_points_checkfeature_options_ranges) {
     CHECK((int)o.ResourceHeapTier == 1 || (int)o.ResourceHeapTier == 2);
     CHECK(((int)o.MinPrecisionSupport & ~3) == 0);
     t_note("OPTIONS: tiled=%d binding=%d conservative=%d heapTier=%d rov=%d", o.TiledResourcesTier, o.ResourceBindingTier, o.ConservativeRasterizationTier, o.ResourceHeapTier, o.ROVsSupported);
+    if (ep_on_warp(d)) { EP_EQ(o.TiledResourcesTier, 3); EP_EQ(o.ResourceBindingTier, 3); EP_EQ(o.ConservativeRasterizationTier, 3); EP_EQ(o.ResourceHeapTier, 2); EP_EQ(o.ROVsSupported, 1); }
     ID3D12Device_Release(d);
 }
 
@@ -424,6 +432,7 @@ TEST(d3d12_entry_points_checkfeature_options1_wave) {
         CHECK(o.TotalLaneCount >= o.WaveLaneCountMax);
     }
     t_note("OPTIONS1: waveops=%d lanes=%u..%u total=%u int64=%d", o.WaveOps, o.WaveLaneCountMin, o.WaveLaneCountMax, o.TotalLaneCount, o.Int64ShaderOps);
+    if (ep_on_warp(d)) { EP_EQ(o.WaveOps, 1); EP_EQ(o.WaveLaneCountMin, 4); EP_EQ(o.WaveLaneCountMax, 4); EP_EQ(o.TotalLaneCount, 32); EP_EQ(o.Int64ShaderOps, 1); }
     ID3D12Device_Release(d);
 }
 
@@ -436,6 +445,7 @@ TEST(d3d12_entry_points_checkfeature_architecture_node0) {
     CHECK(a.UMA == TRUE || a.UMA == FALSE);
     if (a.CacheCoherentUMA) CHECK(a.UMA);
     t_note("ARCHITECTURE: tbr=%d uma=%d cc-uma=%d", a.TileBasedRenderer, a.UMA, a.CacheCoherentUMA);
+    if (ep_on_warp(d)) { EP_EQ(a.TileBasedRenderer, 0); EP_EQ(a.UMA, 1); EP_EQ(a.CacheCoherentUMA, 1); }
     ID3D12Device_Release(d);
 }
 
@@ -486,6 +496,7 @@ TEST(d3d12_entry_points_checkfeature_feature_levels_list_order) {
     CHECK(f1.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_11_0 || f1.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_11_1 ||
           f1.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_12_0 || f1.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_12_1);
     t_note("max supported feature level 0x%x", f1.MaxSupportedFeatureLevel);
+    if (ep_on_warp(d)) EP_EQ(f1.MaxSupportedFeatureLevel, D3D_FEATURE_LEVEL_12_1);
     ID3D12Device_Release(d);
 }
 
@@ -509,7 +520,8 @@ TEST(d3d12_entry_points_checkfeature_feature_levels_unsupported_only) {
     D3D12_FEATURE_DATA_FEATURE_LEVELS f; memset(&f, 0, sizeof f);
     f.NumFeatureLevels = 1; f.pFeatureLevelsRequested = req;
     HRESULT hr = CFS(d, D3D12_FEATURE_FEATURE_LEVELS, &f, sizeof f);
-    t_note("request {9_1} -> %s max=0x%x", d3dh_hr_name(hr), f.MaxSupportedFeatureLevel);
+    /* a request containing only a level below 11_0 is answered with that level (Win10 22H2) */
+    EXPECT_HR(hr, S_OK); EP_EQ(f.MaxSupportedFeatureLevel, D3D_FEATURE_LEVEL_9_1);
     ID3D12Device_Release(d);
 }
 
@@ -517,8 +529,7 @@ TEST(d3d12_entry_points_checkfeature_feature_levels_empty_request) {
     EP_NEED_DEVICE(d);
     D3D12_FEATURE_DATA_FEATURE_LEVELS f; memset(&f, 0, sizeof f);
     HRESULT hr = CFS(d, D3D12_FEATURE_FEATURE_LEVELS, &f, sizeof f);
-    t_note("empty feature level request -> %s", d3dh_hr_name(hr));
-    CHECK(hr == E_INVALIDARG || SUCCEEDED(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     ID3D12Device_Release(d);
 }
 
@@ -572,11 +583,10 @@ TEST(d3d12_entry_points_checkfeature_format_support_unknown_and_invalid) {
     EP_NEED_DEVICE(d);
     D3D12_FEATURE_DATA_FORMAT_SUPPORT s; memset(&s, 0, sizeof s); s.Format = DXGI_FORMAT_UNKNOWN;
     HRESULT hr = CFS(d, D3D12_FEATURE_FORMAT_SUPPORT, &s, sizeof s);
-    t_note("DXGI_FORMAT_UNKNOWN -> %s support1=0x%x", d3dh_hr_name(hr), s.Support1);
+    EXPECT_HR(hr, S_OK); EP_EQ(s.Support1, D3D12_FORMAT_SUPPORT1_BUFFER);   /* UNKNOWN reports plain buffer support (Win10 22H2) */
     memset(&s, 0, sizeof s); s.Format = (DXGI_FORMAT)0x7777;
     hr = CFS(d, D3D12_FEATURE_FORMAT_SUPPORT, &s, sizeof s);
-    t_note("format 0x7777 -> %s support1=0x%x", d3dh_hr_name(hr), s.Support1);
-    if (SUCCEEDED(hr)) CHECK(s.Support1 == 0);
+    EXPECT_HR(hr, E_FAIL); EP_EQ(s.Support1, 0);
     ID3D12Device_Release(d);
 }
 
@@ -604,6 +614,7 @@ TEST(d3d12_entry_points_checkfeature_multisample_levels) {
         HRESULT hr = CFS(d, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &m, sizeof m);
         if (sc == 2) EXPECT_HR(hr, S_OK);
         t_note("RGBA8 x%u -> %u quality levels", sc, m.NumQualityLevels);
+        if (ep_on_warp(d) && sc >= 2) { EXPECT_HR(hr, S_OK); EP_EQ(m.NumQualityLevels, 1); }
     }
     ID3D12Device_Release(d);
 }
@@ -625,6 +636,8 @@ TEST(d3d12_entry_points_checkfeature_multisample_invalid_counts) {
         m.Format = DXGI_FORMAT_R8G8B8A8_UNORM; m.SampleCount = sc[i];
         HRESULT hr = CFS(d, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &m, sizeof m);
         t_note("sample count %u -> %s levels=%u", sc[i], d3dh_hr_name(hr), m.NumQualityLevels);
+        /* counts 0 and 33 are rejected with E_FAIL; any other non-power-of-two count answers S_OK with 0 levels (Win10 22H2) */
+        EXPECT_HR(hr, (sc[i] == 0 || sc[i] > 32) ? E_FAIL : S_OK);
         if (SUCCEEDED(hr)) CHECKF(m.NumQualityLevels == 0, "count %u reports %u levels", sc[i], m.NumQualityLevels);
     }
     ID3D12Device_Release(d);
@@ -653,6 +666,7 @@ TEST(d3d12_entry_points_checkfeature_gpu_virtual_address) {
     CHECK(g.MaxGPUVirtualAddressBitsPerResource > 0 && g.MaxGPUVirtualAddressBitsPerResource <= 64);
     CHECK(g.MaxGPUVirtualAddressBitsPerProcess >= g.MaxGPUVirtualAddressBitsPerResource && g.MaxGPUVirtualAddressBitsPerProcess <= 64);
     t_note("GPU VA bits: resource=%u process=%u", g.MaxGPUVirtualAddressBitsPerResource, g.MaxGPUVirtualAddressBitsPerProcess);
+    if (ep_on_warp(d)) { EP_EQ(g.MaxGPUVirtualAddressBitsPerResource, 32); EP_EQ(g.MaxGPUVirtualAddressBitsPerProcess, 47); }
     ID3D12Device_Release(d);
 }
 
@@ -677,6 +691,7 @@ TEST(d3d12_entry_points_checkfeature_shader_model_capped_by_request) {
         CHECKF((int)sm.HighestShaderModel >= prev, "answer shrank when request grew (0x%x < 0x%x)", sm.HighestShaderModel, prev);
         prev = sm.HighestShaderModel;
         t_note("shader model request 0x%x -> 0x%x", req[i], sm.HighestShaderModel);
+        if (ep_on_warp(d)) EP_EQ(sm.HighestShaderModel, req[i]);   /* WARP reports exactly the requested model up to 6.2 */
     }
     ID3D12Device_Release(d);
 }
@@ -687,7 +702,7 @@ TEST(d3d12_entry_points_checkfeature_shader_model_bogus_request) {
     for (unsigned i = 0; i < sizeof req / sizeof req[0]; i++) {
         D3D12_FEATURE_DATA_SHADER_MODEL sm; memset(&sm, 0, sizeof sm); sm.HighestShaderModel = (D3D_SHADER_MODEL)req[i];
         HRESULT hr = CFS(d, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof sm);
-        t_note("shader model request 0x%x -> %s (out 0x%x)", req[i], d3dh_hr_name(hr), sm.HighestShaderModel);
+        EXPECT_HR(hr, E_INVALIDARG); EP_EQ(sm.HighestShaderModel, req[i]);   /* values outside the known set fail and leave the request untouched */
     }
     ID3D12Device_Release(d);
 }
@@ -698,6 +713,7 @@ TEST(d3d12_entry_points_checkfeature_root_signature_versions) {
     EXPECT_HR(CFS(d, D3D12_FEATURE_ROOT_SIGNATURE, &rs, sizeof rs), S_OK);
     CHECK(rs.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0 || rs.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_1);
     t_note("highest root signature version: %d", rs.HighestVersion);
+    EP_EQ(rs.HighestVersion, D3D_ROOT_SIGNATURE_VERSION_1_1);
     memset(&rs, 0, sizeof rs); rs.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
     EXPECT_HR(CFS(d, D3D12_FEATURE_ROOT_SIGNATURE, &rs, sizeof rs), S_OK);
     EP_EQ(rs.HighestVersion, D3D_ROOT_SIGNATURE_VERSION_1_0);
@@ -709,10 +725,10 @@ TEST(d3d12_entry_points_checkfeature_root_signature_invalid_request) {
     D3D12_FEATURE_DATA_ROOT_SIGNATURE rs; memset(&rs, 0, sizeof rs);
     rs.HighestVersion = (D3D_ROOT_SIGNATURE_VERSION)0;
     HRESULT hr = CFS(d, D3D12_FEATURE_ROOT_SIGNATURE, &rs, sizeof rs);
-    t_note("root signature request 0 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     rs.HighestVersion = (D3D_ROOT_SIGNATURE_VERSION)99;
     hr = CFS(d, D3D12_FEATURE_ROOT_SIGNATURE, &rs, sizeof rs);
-    t_note("root signature request 99 -> %s out=%d", d3dh_hr_name(hr), rs.HighestVersion);
+    EXPECT_HR(hr, E_INVALIDARG); EP_EQ(rs.HighestVersion, 99);
     ID3D12Device_Release(d);
 }
 
@@ -727,10 +743,11 @@ TEST(d3d12_entry_points_checkfeature_queue_priority) {
         p.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
         EXPECT_HR(CFS(d, D3D12_FEATURE_COMMAND_QUEUE_PRIORITY, &p, sizeof p), S_OK);
         t_note("type %d HIGH priority supported=%d", types[i], p.PriorityForTypeIsSupported);
+        if (ep_on_warp(d)) EP_EQ(p.PriorityForTypeIsSupported, 1);
         p.Priority = 12345;
         HRESULT hr = CFS(d, D3D12_FEATURE_COMMAND_QUEUE_PRIORITY, &p, sizeof p);
         t_note("type %d priority 12345 -> %s supported=%d", types[i], d3dh_hr_name(hr), p.PriorityForTypeIsSupported);
-        if (SUCCEEDED(hr)) CHECK(!p.PriorityForTypeIsSupported);
+        EXPECT_HR(hr, E_INVALIDARG);
     }
     ID3D12Device_Release(d);
 }
@@ -740,8 +757,7 @@ TEST(d3d12_entry_points_checkfeature_queue_priority_invalid_type) {
     D3D12_FEATURE_DATA_COMMAND_QUEUE_PRIORITY p; memset(&p, 0, sizeof p);
     p.CommandListType = (D3D12_COMMAND_LIST_TYPE)99; p.Priority = 0;
     HRESULT hr = CFS(d, D3D12_FEATURE_COMMAND_QUEUE_PRIORITY, &p, sizeof p);
-    t_note("invalid command list type -> %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr) || !p.PriorityForTypeIsSupported);
+    EXPECT_HR(hr, E_INVALIDARG);
     ID3D12Device_Release(d);
 }
 
@@ -751,7 +767,8 @@ TEST(d3d12_entry_points_checkfeature_options_tiers_consistent) {
     EXPECT_HR(CFS(d, D3D12_FEATURE_D3D12_OPTIONS3, &o3, sizeof o3), S_OK);
     CHECK((int)o3.CopyQueueTimestampQueriesSupported == 0 || (int)o3.CopyQueueTimestampQueriesSupported == 1);
     CHECK(((int)o3.ViewInstancingTier >= 0 && (int)o3.ViewInstancingTier <= 3));
-    CHECK(((int)o3.WriteBufferImmediateSupportFlags & ~0xF) == 0);
+    CHECKF(((int)o3.WriteBufferImmediateSupportFlags & ~0x7F) == 0, "WriteBufferImmediateSupportFlags 0x%x", (int)o3.WriteBufferImmediateSupportFlags);   /* D3D12_COMMAND_LIST_SUPPORT_FLAGS bits */
+    t_note("OPTIONS3: WriteBufferImmediateSupportFlags=0x%x ViewInstancingTier=%d CastingFullyTypedFormatSupported=%d", (int)o3.WriteBufferImmediateSupportFlags, (int)o3.ViewInstancingTier, (int)o3.CastingFullyTypedFormatSupported);
     D3D12_FEATURE_DATA_D3D12_OPTIONS2 o2; memset(&o2, 0, sizeof o2);
     EXPECT_HR(CFS(d, D3D12_FEATURE_D3D12_OPTIONS2, &o2, sizeof o2), S_OK);
     CHECK((int)o2.ProgrammableSamplePositionsTier >= 0 && (int)o2.ProgrammableSamplePositionsTier <= 2);
@@ -764,6 +781,7 @@ TEST(d3d12_entry_points_checkfeature_options_tiers_consistent) {
         CHECK((int)o5.RenderPassesTier >= 0 && (int)o5.RenderPassesTier <= 2);
         CHECK((int)o5.RaytracingTier == 0 || (int)o5.RaytracingTier == 10 || (int)o5.RaytracingTier == 11);
         t_note("OPTIONS5: renderpasses=%d raytracing=%d", o5.RenderPassesTier, o5.RaytracingTier);
+        if (ep_on_warp(d)) { EP_EQ(o5.RenderPassesTier, 1); EP_EQ(o5.RaytracingTier, 0); }
     }
     ID3D12Device_Release(d);
 }
@@ -772,7 +790,7 @@ TEST(d3d12_entry_points_checkfeature_options6_7_ranges) {
     EP_NEED_DEVICE(d);
     D3D12_FEATURE_DATA_D3D12_OPTIONS6 o6; memset(&o6, 0, sizeof o6);
     HRESULT hr = CFS(d, D3D12_FEATURE_D3D12_OPTIONS6, &o6, sizeof o6);
-    if (SUCCEEDED(hr)) { CHECK((int)o6.VariableShadingRateTier >= 0 && (int)o6.VariableShadingRateTier <= 2); t_note("OPTIONS6: vrs tier=%d", o6.VariableShadingRateTier); }
+    if (SUCCEEDED(hr)) { CHECK((int)o6.VariableShadingRateTier >= 0 && (int)o6.VariableShadingRateTier <= 2); t_note("OPTIONS6: vrs tier=%d", o6.VariableShadingRateTier); if (ep_on_warp(d)) EP_EQ(o6.VariableShadingRateTier, 1); }
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 o7; memset(&o7, 0, sizeof o7);
     hr = CFS(d, D3D12_FEATURE_D3D12_OPTIONS7, &o7, sizeof o7);
     if (SUCCEEDED(hr)) { CHECK((int)o7.MeshShaderTier == 0 || (int)o7.MeshShaderTier == 10); CHECK((int)o7.SamplerFeedbackTier == 0 || (int)o7.SamplerFeedbackTier == 90 || (int)o7.SamplerFeedbackTier == 100); }
@@ -789,7 +807,7 @@ TEST(d3d12_entry_points_checkfeature_existing_heaps_serialization) {
     CHECK((int)s.HeapSerializationTier == 0 || (int)s.HeapSerializationTier == 10);
     s.NodeIndex = 7;
     HRESULT hr = CFS(d, D3D12_FEATURE_SERIALIZATION, &s, sizeof s);
-    t_note("serialization node 7 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     D3D12_FEATURE_DATA_CROSS_NODE c; memset(&c, 0, sizeof c);
     EXPECT_HR(CFS(d, D3D12_FEATURE_CROSS_NODE, &c, sizeof c), S_OK);
     CHECK((int)c.SharingTier >= 0 && (int)c.SharingTier <= 4);
@@ -802,6 +820,7 @@ TEST(d3d12_entry_points_checkfeature_shader_cache) {
     EXPECT_HR(CFS(d, D3D12_FEATURE_SHADER_CACHE, &sc, sizeof sc), S_OK);
     CHECK(((int)sc.SupportFlags & ~0x3F) == 0);
     t_note("shader cache support flags 0x%x", sc.SupportFlags);
+    if (ep_on_warp(d)) EP_EQ(sc.SupportFlags, 3);
     ID3D12Device_Release(d);
 }
 
@@ -809,8 +828,7 @@ TEST(d3d12_entry_points_checkfeature_protected_session_node) {
     EP_NEED_DEVICE(d);
     D3D12_FEATURE_DATA_PROTECTED_RESOURCE_SESSION_SUPPORT p; memset(&p, 0, sizeof p); p.NodeIndex = 0;
     HRESULT hr = CFS(d, D3D12_FEATURE_PROTECTED_RESOURCE_SESSION_SUPPORT, &p, sizeof p);
-    t_note("protected resource session support -> %s support=%d", d3dh_hr_name(hr), p.Support);
-    if (SUCCEEDED(hr)) CHECK((int)p.Support == 0 || (int)p.Support == 1);
+    EXPECT_HR(hr, S_OK); EP_EQ(p.Support, 0);
     ID3D12Device_Release(d);
 }
 
@@ -879,7 +897,7 @@ TEST(d3d12_entry_points_device_factory_create_device) {
     EP_NEED_WARP_USABLE(ad);
     EpFactory *f = NULL;
     HRESULT hr = U(D3D12GetInterface)(&EP_CLSID_DeviceFactory, &EP_IID_DeviceFactory, (void **)&f);
-    if (FAILED(hr) || !f) { SAFE_RELEASE(ad); t_skip("ID3D12DeviceFactory unavailable (%s)", d3dh_hr_name(hr)); return; }
+    if (FAILED(hr) || !f) { SAFE_RELEASE(ad); EXPECT_HR(hr, E_NOINTERFACE); return; }   /* Win10 22H2: the device factory is Agility-SDK only */
     ID3D12Device *d = NULL;
     hr = f->lpVtbl->CreateDevice(f, (IUnknown *)ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d);
     EXPECT_HR(hr, S_OK);
@@ -898,3 +916,12 @@ TEST(d3d12_entry_points_device_luid_matches_across_queries) {
     ID3D12Device_Release(d);
 }
 
+
+TEST(d3d12_entry_points_checkfeature_undocumented_17) {
+    EP_NEED_DEVICE(d);
+    fbuf b; memset(&b, 0, sizeof b);
+    HRESULT h4 = CFS(d, (D3D12_FEATURE)17, &b, 4), h8 = CFS(d, (D3D12_FEATURE)17, &b, sizeof b), h0 = CFS(d, (D3D12_FEATURE)17, NULL, 0);
+    t_note("feature 17: size 4 -> %s, size %u -> %s, NULL/0 -> %s", d3dh_hr_name(h4), (unsigned)sizeof b, d3dh_hr_name(h8), d3dh_hr_name(h0));
+    EXPECT_HR(h4, S_OK); EXPECT_HR(h8, E_INVALIDARG); EXPECT_HR(h0, E_INVALIDARG);   /* a 4-byte structure is accepted, any other size or NULL is not */
+    ID3D12Device_Release(d);
+}

@@ -383,15 +383,15 @@ TEST(d3d12_entry_points_rootsig_deserializer_qi) {
     if (ds) {
         IUnknown *u = NULL;
         HRESULT hq = ID3D12RootSignatureDeserializer_QueryInterface(ds, &IID_IUnknown, (void **)&u);
-        if (t_is_wine() && hq == E_NOINTERFACE) t_note("emulator: IUnknown QI on deserializer -> E_NOINTERFACE");
-        else { EXPECT_HR(hq, S_OK); CHECK((void *)u == (void *)ds); EP_EQ(d3dh_refcount(ds), 2); }
+        /* Measured on Win10 22H2: the root signature deserializer objects do not answer QueryInterface(IUnknown) (E_NOINTERFACE, *ppv = NULL) */
+        EXPECT_HR(hq, E_NOINTERFACE); CHECK(u == NULL); EP_EQ(d3dh_refcount(ds), 1);
         rel(u);
         void *x = (void *)1;
         EXPECT_HR(ID3D12RootSignatureDeserializer_QueryInterface(ds, &IID_ID3D12Device, &x), E_NOINTERFACE);
         CHECK(x == NULL);
         ID3D12VersionedRootSignatureDeserializer *vd = NULL;
         HRESULT hr = ID3D12RootSignatureDeserializer_QueryInterface(ds, &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&vd);
-        t_note("1.0 deserializer QI for versioned -> %s", d3dh_hr_name(hr)); rel((IUnknown *)vd);
+        EXPECT_HR(hr, E_NOINTERFACE); CHECK(vd == NULL); rel((IUnknown *)vd);   /* the 1.0 deserializer is not the versioned one */
         ID3D12RootSignatureDeserializer_Release(ds);
     }
     rel((IUnknown *)b);
@@ -570,8 +570,7 @@ TEST(d3d12_entry_points_rootsig_versioned_qi) {
     if (ds) {
         IUnknown *u = NULL;
         HRESULT hq = ID3D12VersionedRootSignatureDeserializer_QueryInterface(ds, &IID_IUnknown, (void **)&u);
-        if (t_is_wine() && hq == E_NOINTERFACE) t_note("emulator: IUnknown QI on deserializer -> E_NOINTERFACE");
-        else { EXPECT_HR(hq, S_OK); CHECK((void *)u == (void *)ds); }
+        EXPECT_HR(hq, E_NOINTERFACE); CHECK(u == NULL);   /* Win10 22H2: no IUnknown identity on the deserializer */
         rel(u);
         void *x = (void *)1;
         EXPECT_HR(ID3D12VersionedRootSignatureDeserializer_QueryInterface(ds, &IID_ID3D12Device, &x), E_NOINTERFACE);
@@ -585,7 +584,7 @@ TEST(d3d12_entry_points_rootsig_versioned_qi) {
 TEST(d3d12_entry_points_rootsig_versioned_deserializer_on_v10_roundtrip_samplers) {
     REQUIRE(U(D3D12SerializeRootSignature)); REQUIRE(U(D3D12CreateVersionedRootSignatureDeserializer));
     D3D12_STATIC_SAMPLER_DESC s[2]; memset(s, 0, sizeof s);
-    for (int i = 0; i < 2; i++) { s[i].Filter = D3D12_FILTER_ANISOTROPIC; s[i].MaxAnisotropy = 16; s[i].MaxLOD = D3D12_FLOAT32_MAX; s[i].ShaderRegister = i; s[i].RegisterSpace = 7 + i; s[i].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER; s[i].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK; }
+    for (int i = 0; i < 2; i++) { s[i].Filter = D3D12_FILTER_ANISOTROPIC; s[i].MaxAnisotropy = 16; s[i].MaxLOD = D3D12_FLOAT32_MAX; s[i].AddressU = s[i].AddressV = s[i].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP; s[i].ShaderRegister = i; s[i].RegisterSpace = 7 + i; s[i].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER; s[i].BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK; }
     D3D12_ROOT_SIGNATURE_DESC d; memset(&d, 0, sizeof d); d.NumStaticSamplers = 2; d.pStaticSamplers = s;
     ID3DBlob *b = NULL;
     EXPECT_HR(U(D3D12SerializeRootSignature)(&d, D3D_ROOT_SIGNATURE_VERSION_1_0, &b, NULL), S_OK);

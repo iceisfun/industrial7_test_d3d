@@ -22,6 +22,8 @@ TEST(d3d12_entry_points_debug_interface_##i) { \
         } \
     } else { \
         if (i == 0) EXPECT_HR_IN(hr, HR_SDKMISSING, HR_NOINTERFACE); \
+        /* Win10 22H2 (with the Graphics Tools feature): ID3D12Debug .. Debug3 exist, Debug4/5/6 are not in the inbox layer: E_NOINTERFACE */ \
+        else EXPECT_HR_IN(hr, E_NOINTERFACE, HR_SDKMISSING); /* HR_SDKMISSING when the Graphics Tools feature is not installed */ \
         t_note("%s -> %s (debug layer missing or interface too new)", k_dbg[i].n, d3dh_hr_name(hr)); \
     } \
 }
@@ -51,8 +53,7 @@ TEST(d3d12_entry_points_debug_interface_unrelated_iid) {
     REQUIRE(U(D3D12GetDebugInterface));
     void *p = NULL;
     HRESULT hr = U(D3D12GetDebugInterface)(&EP_RANDOM_GUID, &p);
-    CHECK(FAILED(hr));
-    t_note("unknown iid -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
     if (SUCCEEDED(hr) && p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
 }
 
@@ -60,8 +61,7 @@ TEST(d3d12_entry_points_debug_interface_not_a_device) {
     REQUIRE(U(D3D12GetDebugInterface));
     void *p = NULL;
     HRESULT hr = U(D3D12GetDebugInterface)(&IID_ID3D12Device, &p);
-    CHECK(FAILED(hr)); CHECK(p == NULL);
-    t_note("ID3D12Device iid -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE); CHECK(p == NULL);
 }
 
 TEST(d3d12_entry_points_debug_interface_repeatable) {
@@ -93,7 +93,8 @@ TEST(d3d12_entry_points_getinterface_sdkconfiguration) {
     if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     ID3D12SDKConfiguration *c = NULL;
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&c);
-    if (FAILED(hr)) { t_note("SDKConfiguration -> %s", d3dh_hr_name(hr)); EXPECT_HR_IN(hr, E_NOINTERFACE, CLASS_E_CLASSNOTAVAILABLE); t_skip("not available"); return; }
+    /* Win10 22H2: the SDK configuration object is part of the Agility SDK runtime only, the inbox D3D12GetInterface answers E_NOINTERFACE */
+    if (FAILED(hr)) { EXPECT_HR(hr, E_NOINTERFACE); CHECK(c == NULL); return; }
     EXPECT_HR(hr, S_OK);
     CHECK(c != NULL);
     EP_EQ(d3dh_refcount(c), 1);
@@ -109,7 +110,7 @@ TEST(d3d12_entry_points_getinterface_sdkconfiguration_null_out) {
     if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     ID3D12SDKConfiguration *c = NULL;
     HRESULT probe = U(D3D12GetInterface)(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&c);
-    if (FAILED(probe)) { t_skip("SDKConfiguration unavailable"); return; }
+    if (FAILED(probe)) { EXPECT_HR(probe, E_NOINTERFACE); HRESULT hn = U(D3D12GetInterface)(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, NULL); EXPECT_HR(hn, E_NOINTERFACE); return; }   /* inbox runtime: NULL out does not change the answer */
     SAFE_RELEASE(c);
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, NULL);
     EXPECT_HR(hr, S_FALSE);
@@ -153,7 +154,7 @@ TEST(d3d12_entry_points_getinterface_tools) {
     if (!have_core()) { t_skip("d3d12core.dll absent"); return; }
     ID3D12Tools *t = NULL;
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&t);
-    if (FAILED(hr)) { t_note("Tools -> %s", d3dh_hr_name(hr)); t_skip("tools interface unavailable"); return; }
+    if (FAILED(hr)) { EXPECT_HR(hr, E_NOINTERFACE); CHECK(t == NULL); return; }   /* Win10 22H2: the Tools interface is Agility-SDK only */
     EXPECT_HR(hr, S_OK); CHECK(t != NULL);
     EP_EQ(d3dh_refcount(t), 1);
     IUnknown *u = NULL;
@@ -168,8 +169,9 @@ TEST(d3d12_entry_points_getinterface_tools_null_out) {
     if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     if (!have_core()) { t_skip("d3d12core.dll absent"); return; }
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12Tools, &IID_ID3D12Tools, NULL);
+    /* Win10 22H2: the Tools interface is not provided by the inbox runtime at all (see getinterface_tools), so NULL out gives the same E_NOINTERFACE */
     t_note("Tools with NULL out -> %s", d3dh_hr_name(hr));
-    EXPECT_HR_IN(hr, S_FALSE, E_INVALIDARG, E_POINTER);
+    EXPECT_HR_IN(hr, S_FALSE, E_INVALIDARG, E_POINTER, E_NOINTERFACE);
 }
 
 TEST(d3d12_entry_points_getinterface_dred_settings) {
@@ -178,13 +180,13 @@ TEST(d3d12_entry_points_getinterface_dred_settings) {
     if (!have_core()) { t_skip("d3d12core.dll absent"); return; }
     ID3D12DeviceRemovedExtendedDataSettings *s = NULL;
     HRESULT hr = U(D3D12GetInterface)(&CLSID_D3D12DeviceRemovedExtendedData, &IID_ID3D12DeviceRemovedExtendedDataSettings, (void **)&s);
-    if (FAILED(hr)) { t_note("DRED settings -> %s", d3dh_hr_name(hr)); t_skip("DRED settings unavailable"); return; }
+    if (FAILED(hr)) { EXPECT_HR(hr, E_NOINTERFACE); return; }
     EXPECT_HR(hr, S_OK);
     CHECK(s != NULL);
     EP_EQ(d3dh_refcount(s), 1);
     ID3D12DeviceRemovedExtendedDataSettings1 *s1 = NULL;
     HRESULT h1 = ID3D12DeviceRemovedExtendedDataSettings_QueryInterface(s, &IID_ID3D12DeviceRemovedExtendedDataSettings1, (void **)&s1);
-    t_note("DRED settings1 QI -> %s", d3dh_hr_name(h1));
+    EXPECT_HR(h1, S_OK);   /* Win10 22H2 provides the Settings1 extension */
     SAFE_RELEASE(s1);
     EP_EQ(ID3D12DeviceRemovedExtendedDataSettings_Release(s), 0);
 }
@@ -194,7 +196,7 @@ TEST(d3d12_entry_points_getinterface_device_factory_observed) {
     if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     void *p = NULL;
     HRESULT hr = U(D3D12GetInterface)(&EP_CLSID_DeviceFactory, &EP_IID_DeviceFactory, &p);
-    t_note("CLSID_D3D12DeviceFactory -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);   /* the device factory is Agility-SDK only (Win10 22H2) */
     if (SUCCEEDED(hr) && p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
     CHECK(SUCCEEDED(hr) == (p != NULL));
 }
@@ -219,7 +221,7 @@ TEST(d3d12_entry_points_getinterface_core_direct) {
     ID3D12Tools *t = NULL;
     HRESULT hr = f(&CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&t);
     if (SUCCEEDED(hr)) { EXPECT_HR(hr, S_OK); EP_EQ(ID3D12Tools_Release(t), 0); }
-    else t_note("core Tools -> %s", d3dh_hr_name(hr));
+    else EXPECT_HR(hr, E_NOINTERFACE);
     CHECK(f(&CLSID_D3D12Tools, &IID_ID3D12Tools, NULL) == S_FALSE || FAILED(f(&CLSID_D3D12Tools, &IID_ID3D12Tools, NULL)));
 }
 
@@ -238,7 +240,8 @@ TEST(d3d12_entry_points_sdkconfig_setsdkversion_bad_path) {
     REQUIRE(U(D3D12GetInterface));
     if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     DWORD rc = t_run_child("sdkcfg_bad_path", "", 20000);
-    if (rc == 100 || rc == 101) { t_skip("SDK configuration unavailable"); return; }
+    /* Win10 22H2: no SDK configuration object -> the child reports 100 (D3D12GetInterface failed) */
+    if (rc == 100 || rc == 101) return;   /* child could not obtain the SDK configuration object (inbox runtime) */
     CHECK(rc != 0xDEAD0000 && rc != 0xDEAD0001);
     t_note("SetSDKVersion(9999, nonexistent dir) class=%lu (0 ok,1 unsupported,2 invalidarg,3 other success,4 other failure)", rc);
 }
@@ -255,7 +258,7 @@ TEST(d3d12_entry_points_sdkconfig_refcounts) {
     REQUIRE(U(D3D12GetInterface));
     if (t_is_wine()) { t_skip("emulator stubs D3D12GetInterface"); return; }
     DWORD rc = t_run_child("sdkcfg_refcount", "", 20000);
-    if (rc == 100) { t_skip("SDK configuration unavailable"); return; }
+    if (rc == 100) return;   /* inbox runtime: no SDK configuration object (same E_NOINTERFACE as getinterface_sdkconfiguration) */
     EXPECT_EQ(rc, 0);
 }
 
@@ -296,7 +299,8 @@ TEST(d3d12_entry_points_experimental_##name) { \
     int ran; HRESULT hr = run_exp(mode, &ran); \
     if (!ran) { t_skip("child did not run (0x%lx)", (unsigned long)hr); return; } \
     t_note("mode %d -> %s", mode, d3dh_hr_name(hr)); \
-    EXPECT_HR_IN(hr, __VA_ARGS__); \
+    /* Win10 22H2 with developer mode off: every experimental feature request fails with E_NOINTERFACE */ \
+    EXPECT_HR(hr, E_NOINTERFACE); \
 }
 EXP_TEST(unknown_guid, 0, E_NOINTERFACE, HR_UNSUPPORTED)
 EXP_TEST(shader_models, 1, S_OK, HR_UNSUPPORTED, E_NOINTERFACE)
@@ -309,32 +313,28 @@ TEST(d3d12_entry_points_experimental_zero_features) {
     REQUIRE(U(D3D12EnableExperimentalFeatures));
     int ran; HRESULT hr = run_exp(4, &ran);
     if (!ran) { t_skip("child did not run"); return; }
-    t_note("zero features -> %s", d3dh_hr_name(hr));
-    EXPECT_HR_IN(hr, S_OK, E_INVALIDARG, HR_UNSUPPORTED, E_NOINTERFACE);
+    EXPECT_HR(hr, S_OK);   /* nothing to enable */
 }
 
 TEST(d3d12_entry_points_experimental_mixed_list_fails_if_any_unknown) {
     REQUIRE(U(D3D12EnableExperimentalFeatures));
     int ran; HRESULT hr = run_exp(5, &ran);
     if (!ran) { t_skip("child did not run"); return; }
-    t_note("known+unknown -> %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
 }
 
 TEST(d3d12_entry_points_experimental_config_struct_for_shader_models) {
     REQUIRE(U(D3D12EnableExperimentalFeatures));
     int ran; HRESULT hr = run_exp(6, &ran);
     if (!ran) { t_skip("child did not run"); return; }
-    t_note("shader models with a 4-byte config -> %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
 }
 
 TEST(d3d12_entry_points_experimental_zero_size_array) {
     REQUIRE(U(D3D12EnableExperimentalFeatures));
     int ran; HRESULT hr = run_exp(7, &ran);
     if (!ran) { t_skip("child did not run"); return; }
-    t_note("shader models with sizes[0]=0 -> %s", d3dh_hr_name(hr));
-    EXPECT_HR_IN(hr, S_OK, HR_UNSUPPORTED, E_NOINTERFACE, E_INVALIDARG);
+    EXPECT_HR(hr, E_NOINTERFACE);
 }
 
 TEST(d3d12_entry_points_experimental_deterministic) {
@@ -407,4 +407,38 @@ TEST(d3d12_entry_points_dred_export_is_data) {
             t_note("D3D12DeviceRemovedExtendedData lives in %.8s", sec[i].Name);
         }
     CHECK(found);
+}
+
+/* ---------- the undocumented layered-device entry points (one call per child: the arguments are not validated by every path) ---------- */
+typedef SIZE_T (WINAPI *layer_size_fn)(const void *, DWORD);
+typedef HRESULT (WINAPI *layer_reg_fn)(const void *, DWORD);
+typedef HRESULT (WINAPI *layer_create_fn)(const void *, DWORD, const void *, REFIID, void **);
+CHILD(ep_layer) {
+    SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
+    HMODULE m = t_module("d3d12.dll"); if (!m || argc < 2) return 90;
+    int k = atoi(argv[argc - 1]);
+    switch (k) {
+    case 0: { layer_size_fn f = (layer_size_fn)GetProcAddress(m, "D3D12CoreGetLayeredDeviceSize"); return f && f(NULL, 0) == (SIZE_T)~0ull ? 0 : 1; }
+    case 1: { layer_size_fn f = (layer_size_fn)GetProcAddress(m, "D3D12CoreGetLayeredDeviceSize"); return f && f(NULL, 1) == (SIZE_T)~0ull ? 0 : 1; }
+    case 2: { layer_reg_fn f = (layer_reg_fn)GetProcAddress(m, "D3D12CoreRegisterLayers"); return f && f(NULL, 0) == S_OK ? 0 : 1; }
+    case 3: { layer_reg_fn f = (layer_reg_fn)GetProcAddress(m, "D3D12CoreRegisterLayers"); return f && f(NULL, 1) == E_INVALIDARG ? 0 : 1; }
+    case 4: { layer_create_fn f = (layer_create_fn)GetProcAddress(m, "D3D12CoreCreateLayeredDevice"); void *p = (void *)1;
+              return f && f(NULL, 0, NULL, &IID_ID3D12Device, &p) == E_INVALIDARG && p == NULL ? 0 : 1; }
+    case 5: { layer_create_fn f = (layer_create_fn)GetProcAddress(m, "D3D12CoreCreateLayeredDevice");
+              return f && f(NULL, 0, NULL, &IID_ID3D12Device, NULL) == E_UNEXPECTED ? 0 : 1; }
+    }
+    return 91;
+}
+TEST(d3d12_entry_points_core_layer_exports_behaviour) {
+    HMODULE m = t_module("d3d12.dll"); if (!m) { t_skip("no d3d12.dll"); return; }
+    if (t_is_wine()) { t_skip("not exported by the emulator"); return; }
+    /* Measured on Win10 22H2 with all-NULL arguments: GetLayeredDeviceSize -> (SIZE_T)-1 for 0 and 1 layers; RegisterLayers(NULL,0) -> S_OK,
+     * RegisterLayers(NULL,1) -> E_INVALIDARG; CreateLayeredDevice(NULL,0,NULL,IID_ID3D12Device,&p) -> E_INVALIDARG with *p cleared,
+     * with a NULL output pointer -> E_UNEXPECTED. */
+    static const char *const nm[] = { "GetLayeredDeviceSize(NULL,0)", "GetLayeredDeviceSize(NULL,1)", "RegisterLayers(NULL,0)", "RegisterLayers(NULL,1)", "CreateLayeredDevice(NULL args)", "CreateLayeredDevice(NULL ppv)" };
+    for (int k = 0; k < 6; k++) {
+        char a[8]; wsprintfA(a, "%d", k);
+        DWORD rc = t_run_child("ep_layer", a, 30000);
+        CHECKF(rc == 0, "%s: child exit 0x%08lx", nm[k], rc);
+    }
 }

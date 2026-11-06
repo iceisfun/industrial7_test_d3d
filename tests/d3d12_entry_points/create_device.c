@@ -66,10 +66,10 @@ TEST(d3d12_entry_points_export_ordinal_out_of_range_fails) {
     HMODULE m = t_module("d3d12.dll"); if (!m) { t_skip("no d3d12.dll"); return; }
     SET_ERR(0);
     CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)1) == NULL);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);   /* Win10 22H2: a missing ordinal is ERROR_INVALID_ORDINAL (182), a missing name ERROR_PROC_NOT_FOUND (127) */
     SET_ERR(0);
     CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0xFFFE) == NULL);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);
 }
 
 TEST(d3d12_entry_points_d3d12core_exports) {
@@ -150,8 +150,8 @@ TEST(d3d12_entry_points_create_warp_fl_##label) { \
     ID3D12Device *d = NULL; \
     HRESULT hr = create_fl(ad, k_fls[idx].fl, &IID_ID3D12Device, (void **)&d); \
     if (idx == 0) EXPECT_HR(hr, S_OK); \
-    else if (idx < 4) EXPECT_HR_IN(hr, S_OK, HR_UNSUPPORTED); \
-    else t_note("WARP min FL %s -> %s", k_fls[idx].name, d3dh_hr_name(hr)); \
+    else if (idx < 4) EXPECT_HR(hr, S_OK); \
+    else EXPECT_HR(hr, E_INVALIDARG); /* 12_2 (0xC200) is not accepted by the Win10 22H2 runtime */ \
     CHECK(SUCCEEDED(hr) == (d != NULL)); \
     if (d) EP_EQ(ID3D12Device_Release(d), 0); \
     SAFE_RELEASE(ad); \
@@ -255,7 +255,8 @@ TEST(d3d12_entry_points_create_twice_same_adapter) {
 }
 
 /* ---------- invalid feature levels ---------- */
-static const D3D_FEATURE_LEVEL k_bad_fls[] = { 0, 1, 0x1234, 0x8000, 0xB000, 0xB100, 0xC300, 0xFFFF, 0x7FFFFFFF, (D3D_FEATURE_LEVEL)0xFFFFFFFF };
+/* 0xB000 and 0xB100 are the valid 11_0 / 11_1 levels; the near misses 0xB001 / 0xB101 / 0xC001 are not. */
+static const D3D_FEATURE_LEVEL k_bad_fls[] = { 0, 1, 0x1234, 0x8000, 0xB001, 0xB101, 0xC001, 0xC101, 0xC300, 0xFFFF, 0x7FFFFFFF, (D3D_FEATURE_LEVEL)0xFFFFFFFF };
 
 TEST(d3d12_entry_points_create_invalid_fl_einvalidarg) {
     EP_NEED_WARP_USABLE(ad);
@@ -272,8 +273,7 @@ TEST(d3d12_entry_points_create_invalid_fl_null_out) {
     EP_NEED_WARP_USABLE(ad);
     for (unsigned i = 0; i < sizeof k_bad_fls / sizeof k_bad_fls[0]; i++) {
         HRESULT hr = create_fl(ad, k_bad_fls[i], &IID_ID3D12Device, NULL);
-        CHECKF(FAILED(hr), "validate fl 0x%x -> %s", (unsigned)k_bad_fls[i], d3dh_hr_name(hr));
-        if (hr != E_INVALIDARG) t_note("validate fl 0x%x -> %s", (unsigned)k_bad_fls[i], d3dh_hr_name(hr));
+        CHECKF(hr == E_INVALIDARG, "validate fl 0x%x -> %s", (unsigned)k_bad_fls[i], d3dh_hr_name(hr));
     }
     SAFE_RELEASE(ad);
 }
@@ -283,7 +283,7 @@ TEST(d3d12_entry_points_create_invalid_fl_default_adapter) {
     ID3D12Device *d = NULL;
     HRESULT hr = d3dh_D3D12CreateDevice()(NULL, (D3D_FEATURE_LEVEL)0, &IID_ID3D12Device, (void **)&d);
     CHECK(FAILED(hr)); CHECK(d == NULL);
-    t_note("FL 0 with default adapter -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
 }
 
 TEST(d3d12_entry_points_create_legacy_fl_observed) {
@@ -292,7 +292,7 @@ TEST(d3d12_entry_points_create_legacy_fl_observed) {
     for (unsigned i = 0; i < 5; i++) {
         ID3D12Device *d = NULL;
         HRESULT hr = create_fl(ad, legacy[i], &IID_ID3D12Device, (void **)&d);
-        t_note("min FL 0x%x -> %s", (unsigned)legacy[i], d3dh_hr_name(hr));
+        CHECKF(hr == E_INVALIDARG, "min FL 0x%x -> %s", (unsigned)legacy[i], d3dh_hr_name(hr));   /* 9_x and 10_x are not valid D3D12 minimum levels */
         CHECK(SUCCEEDED(hr) == (d != NULL));
         SAFE_RELEASE(d);
     }
@@ -313,7 +313,7 @@ TEST(d3d12_entry_points_create_riid_device_##i) { \
         EP_EQ(((IUnknown *)p)->lpVtbl->Release((IUnknown *)p), 0); \
     } else { \
         t_note("riid ID3D12Device%d -> %s", i, d3dh_hr_name(hr)); CHECK(p == NULL); \
-        EXPECT_HR_IN(hr, E_NOINTERFACE, HR_UNSUPPORTED, E_INVALIDARG); \
+        EXPECT_HR(hr, E_NOINTERFACE); /* Device9/Device10 are not in the Win10 22H2 runtime */ \
     } \
     if (i <= 1) CHECK(SUCCEEDED(hr)); \
     SAFE_RELEASE(ad); \
@@ -339,7 +339,7 @@ TEST(d3d12_entry_points_create_riid_unknown_guid) {
     void *p = (void *)1;
     HRESULT hr = create_fl(ad, D3D_FEATURE_LEVEL_11_0, &EP_RANDOM_GUID, &p);
     CHECK(FAILED(hr));
-    t_note("random riid -> %s, *ppDevice=%p", d3dh_hr_name(hr), p);
+    EXPECT_HR(hr, E_NOINTERFACE); CHECK(p == NULL);   /* *ppDevice is cleared */
     if (SUCCEEDED(hr) && p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
     SAFE_RELEASE(ad);
 }
@@ -360,13 +360,19 @@ TEST(d3d12_entry_points_create_riid_nondevice_interfaces) {
     SAFE_RELEASE(ad);
 }
 
-TEST(d3d12_entry_points_create_riid_null) {
-    /* NULL riid is not a valid interface request; must not succeed */
-    EP_NEED_WARP_USABLE(ad);
+/* A NULL riid dereferences the pointer inside d3d12: access violation. Observed in a child process because the crash leaves the
+ * (process-wide, per-adapter) device object with extra references that would skew every later refcount check. */
+CHILD(ep_create_riid_null) {
+    SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
+    IDXGIAdapter *ad = ep_warp_adapter(); if (!ad) return 90;
     ID3D12Device *d = NULL;
-    HRESULT hr = d3dh_D3D12CreateDevice()((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0, (const IID *)NULL, (void **)&d);
-    t_note("NULL riid -> %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) { SAFE_RELEASE(d); t_note("NULL riid unexpectedly succeeded"); }
+    d3dh_D3D12CreateDevice()((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0, (const IID *)NULL, (void **)&d);
+    return 0;   /* not reached */
+}
+TEST(d3d12_entry_points_create_riid_null) {
+    EP_NEED_WARP_USABLE(ad);
+    DWORD rc = t_run_child("ep_create_riid_null", "", 30000);
+    if (rc == 90) t_skip("child found no WARP adapter"); else EXPECT_EQ(rc, 0xC0000005);
     SAFE_RELEASE(ad);
 }
 
@@ -379,7 +385,7 @@ TEST(d3d12_entry_points_create_adapter_is_factory_fails) {
     HRESULT hr = d3dh_D3D12CreateDevice()((IUnknown *)f, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d);
     CHECKF(FAILED(hr), "factory as adapter -> %s", d3dh_hr_name(hr));
     CHECK(d == NULL);
-    t_note("factory as adapter -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     SAFE_RELEASE(d);
     IDXGIFactory1_Release(f);
 }
@@ -430,6 +436,7 @@ TEST(d3d12_entry_points_create_all_adapters_validate) {
         HRESULT hr = d3dh_D3D12CreateDevice()((IUnknown *)a, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, NULL);
         EXPECT_HR_IN(hr, S_FALSE, HR_UNSUPPORTED);
         t_note("adapter %u flags=0x%x vendor=0x%x -> %s", i, desc.Flags, desc.VendorId, d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_FALSE);
         IDXGIAdapter1_Release(a); n++;
     }
     CHECK(n >= 0);
@@ -500,4 +507,33 @@ TEST(d3d12_entry_points_create_repeated) {
         EXPECT_HR(hr, S_OK); SAFE_RELEASE(d);
     }
     ID3D12Device_Release(held); SAFE_RELEASE(ad);
+}
+
+/* The device is a process-wide object per adapter: a second D3D12CreateDevice on the same adapter returns the same pointer with an extra reference,
+ * and the object dies with the last Release. Absolute counts are only meaningful in a fresh process, hence the child. */
+CHILD(ep_device_singleton) {
+    IDXGIAdapter *ad = ep_warp_adapter(); if (!ad) return 90;
+    __typeof__(&D3D12CreateDevice) cd = d3dh_D3D12CreateDevice();
+    ID3D12Device *a = NULL, *b = NULL, *c = NULL;
+    if (FAILED(cd((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&a)) || !a) return 91;
+    if (d3dh_refcount(a) != 1) return 92;
+    if (FAILED(cd((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&b)) || b != a) return 93;
+    if (d3dh_refcount(a) != 2) return 94;
+    /* the default adapter (enumeration index 0) is a different adapter than the EnumWarpAdapter one on this system: its device is a separate object */
+    if (FAILED(cd(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&c)) || !c) return 95;
+    if (c == a || d3dh_refcount(a) != 2 || d3dh_refcount(c) != 1) return 96;
+    ID3D12Device1 *d1 = NULL;
+    if (FAILED(ID3D12Device_QueryInterface(a, &IID_ID3D12Device1, (void **)&d1)) || (void *)d1 != (void *)a) return 97;
+    if (d3dh_refcount(a) != 3) return 98;
+    ID3D12Device1_Release(d1);
+    if (ID3D12Device_Release(c) != 0) return 99;
+    if (ID3D12Device_Release(b) != 1) return 100;
+    if (ID3D12Device_Release(a) != 0) return 101;
+    return 0;
+}
+TEST(d3d12_entry_points_device_is_per_adapter_singleton) {
+    EP_NEED_WARP_USABLE(ad);
+    DWORD rc = t_run_child("ep_device_singleton", "", 60000);
+    if (rc == 90) t_skip("child found no WARP adapter"); else CHECKF(rc == 0, "child step %lu failed (91 create, 92 fresh count, 93/94 second create, 95/96 default adapter, 97/98 QI, 99-101 releases)", rc);
+    SAFE_RELEASE(ad);
 }

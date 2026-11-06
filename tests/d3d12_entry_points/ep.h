@@ -61,6 +61,12 @@ static int ep_warp_usable(IDXGIAdapter *ad) {
     EP_NEED_WARP(ad); \
     if (!ep_warp_usable(ad)) { SAFE_RELEASE(ad); t_skip("WARP cannot create a D3D12 device"); return; }
 
+/* Is this device on the WARP adapter? Numeric capability values below were measured on WARP (Win10 22H2); on other adapters they are only logged. */
+static int ep_on_warp(ID3D12Device *d) {
+    IDXGIAdapter *w = ep_warp_adapter(); int r = 0;
+    if (w) { DXGI_ADAPTER_DESC ad; LUID l = ep_luid(d); if (SUCCEEDED(IDXGIAdapter_GetDesc(w, &ad))) r = ad.AdapterLuid.LowPart == l.LowPart && ad.AdapterLuid.HighPart == l.HighPart; IDXGIAdapter_Release(w); }
+    return r;
+}
 static int ep_hr_in(HRESULT hr, const HRESULT *set, int n) { for (int i = 0; i < n; i++) if (set[i] == hr) return 1; return 0; }
 #define EP_HR_IN(hr, ...) ({ static const HRESULT s_[] = { __VA_ARGS__ }; ep_hr_in((hr), s_, (int)(sizeof s_ / sizeof s_[0])); })
 #define EXPECT_HR_IN(hr, ...) do { HRESULT h_ = (HRESULT)(hr); \
