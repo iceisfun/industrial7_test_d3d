@@ -36,6 +36,14 @@ void dl_pf_xrgb32(DDPIXELFORMAT *pf);
 void dl_pf_rgb565(DDPIXELFORMAT *pf);
 void dl_pf_pal8(DDPIXELFORMAT *pf);
 
+/* DDSURFACEDESC / DDSURFACEDESC2 are 108/124 bytes in a 32-bit process and 120/136 in a 64-bit one; the DLL validates dwSize against its own bitness only. */
+#define DL_SD1       ((DWORD)sizeof(DDSURFACEDESC))
+#define DL_SD2       ((DWORD)sizeof(DDSURFACEDESC2))
+#define DL_SD1_OTHER ((DWORD)(sizeof(void *) == 8 ? 108 : 120))
+#define DL_SD2_OTHER ((DWORD)(sizeof(void *) == 8 ? 124 : 136))
+#define DL_X64       (sizeof(void *) == 8)
+
+int dl_basic_adapter(void);   /* 1 when the DirectDraw device is the Microsoft Basic Display Adapter (1414:008c) */
 #define DL_SKIP_IF_NO_DD7(p) IDirectDraw7 *p = dl_create7(); if (!p) return
 #define DL_SKIP_IF_NO_DD1(p) IDirectDraw *p = dl_create1(); if (!p) return
 

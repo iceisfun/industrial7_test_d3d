@@ -65,7 +65,7 @@ static void teardown(IDirectDraw7 *dd, HWND w) { IDirectDraw7_Release(dd); dl_wi
 static L_d3d7 *get_d3d7(IDirectDraw7 *dd) {
     L_d3d7 *d3d = NULL;
     HRESULT hr = IDirectDraw7_QueryInterface(dd, &L_IID_IDirect3D7, (void **)&d3d);
-    if (FAILED(hr) || !d3d) { t_skip("IDirect3D7 not available (%s)", d3dh_hr_name(hr)); return NULL; }
+    if (FAILED(hr) || !d3d) { t_skip("IDirect3D7 not available (%s): the %s-bit ddraw %s legacy Direct3D (d3dim*.dll exist in SysWOW64 only); run ddraw_legacy_x86", d3dh_hr_name(hr), DL_X64 ? "64" : "32", DL_X64 ? "has no" : "unexpectedly lacks"); return NULL; }
     return d3d;
 }
 
@@ -84,10 +84,12 @@ TEST(ddraw_legacy_d3d_qi_each_version) {
         if (!c[i].obj) continue;
         L_unk *q = NULL;
         HRESULT hr = ((IUnknown *)c[i].obj)->lpVtbl->QueryInterface((IUnknown *)c[i].obj, c[i].iid, (void **)&q);
-        t_note("%s -> %s", c[i].n, d3dh_hr_name(hr));
+        /* x64: no legacy Direct3D at all. x86: v1/v2/v3 are available from every DirectDraw interface; IDirect3D7 is NOT available from an IDirectDraw7
+         * obtained by QI from a DirectDrawCreate (v1) object (only from a DirectDrawCreateEx object) */
+        HRESULT want = (!DL_X64 && i < 3) ? S_OK : E_NOINTERFACE;
+        CHECKF(hr == want, "%s -> %s", c[i].n, d3dh_hr_name(hr));
         if (SUCCEEDED(hr) && q) { any = 1; q->lpVtbl->Release(q); }
     }
-    if (!any) t_note("legacy Direct3D unavailable (d3dim DLLs missing)");
     if (dd2) IDirectDraw2_Release(dd2);
     if (dd4) IDirectDraw4_Release(dd4);
     if (dd7) IDirectDraw7_Release(dd7);
@@ -99,7 +101,7 @@ TEST(ddraw_legacy_d3d_mismatched_version_iids) {
     if (FAILED(IDirectDraw_QueryInterface(dd1, &IID_IDirectDraw7, (void **)&dd7)) || !dd7) { IDirectDraw_Release(dd1); return; }
     L_unk *q = NULL;
     HRESULT hr = IDirectDraw7_QueryInterface(dd7, &L_IID_IDirect3D2, (void **)&q);
-    t_note("IDirect3D2 from an IDirectDraw7 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DL_X64 ? E_NOINTERFACE : S_OK);   /* x86: older d3d versions are reachable from any DirectDraw interface */
     if (SUCCEEDED(hr) && q) q->lpVtbl->Release(q);
     IDirectDraw7_Release(dd7);
     IDirectDraw_Release(dd1);
@@ -124,7 +126,7 @@ TEST(ddraw_legacy_d3d7_qi_back_to_ddraw) {
     if (d3d) {
         void *x = NULL;
         HRESULT hr = d3d->lpVtbl->unk.QueryInterface(d3d, &IID_IDirectDraw7, &x);
-        t_note("IDirect3D7 -> QI(IDirectDraw7) = %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);
         if (SUCCEEDED(hr) && x) ((IUnknown *)x)->lpVtbl->Release((IUnknown *)x);
         hr = d3d->lpVtbl->unk.QueryInterface(d3d, &IID_IUnknown, &x);
         CHECKF(hr == S_OK, "IUnknown -> %s", d3dh_hr_name(hr));
@@ -148,8 +150,8 @@ TEST(ddraw_legacy_d3d7_enum_devices) {
         struct devs d; memset(&d, 0, sizeof d);
         HRESULT hr = d3d->lpVtbl->EnumDevices(d3d, enum7_cb, &d);
         EXPECT_HR(hr, DD_OK);
-        CHECK(d.n >= 1);
-        for (int i = 0; i < d.n && i < 8; i++) t_note("IDirect3D7 device %d: \"%s\"", i, d.names[i]);
+        EXPECT_EQ(d.n, 3);   /* Win10 x86, Basic Display Adapter: software RGB plus the two HAL devices */
+        if (d.n == 3) { EXPECT_STR(d.names[0], "RGB Emulation"); EXPECT_STR(d.names[1], "Direct3D HAL"); EXPECT_STR(d.names[2], "Direct3D T&L HAL"); }
         d3d->lpVtbl->unk.Release(d3d);
     }
     teardown(dd, w);
@@ -177,13 +179,13 @@ TEST(ddraw_legacy_d3d1_enum_devices) {
     DL_SKIP_IF_NO_DD1(dd1);
     L_d3d1 *d3d = NULL;
     HRESULT hr = IDirectDraw_QueryInterface(dd1, &L_IID_IDirect3D, (void **)&d3d);
-    if (FAILED(hr) || !d3d) { t_skip("IDirect3D not available (%s)", d3dh_hr_name(hr)); IDirectDraw_Release(dd1); return; }
+    if (FAILED(hr) || !d3d) { t_skip("IDirect3D not available (%s): 64-bit ddraw has no legacy Direct3D; run ddraw_legacy_x86", d3dh_hr_name(hr)); IDirectDraw_Release(dd1); return; }
     struct devs d; memset(&d, 0, sizeof d);
     hr = d3d->lpVtbl->EnumDevices(d3d, enum1_cb, &d);
     EXPECT_HR(hr, DD_OK);
-    CHECK(d.n >= 1);
-    t_note("RGB device GUID %s in the enumeration", d.has_rgb ? "present" : "absent");
-    for (int i = 0; i < d.n && i < 8; i++) t_note("IDirect3D device %d: \"%s\"", i, d.names[i]);
+    EXPECT_EQ(d.n, 3);
+    CHECK(d.has_rgb);
+    if (d.n == 3) { EXPECT_STR(d.names[0], "Ramp Emulation"); EXPECT_STR(d.names[1], "RGB Emulation"); EXPECT_STR(d.names[2], "Direct3D HAL"); }
     d3d->lpVtbl->unk.Release(d3d);
     IDirectDraw_Release(dd1);
 }
@@ -269,8 +271,7 @@ TEST(ddraw_legacy_d3d7_create_device_needs_3ddevice_surface) {
     if (plain) {
         L_dev7 *dev = NULL;
         HRESULT hr = d3d->lpVtbl->CreateDevice(d3d, &L_IID_RGBDevice, plain, (void **)&dev);
-        CHECKF(FAILED(hr), "device on a surface without DDSCAPS_3DDEVICE -> %s", d3dh_hr_name(hr));
-        t_note("CreateDevice without DDSCAPS_3DDEVICE -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DDERR_INVALIDCAPS);   /* device on a surface without DDSCAPS_3DDEVICE */
         if (SUCCEEDED(hr) && dev) dev->lpVtbl->unk.Release(dev);
         IDirectDrawSurface7_Release(plain);
     }
@@ -286,8 +287,7 @@ TEST(ddraw_legacy_d3d7_create_device_unknown_guid) {
         GUID bad = { 0x12345678, 0x1111, 0x2222, { 1, 2, 3, 4, 5, 6, 7, 8 } };
         L_dev7 *dev = NULL;
         HRESULT hr = d3d->lpVtbl->CreateDevice(d3d, &bad, rt, (void **)&dev);
-        CHECKF(FAILED(hr), "unknown device GUID -> %s", d3dh_hr_name(hr));
-        t_note("CreateDevice(unknown GUID) -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);   /* unknown device GUID */
         if (SUCCEEDED(hr) && dev) dev->lpVtbl->unk.Release(dev);
         IDirectDrawSurface7_Release(rt);
     } else t_skip("no 3D surface");
@@ -302,7 +302,7 @@ TEST(ddraw_legacy_d3d7_hal_device_on_sysmem_target) {
     if (rt) {
         L_dev7 *dev = NULL;
         HRESULT hr = d3d->lpVtbl->CreateDevice(d3d, &L_IID_HALDevice, rt, (void **)&dev);
-        t_note("HAL device on a system-memory target -> %s", d3dh_hr_name(hr));   /* needs a video-memory target on real hardware */
+        EXPECT_HR(hr, (HRESULT)0x887602eb);   /* Win10 x86, Basic Display Adapter: the HAL device needs a video-memory target (D3DERR_SURFACENOTINVIDMEM) */
         if (SUCCEEDED(hr) && dev) dev->lpVtbl->unk.Release(dev);
         IDirectDrawSurface7_Release(rt);
     } else t_skip("no 3D surface");
@@ -316,7 +316,7 @@ TEST(ddraw_legacy_d3d7_enum_zbuffer_formats) {
     if (d3d) {
         int n = 0;
         HRESULT hr = d3d->lpVtbl->EnumZBufferFormats(d3d, &L_IID_RGBDevice, (void *)zfmt_cb, &n);
-        t_note("EnumZBufferFormats(RGB) -> %s, %d formats", d3dh_hr_name(hr), n);
+        EXPECT_HR(hr, DD_OK); EXPECT_EQ(n, 2);   /* Win10 x86: two z-buffer formats for the RGB device */
         d3d->lpVtbl->unk.Release(d3d);
     }
     teardown(dd, w);
@@ -340,7 +340,7 @@ TEST(ddraw_legacy_d3d7_texture_surface_create) {
     dl_pf_xrgb32(&d.ddpfPixelFormat); d.ddpfPixelFormat.dwFlags |= DDPF_ALPHAPIXELS; d.ddpfPixelFormat.dwRGBAlphaBitMask = 0xff000000;
     IDirectDrawSurface7 *t = NULL;
     HRESULT hr = IDirectDraw7_CreateSurface(dd, &d, &t, NULL);
-    t_note("A8R8G8B8 system-memory texture -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);
     if (SUCCEEDED(hr) && t) {
         DDSURFACEDESC2 g; memset(&g, 0, sizeof g); g.dwSize = sizeof g;
         EXPECT_HR(IDirectDrawSurface7_GetSurfaceDesc(t, &g), DD_OK);

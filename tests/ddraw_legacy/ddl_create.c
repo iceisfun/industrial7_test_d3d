@@ -25,7 +25,11 @@ TEST(ddraw_legacy_exports_in_module_range) {
         if (!p) continue;
         HMODULE owner = NULL;
         GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)p, &owner);
-        CHECKF(owner == m, "%s is not implemented inside ddraw.dll (forwarder?)", k_exports[i]);
+        char on[MAX_PATH] = "?"; if (owner) GetModuleFileNameA(owner, on, sizeof on);
+        /* 32-bit ddraw: DirectDrawCreate/DirectDrawCreateEx resolve to the apphelp.dll compatibility hook, everything else (and all of x64) is inside ddraw.dll */
+        int hooked = !DL_X64 && (!strcmp(k_exports[i], "DirectDrawCreate") || !strcmp(k_exports[i], "DirectDrawCreateEx"));
+        if (hooked) { const char *b = strrchr(on, '\\'); CHECKF(b && !lstrcmpiA(b + 1, "apphelp.dll"), "%s owner %s (want apphelp.dll)", k_exports[i], on); }
+        else CHECKF(owner == m, "%s is not implemented inside ddraw.dll (forwarder?): owner %s", k_exports[i], on);
     }
 }
 TEST(ddraw_legacy_export_missing_name) {
@@ -65,14 +69,10 @@ TEST(ddraw_legacy_create_unknown_guid) {
     GUID bad = { 0x12345678, 0x1111, 0x2222, { 1, 2, 3, 4, 5, 6, 7, 8 } };
     IDirectDraw *dd = NULL;
     HRESULT hr = f(&bad, &dd, NULL);
-    if (GetSystemMetrics(SM_CMONITORS) < 2) {
-        /* single monitor: any GUID is mapped to the primary display driver */
-        if (FAILED(hr)) t_skip("no DirectDraw device: %s", d3dh_hr_name(hr));
-        else { EXPECT_EQ(dd != NULL, 1); IDirectDraw_Release(dd); }
-    } else {
-        EXPECT_HR(hr, DDERR_INVALIDDIRECTDRAWGUID);
-        EXPECT_EQ(dd, 0);
-    }
+    /* Win10 (single monitor, basic display adapter): an unknown driver GUID is rejected, it is not mapped to the primary driver */
+    EXPECT_HR(hr, DDERR_INVALIDDIRECTDRAWGUID);
+    EXPECT_EQ(dd, 0);
+    if (dd) IDirectDraw_Release(dd);
 }
 TEST(ddraw_legacy_create_primary_release_rc) {
     DL_SKIP_IF_NO_DD1(dd);
@@ -93,19 +93,16 @@ TEST(ddraw_legacy_create_emulation_only) {
     dl_create_t f = DL_PROC(dl_create_t, "DirectDrawCreate"); REQUIRE(f);
     IDirectDraw *dd = NULL;
     HRESULT hr = f((GUID *)DDCREATE_EMULATIONONLY, &dd, NULL);
-    if (FAILED(hr)) { t_skip("EMULATIONONLY unavailable: %s", d3dh_hr_name(hr)); return; }
-    CHECK(dd != NULL);
-    DDCAPS hal, hel; memset(&hal, 0, sizeof hal); memset(&hel, 0, sizeof hel);
-    hal.dwSize = hel.dwSize = sizeof hal;
-    EXPECT_HR(IDirectDraw_GetCaps(dd, &hal, &hel), DD_OK);
-    t_note("EMULATIONONLY: HAL dwCaps=0x%lx HEL dwCaps=0x%lx", hal.dwCaps, hel.dwCaps);
-    IDirectDraw_Release(dd);
+    /* Win10 22H2: the software-emulation-only driver is not available (E_FAIL, no object) */
+    EXPECT_HR(hr, E_FAIL);
+    EXPECT_EQ(dd, 0);
+    if (dd) IDirectDraw_Release(dd);
 }
 TEST(ddraw_legacy_create_hardware_only) {
     dl_create_t f = DL_PROC(dl_create_t, "DirectDrawCreate"); REQUIRE(f);
     IDirectDraw *dd = NULL;
     HRESULT hr = f((GUID *)DDCREATE_HARDWAREONLY, &dd, NULL);
-    t_note("HARDWAREONLY -> %s", d3dh_hr_name(hr));   /* depends on the display driver */
+    EXPECT_HR(hr, DD_OK);   /* Win10, Basic Display Adapter: the hardware-only request still yields the HAL object */
     if (SUCCEEDED(hr) && dd) IDirectDraw_Release(dd);
 }
 
@@ -217,7 +214,7 @@ TEST(ddraw_legacy_enumA_first_is_primary) {
     CHECK(e.first_guid_null);                         /* primary display driver is reported with a NULL GUID */
     EXPECT_STR(e.name0, "display");
     CHECK(e.desc0[0] != 0);
-    t_note("primary driver description: \"%s\"", e.desc0);
+    if (dl_basic_adapter()) EXPECT_STR(e.desc0, "Primary Display Driver");   /* Win10 */
 }
 TEST(ddraw_legacy_enumA_callback_stop) {
     dl_enumA_t f = DL_PROC(dl_enumA_t, "DirectDrawEnumerateA"); REQUIRE(f);
@@ -281,7 +278,8 @@ TEST(ddraw_legacy_enumExA_primary_description_and_monitor) {
     EXPECT_HR(f(enum_cb_ex, &e, 0), DD_OK);
     EXPECT_STR(e.name0, "display");
     CHECK(e.desc0[0] != 0);
-    t_note("primary hmonitor=%p, count with flags 0 = %d", (void *)e.hm0, e.n);
+    CHECK(e.hm0 == NULL);   /* Win10: without DDENUM_ATTACHEDSECONDARYDEVICES the primary driver is reported with a NULL monitor */
+    EXPECT_EQ(e.n, 1);
 }
 TEST(ddraw_legacy_enumExA_stop) {
     dl_enumExA_t f = DL_PROC(dl_enumExA_t, "DirectDrawEnumerateExA"); REQUIRE(f);
@@ -462,8 +460,7 @@ TEST(ddraw_legacy_classfactory_uninit_clipper_methods) {
     HRESULT h2 = IDirectDrawClipper_IsClipListChanged(c, &ch);
     HRESULT h3 = IDirectDrawClipper_GetClipList(c, NULL, NULL, &sz);
     HRESULT h4 = IDirectDrawClipper_SetClipList(c, NULL, 0);
-    t_note("uninitialised clipper: GetHWnd=%s IsClipListChanged=%s GetClipList=%s SetClipList=%s",
-           d3dh_hr_name(h1), d3dh_hr_name(h2), d3dh_hr_name(h3), d3dh_hr_name(h4));
+    EXPECT_HR(h1, DDERR_NOTINITIALIZED); EXPECT_HR(h2, DDERR_NOTINITIALIZED); EXPECT_HR(h3, DDERR_NOTINITIALIZED); EXPECT_HR(h4, DDERR_NOTINITIALIZED);
     IDirectDrawClipper_Release(c);
     IClassFactory_Release(cf);
 }
@@ -474,7 +471,7 @@ TEST(ddraw_legacy_classfactory_lockserver) {
     IClassFactory *cf = NULL;
     if (FAILED(f(&CLSID_DirectDraw, &IID_IClassFactory, (void **)&cf)) || !cf) { t_skip("no factory"); CoUninitialize(); return; }
     HRESULT h1 = IClassFactory_LockServer(cf, TRUE);
-    t_note("LockServer(TRUE) -> %s", d3dh_hr_name(h1));
+    EXPECT_HR(h1, S_OK);   /* LockServer(TRUE): measured on Win10 */
     if (SUCCEEDED(h1)) {
         EXPECT_HR(cu(), S_FALSE);
         EXPECT_HR(IClassFactory_LockServer(cf, FALSE), S_OK);

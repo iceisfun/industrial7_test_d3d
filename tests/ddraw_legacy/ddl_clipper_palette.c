@@ -208,12 +208,12 @@ TEST(ddraw_legacy_clipper_hwnd_cliplist_query) {
     EXPECT_HR(IDirectDrawClipper_SetHWnd(c, 0, w), DD_OK);
     DWORD sz = 0;
     HRESULT hr = IDirectDrawClipper_GetClipList(c, NULL, NULL, &sz);
-    t_note("GetClipList(size query) for a hidden window -> %s, %lu bytes", d3dh_hr_name(hr), sz);
+    EXPECT_HR(hr, DD_OK); EXPECT_EQ(sz, 32);   /* hidden window: header only, no rectangles (Win10) */
     if (SUCCEEDED(hr) && sz >= sizeof(RGNDATAHEADER)) {
         BYTE *buf = calloc(1, sz);
         DWORD s2 = sz;
         HRESULT h2 = IDirectDrawClipper_GetClipList(c, NULL, (RGNDATA *)buf, &s2);
-        t_note("GetClipList(data) -> %s", d3dh_hr_name(h2));
+        EXPECT_HR(h2, DD_OK);   /* GetClipList(data): measured on Win10 */
         if (SUCCEEDED(h2)) {
             CHECK(((RGNDATA *)buf)->rdh.iType == RDH_RECTANGLES);
             CHECK(((RGNDATA *)buf)->rdh.dwSize == sizeof(RGNDATAHEADER));
@@ -365,7 +365,7 @@ TEST(ddraw_legacy_clipper_blt_with_cliplist) {
     EXPECT_HR(IDirectDrawSurface7_SetClipper(s, c), DD_OK);
     fx.dwFillColor = 0x00ffffff;
     HRESULT hr = IDirectDrawSurface7_Blt(s, NULL, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &fx);
-    t_note("colour fill through a clip list -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* colour fill through a clip list: measured on Win10 */
     if (SUCCEEDED(hr)) {
         DDSURFACEDESC2 l; memset(&l, 0, sizeof l); l.dwSize = sizeof l;
         if (SUCCEEDED(IDirectDrawSurface7_Lock(s, NULL, &l, DDLOCK_WAIT | DDLOCK_READONLY, NULL))) {
@@ -452,7 +452,7 @@ TEST(ddraw_legacy_palette_aggregation) {
     LPDIRECTDRAWPALETTE p = (LPDIRECTDRAWPALETTE)(ULONG_PTR)0x77;
     HRESULT hr = IDirectDraw7_CreatePalette(dd, DDPCAPS_8BIT, (LPPALETTEENTRY)g_pal_entries, &p, (IUnknown *)(ULONG_PTR)0x10);
     CHECKF(FAILED(hr), "outer unknown -> %s", d3dh_hr_name(hr));
-    t_note("CreatePalette with pUnkOuter -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, CLASS_E_NOAGGREGATION);   /* CreatePalette with pUnkOuter: measured on Win10 */
     teardown(dd, w);
 }
 TEST(ddraw_legacy_palette_entries_roundtrip) {
@@ -479,11 +479,25 @@ TEST(ddraw_legacy_palette_entries_roundtrip) {
     IDirectDrawPalette_Release(p);
     teardown(dd, w);
 }
-TEST(ddraw_legacy_palette_entries_bounds) {
+TEST(ddraw_legacy_palette_8bit_without_allow256_reserves_ends) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
     pal_fill();
     LPDIRECTDRAWPALETTE p = NULL;
     if (FAILED(IDirectDraw7_CreatePalette(dd, DDPCAPS_8BIT, (LPPALETTEENTRY)g_pal_entries, &p, NULL)) || !p) { t_skip("no palette"); teardown(dd, w); return; }
+    BYTE out[256 * 4];
+    EXPECT_HR(IDirectDrawPalette_GetEntries(p, 0, 0, 256, (LPPALETTEENTRY)out), DD_OK);
+    /* Win10: without DDPCAPS_ALLOW256 entry 0 reads back black and entry 255 white, the others are kept */
+    CHECK(!memcmp(out, "\0\0\0\0", 4));
+    CHECK(!memcmp(out + 255 * 4, "\xff\xff\xff\0", 4));
+    CHECK(!memcmp(out + 4, g_pal_entries + 4, 254 * 4));
+    IDirectDrawPalette_Release(p);
+    teardown(dd, w);
+}
+TEST(ddraw_legacy_palette_entries_bounds) {
+    HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
+    pal_fill();
+    LPDIRECTDRAWPALETTE p = NULL;
+    if (FAILED(IDirectDraw7_CreatePalette(dd, DDPCAPS_8BIT | DDPCAPS_ALLOW256, (LPPALETTEENTRY)g_pal_entries, &p, NULL)) || !p) { t_skip("no palette"); teardown(dd, w); return; }
     BYTE buf[300 * 4];
     struct { DWORD fl, start, n; } bad[] = {
         { 0, 0, 0 }, { 0, 0, 257 }, { 0, 256, 1 }, { 0, 255, 2 }, { 0, 250, 10 }, { 0, 1000, 1 }, { 0, 1, 256 }, { 1, 0, 1 }, { 0x80000000, 0, 1 },
@@ -542,8 +556,10 @@ TEST(ddraw_legacy_palette_initialize_and_qi) {
     if (u) { CHECK(u == (IUnknown *)p); EXPECT_RET(IUnknown_Release(u), 1); }
     EXPECT_HR(IDirectDrawPalette_QueryInterface(p, &IID_IDirectDrawPalette, (void **)&u), DD_OK);
     if (u) IUnknown_Release(u);
-    EXPECT_HR(IDirectDrawPalette_QueryInterface(p, &IID_IDirectDrawClipper, &x), E_NOINTERFACE);
-    EXPECT_HR(IDirectDrawPalette_QueryInterface(p, &IID_IDirectDraw7, &x), E_NOINTERFACE);
+    /* Win10: an unsupported IID gives E_FAIL (not E_NOINTERFACE) and *ppv is left untouched */
+    EXPECT_HR(IDirectDrawPalette_QueryInterface(p, &IID_IDirectDrawClipper, &x), E_FAIL); EXPECT_EQ(x, 0x42);
+    EXPECT_HR(IDirectDrawPalette_QueryInterface(p, &IID_IDirectDraw7, &x), E_FAIL); EXPECT_EQ(x, 0x42);
+    EXPECT_HR(IDirectDrawPalette_QueryInterface(p, &IID_IDirectDrawSurface7, &x), E_FAIL); EXPECT_EQ(x, 0x42);
     IDirectDrawPalette_Release(p);
     teardown(dd, w);
 }

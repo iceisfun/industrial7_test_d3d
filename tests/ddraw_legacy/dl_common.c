@@ -31,6 +31,16 @@ void dl_pf_rgb565(DDPIXELFORMAT *pf) {
 void dl_pf_pal8(DDPIXELFORMAT *pf) {
     memset(pf, 0, sizeof *pf); pf->dwSize = sizeof *pf; pf->dwFlags = DDPF_PALETTEINDEXED8 | DDPF_RGB; pf->dwRGBBitCount = 8;
 }
+/* The oracle (and any VM without a GPU driver) runs the "Microsoft Basic Display Adapter" (vendor 1414, device 008c): driver-dependent values are hard-checked there only. */
+int dl_basic_adapter(void) {
+    static int v = -1;
+    if (v < 0) {
+        v = 0;
+        IDirectDraw7 *dd = dl_create7();
+        if (dd) { DDDEVICEIDENTIFIER2 id; memset(&id, 0, sizeof id); if (SUCCEEDED(IDirectDraw7_GetDeviceIdentifier(dd, &id, 0))) v = id.dwVendorId == 0x1414 && id.dwDeviceId == 0x008c; IDirectDraw7_Release(dd); }
+    }
+    return v;
+}
 IDirectDrawSurface7 *dl_offscreen7(IDirectDraw7 *dd, DWORD w, DWORD h, DWORD caps_extra, HRESULT *hr_out) {
     DDSURFACEDESC2 d; IDirectDrawSurface7 *s = NULL;
     memset(&d, 0, sizeof d); d.dwSize = sizeof d;

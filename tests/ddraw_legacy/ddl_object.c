@@ -2,10 +2,10 @@
 #include "dl.h"
 
 /* ---------------- QueryInterface ladder and reference counts ---------------- */
-TEST(ddraw_legacy_obj_struct_sizes_x64) {
-    /* the 64-bit layouts the DLL validates dwSize against */
-    EXPECT_EQ(sizeof(DDSURFACEDESC), 120);
-    EXPECT_EQ(sizeof(DDSURFACEDESC2), 136);
+TEST(ddraw_legacy_obj_struct_sizes) {
+    /* the layouts of this process' bitness, which the DLL validates dwSize against */
+    EXPECT_EQ(sizeof(DDSURFACEDESC), DL_X64 ? 120 : 108);
+    EXPECT_EQ(sizeof(DDSURFACEDESC2), DL_X64 ? 136 : 124);
     EXPECT_EQ(sizeof(DDPIXELFORMAT), 32);
     EXPECT_EQ(sizeof(DDCAPS_DX3), 316);
     EXPECT_EQ(sizeof(DDCAPS_DX5), 364);
@@ -83,7 +83,7 @@ TEST(ddraw_legacy_obj_qi_repeated_iid_same_pointer) {
     EXPECT_HR(IDirectDraw_QueryInterface(dd, &IID_IDirectDraw4, (void **)&a), S_OK);
     EXPECT_HR(IDirectDraw_QueryInterface(dd, &IID_IDirectDraw4, (void **)&b), S_OK);
     if (a && b) {
-        t_note("second QI(IDirectDraw4): %s pointer", a == b ? "same" : "different");
+        CHECK(a == b);   /* Win10: both QIs return the same interface pointer */
         if (a == b) { EXPECT_RET(IDirectDraw4_AddRef(a), 3); IDirectDraw4_Release(a); }
     }
     if (a) IDirectDraw4_Release(a);
@@ -263,11 +263,7 @@ TEST(ddraw_legacy_coop_test_cooperative_level) {
     HRESULT before = IDirectDraw7_TestCooperativeLevel(dd);
     EXPECT_HR(IDirectDraw7_SetCooperativeLevel(dd, w, DDSCL_NORMAL), DD_OK);
     HRESULT after = IDirectDraw7_TestCooperativeLevel(dd);
-    /* S_OK, DDERR_WRONGMODE or DDERR_EXCLUSIVEMODEALREADYSET depending on the desktop state */
-    CHECKF(after == DD_OK || after == DDERR_WRONGMODE || after == DDERR_EXCLUSIVEMODEALREADYSET, "after: %s", d3dh_hr_name(after));
-    CHECKF(before == DD_OK || before == DDERR_WRONGMODE || before == DDERR_EXCLUSIVEMODEALREADYSET || before == DDERR_NOEXCLUSIVEMODE,
-           "before: %s", d3dh_hr_name(before));
-    t_note("TestCooperativeLevel before=%s after=%s", d3dh_hr_name(before), d3dh_hr_name(after));
+    EXPECT_HR(before, DD_OK); EXPECT_HR(after, DD_OK);   /* Win10, normal desktop session: S_OK both before and after SetCooperativeLevel(NORMAL) */
     dl_window_free(w);
     IDirectDraw7_Release(dd);
 }
@@ -341,8 +337,10 @@ TEST(ddraw_legacy_caps_hal_and_hel_together) {
     EXPECT_EQ(hel.dwVidMemFree, 0);
     CHECK(hal.dwVidMemFree <= hal.dwVidMemTotal);
     CHECK((hal.dwCaps & DDCAPS_OVERLAY) == 0);       /* overlays are masked unless the app-compat shim enables them */
-    t_note("HAL: caps=0x%lx caps2=0x%lx vidmem total=%lu free=%lu; HEL: caps=0x%lx caps2=0x%lx",
-           hal.dwCaps, hal.dwCaps2, hal.dwVidMemTotal, hal.dwVidMemFree, hel.dwCaps, hel.dwCaps2);
+    if (dl_basic_adapter()) {   /* measured on Win10 22H2 with the Basic Display Adapter */
+        EXPECT_EQ(hal.dwCaps, 0x95d007c1); EXPECT_EQ(hal.dwCaps2, 0xa068b200); EXPECT_EQ(hal.dwVidMemTotal, 4294696960u);
+        EXPECT_EQ(hel.dwCaps, 0xf4c08241); EXPECT_EQ(hel.dwCaps2, 1);
+    } else t_note("HAL: caps=0x%lx caps2=0x%lx vidmem total=%lu free=%lu; HEL: caps=0x%lx caps2=0x%lx", hal.dwCaps, hal.dwCaps2, hal.dwVidMemTotal, hal.dwVidMemFree, hel.dwCaps, hel.dwCaps2);
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_caps_stable_between_calls) {
@@ -387,13 +385,14 @@ TEST(ddraw_legacy_mode_getdisplaymode_dd7) {
     if (bpp == 8) CHECK(d.ddpfPixelFormat.dwFlags & DDPF_PALETTEINDEXED8);
     else CHECK(d.ddpfPixelFormat.dwFlags & DDPF_RGB);
     if (bpp == 32) { EXPECT_EQ(d.ddpfPixelFormat.dwRBitMask, 0xff0000); EXPECT_EQ(d.ddpfPixelFormat.dwGBitMask, 0xff00); EXPECT_EQ(d.ddpfPixelFormat.dwBBitMask, 0xff); }
-    t_note("display mode %lux%lu %lubpp %luHz", d.dwWidth, d.dwHeight, bpp, d.dwRefreshRate);
+    { DEVMODEA dm; memset(&dm, 0, sizeof dm); dm.dmSize = sizeof dm;   /* GetDisplayMode reports the desktop's current mode */
+      if (EnumDisplaySettingsA(NULL, ENUM_CURRENT_SETTINGS, &dm)) { EXPECT_EQ(d.dwWidth, dm.dmPelsWidth); EXPECT_EQ(d.dwHeight, dm.dmPelsHeight); EXPECT_EQ(bpp, dm.dmBitsPerPel); EXPECT_EQ(d.dwRefreshRate, dm.dmDisplayFrequency); } }
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_mode_getdisplaymode_bad_args) {
     DL_SKIP_IF_NO_DD7(dd);
     EXPECT_HR(IDirectDraw7_GetDisplayMode(dd, NULL), DDERR_INVALIDPARAMS);
-    DWORD bad[] = { 0, 4, 108, 112, 124, 135, 137, 0x1000 };
+    DWORD bad[] = { 0, 4, DL_SD1_OTHER, 112, DL_SD2_OTHER, DL_SD2 - 1, DL_SD2 + 1, 0x1000 };   /* GetDisplayMode accepts both sizeof(DDSURFACEDESC) and sizeof(DDSURFACEDESC2) */
     BYTE buf[0x1100];
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
         memset(buf, 0xA5, sizeof buf);
@@ -418,7 +417,7 @@ TEST(ddraw_legacy_mode_getdisplaymode_dd1_dd2) {
         EXPECT_EQ(e.dwWidth, d.dwWidth);
         EXPECT_EQ(e.dwHeight, d.dwHeight);
         EXPECT_EQ(e.ddpfPixelFormat.dwRGBBitCount, d.ddpfPixelFormat.dwRGBBitCount);
-        d.dwSize = 108;
+        d.dwSize = DL_SD1_OTHER;
         EXPECT_HR(IDirectDraw_GetDisplayMode(dd, &d), DDERR_INVALIDPARAMS);
         IDirectDraw2_Release(dd2);
     }
@@ -541,7 +540,12 @@ TEST(ddraw_legacy_mode_enum_cancel) {
     struct mode_acc *m = calloc(1, sizeof *m);
     m->dwsize_expect = sizeof(DDSURFACEDESC2); m->cancel_after = 1;
     EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 0, NULL, m, mode_cb7), DD_OK);
-    EXPECT_EQ(m->n, 1);
+    /* Win10: the DDENUMRET_CANCEL return value is ignored, the whole mode list is delivered */
+    struct mode_acc *all = calloc(1, sizeof *all); all->dwsize_expect = sizeof(DDSURFACEDESC2);
+    EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 0, NULL, all, mode_cb7), DD_OK);
+    CHECK(all->n > 1);
+    EXPECT_EQ(m->n, all->n);
+    free(all);
     free(m);
     IDirectDraw7_Release(dd);
 }
@@ -579,7 +583,7 @@ TEST(ddraw_legacy_mode_enum_bad_args) {
     EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 4, NULL, m, mode_cb7), DDERR_INVALIDPARAMS);
     EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 0x80000000, NULL, m, mode_cb7), DDERR_INVALIDPARAMS);
     EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 0xfffffffc, NULL, m, mode_cb7), DDERR_INVALIDPARAMS);
-    DDSURFACEDESC2 f; memset(&f, 0, sizeof f); f.dwSize = 124;
+    DDSURFACEDESC2 f; memset(&f, 0, sizeof f); f.dwSize = DL_SD2_OTHER;
     EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 0, &f, m, mode_cb7), DDERR_INVALIDPARAMS);
     f.dwSize = 0;
     EXPECT_HR(IDirectDraw7_EnumDisplayModes(dd, 0, &f, m, mode_cb7), DDERR_INVALIDPARAMS);
@@ -599,7 +603,7 @@ TEST(ddraw_legacy_mode_enum_dd1_descriptor_size) {
     struct mode_acc *m = calloc(1, sizeof *m);
     EXPECT_HR(IDirectDraw_EnumDisplayModes(dd, 0, NULL, m, mode_cb1), DD_OK);
     CHECK(m->n >= 1);
-    EXPECT_EQ(m->bad_size, 0);                       /* DDSURFACEDESC consumers get 120-byte descriptors on x64 */
+    EXPECT_EQ(m->bad_size, 0);                       /* DDSURFACEDESC consumers get sizeof(DDSURFACEDESC) descriptors (120 bytes on x64) */
     EXPECT_EQ(m->bad_flags, 0);
     free(m);
     IDirectDraw_Release(dd);
@@ -631,7 +635,8 @@ TEST(ddraw_legacy_misc_fourcc_protocol) {
         EXPECT_HR(IDirectDraw7_GetFourCCCodes(dd, &big, codes), DD_OK);
         EXPECT_EQ(big, total);                        /* *n is lowered to the real count */
     }
-    t_note("FourCC code count: %lu", n);
+    if (dl_basic_adapter()) EXPECT_EQ(n, 2);   /* Win10, Basic Display Adapter */
+    else t_note("FourCC code count: %lu", n);
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_misc_fourcc_zero_capacity) {
@@ -646,18 +651,25 @@ TEST(ddraw_legacy_misc_monitor_frequency) {
     DL_SKIP_IF_NO_DD7(dd);
     DWORD hz = 0xdeadbeef;
     HRESULT hr = IDirectDraw7_GetMonitorFrequency(dd, &hz);
-    CHECKF(hr == DD_OK || hr == DDERR_UNSUPPORTED, "-> %s", d3dh_hr_name(hr));
-    if (hr == DD_OK) CHECK(hz > 0 && hz < 1000);
-    t_note("GetMonitorFrequency -> %s, %lu Hz", d3dh_hr_name(hr), hz);
+    EXPECT_HR(hr, DD_OK);   /* Win10 (also the Basic Display Adapter) */
+    { DEVMODEA dm; memset(&dm, 0, sizeof dm); dm.dmSize = sizeof dm; if (EnumDisplaySettingsA(NULL, ENUM_CURRENT_SETTINGS, &dm)) EXPECT_EQ(hz, dm.dmDisplayFrequency); }
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_misc_scanline) {
     DL_SKIP_IF_NO_DD7(dd);
-    DWORD line = 0xdeadbeef;
-    HRESULT hr = IDirectDraw7_GetScanLine(dd, &line);
-    CHECKF(hr == DD_OK || hr == DDERR_UNSUPPORTED || hr == DDERR_VERTICALBLANKINPROGRESS, "-> %s", d3dh_hr_name(hr));
-    if (hr == DDERR_UNSUPPORTED) EXPECT_EQ(line, 0);   /* *scanline is zeroed when unsupported */
-    t_note("GetScanLine -> %s line=%lu", d3dh_hr_name(hr), line);
+    /* Win10 (Basic Display Adapter, both bitnesses): the result follows a timer. Each call is either S_OK with a scan line inside the
+     * mode, or DDERR_VERTICALBLANKINPROGRESS with the line zeroed; over 200 calls both outcomes were seen in every run. Nothing else occurs. */
+    int ok = 0, vb = 0; DWORD maxline = 0;
+    for (int i = 0; i < 200; i++) {
+        DWORD line = 0xdeadbeef;
+        HRESULT hr = IDirectDraw7_GetScanLine(dd, &line);
+        if (hr == DD_OK) { ok++; if (line > maxline) maxline = line; CHECKF(line < 2 * (DWORD)GetSystemMetrics(SM_CYSCREEN), "line %lu", line); }
+        else if (hr == DDERR_VERTICALBLANKINPROGRESS) { vb++; EXPECT_EQ(line, 0); }
+        else CHECKF(0, "GetScanLine -> %s", d3dh_hr_name(hr));
+        Sleep(1);
+    }
+    t_note("GetScanLine over 200 calls: %d S_OK (max line %lu), %d in vertical blank", ok, maxline, vb);
+    CHECK(ok > 0 && vb > 0);
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_misc_vertical_blank_status) {
@@ -698,7 +710,7 @@ TEST(ddraw_legacy_misc_restore_display_mode_noop) {
     DDSURFACEDESC2 a, b; memset(&a, 0, sizeof a); a.dwSize = sizeof a; b = a;
     EXPECT_HR(IDirectDraw7_GetDisplayMode(dd, &a), DD_OK);
     HRESULT hr = IDirectDraw7_RestoreDisplayMode(dd);
-    t_note("RestoreDisplayMode without a mode change -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* RestoreDisplayMode without a mode change: measured on Win10 */
     EXPECT_HR(IDirectDraw7_GetDisplayMode(dd, &b), DD_OK);
     EXPECT_EQ(a.dwWidth, b.dwWidth);                 /* nothing changed */
     EXPECT_EQ(a.dwHeight, b.dwHeight);
@@ -707,7 +719,7 @@ TEST(ddraw_legacy_misc_restore_display_mode_noop) {
 TEST(ddraw_legacy_misc_flip_to_gdi_surface_without_surfaces) {
     DL_SKIP_IF_NO_DD7(dd);
     HRESULT hr = IDirectDraw7_FlipToGDISurface(dd);
-    t_note("FlipToGDISurface with no surfaces -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DDERR_NOTFOUND);   /* FlipToGDISurface with no surfaces: measured on Win10 */
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_misc_get_gdi_surface_without_primary) {
@@ -716,7 +728,7 @@ TEST(ddraw_legacy_misc_get_gdi_surface_without_primary) {
     HRESULT hr = IDirectDraw7_GetGDISurface(dd, &s);
     if (FAILED(hr)) EXPECT_EQ(s, 0);
     else if (s) IDirectDrawSurface7_Release(s);
-    t_note("GetGDISurface with no primary -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DDERR_NOTFOUND);   /* GetGDISurface with no primary: measured on Win10 */
     IDirectDraw7_Release(dd);
 }
 TEST(ddraw_legacy_misc_available_vidmem_args) {
@@ -726,8 +738,8 @@ TEST(ddraw_legacy_misc_available_vidmem_args) {
     EXPECT_HR(IDirectDraw7_GetAvailableVidMem(dd, &caps, NULL, NULL), DDERR_INVALIDPARAMS);
     DWORD total = 0xdeadbeef, fr = 0xdeadbeef;
     HRESULT hr = IDirectDraw7_GetAvailableVidMem(dd, &caps, &total, &fr);
-    if (hr == DD_OK) CHECK(fr <= total);
-    t_note("GetAvailableVidMem(TEXTURE) -> %s total=%lu free=%lu", d3dh_hr_name(hr), total, fr);
+    EXPECT_HR(hr, DD_OK); CHECK(fr <= total);
+    if (dl_basic_adapter()) EXPECT_EQ(total, 4294696960u);   /* Win10, Basic Display Adapter */
     total = 0xdeadbeef;
     hr = IDirectDraw7_GetAvailableVidMem(dd, &caps, &total, NULL);
     if (hr == DD_OK) CHECK(total != 0xdeadbeef);
@@ -756,7 +768,8 @@ TEST(ddraw_legacy_misc_device_identifier7) {
         CHECK(id.szDescription[0] != 0);
         CHECK(memchr(id.szDriver, 0, sizeof id.szDriver) != NULL);
         CHECK(memchr(id.szDescription, 0, sizeof id.szDescription) != NULL);
-        t_note("driver=\"%s\" desc=\"%s\" vendor=%04lx device=%04lx", id.szDriver, id.szDescription, id.dwVendorId, id.dwDeviceId);
+        if (id.dwVendorId == 0x1414 && id.dwDeviceId == 0x008c) { EXPECT_STR(id.szDriver, "d3d10warp.dll"); EXPECT_STR(id.szDescription, "Microsoft Basic Display Adapter"); }
+        else t_note("driver=\"%s\" desc=\"%s\" vendor=%04lx device=%04lx", id.szDriver, id.szDescription, id.dwVendorId, id.dwDeviceId);
     }
     IDirectDraw7_Release(dd);
 }
@@ -809,7 +822,7 @@ TEST(ddraw_legacy_misc_testcoop_dd1_unavailable_not_crash) {
     IDirectDraw4 *dd4 = NULL;
     if (SUCCEEDED(IDirectDraw_QueryInterface(dd1, &IID_IDirectDraw4, (void **)&dd4)) && dd4) {
         HRESULT hr = IDirectDraw4_TestCooperativeLevel(dd4);
-        t_note("IDirectDraw4::TestCooperativeLevel -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DD_OK);   /* IDirectDraw4::TestCooperativeLevel: measured on Win10 */
         IDirectDraw4_Release(dd4);
     }
     IDirectDraw_Release(dd1);

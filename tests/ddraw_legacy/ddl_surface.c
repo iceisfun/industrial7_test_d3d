@@ -64,7 +64,7 @@ TEST(ddraw_legacy_surf_create_aggregation) {
 }
 TEST(ddraw_legacy_surf_create_bad_desc_size_dd7) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
-    DWORD bad[] = { 0, 8, 108, 120, 124, 132, 140 };
+    DWORD bad[] = { 0, 8, DL_SD1, DL_SD1_OTHER, DL_SD2_OTHER, DL_SD2 - 4, DL_SD2 + 4 };
     for (unsigned i = 0; i < 7; i++) {
         DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = bad[i];
         d.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT; d.dwWidth = d.dwHeight = 8; d.ddsCaps.dwCaps = SYSPLAIN;
@@ -78,7 +78,7 @@ TEST(ddraw_legacy_surf_create_bad_desc_size_dd4) {
     HWND w; IDirectDraw7 *dd7 = setup(&w); if (!dd7) return;
     IDirectDraw4 *dd = NULL;
     if (FAILED(IDirectDraw7_QueryInterface(dd7, &IID_IDirectDraw4, (void **)&dd)) || !dd) { teardown(dd7, w); return; }
-    DWORD bad[] = { 0, 108, 120, 124 };
+    DWORD bad[] = { 0, DL_SD1, DL_SD1_OTHER, DL_SD2_OTHER };
     for (unsigned i = 0; i < 4; i++) {
         DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = bad[i];
         d.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT; d.dwWidth = d.dwHeight = 8; d.ddsCaps.dwCaps = SYSPLAIN;
@@ -111,7 +111,7 @@ TEST(ddraw_legacy_surf_create_owndc_needs_sysmem) {
     EXPECT_HR(hr, DDERR_UNSUPPORTED);
     if (s) IDirectDrawSurface7_Release(s);
     s = mk(dd, 8, 8, NULL, SYSPLAIN | DDSCAPS_OWNDC, &hr);
-    t_note("system-memory OWNDC surface -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* system-memory OWNDC surface: measured on Win10 */
     if (s) IDirectDrawSurface7_Release(s);
     teardown(dd, w);
 }
@@ -198,7 +198,7 @@ TEST(ddraw_legacy_surf_getsurfacedesc_bad_size) {
     IDirectDrawSurface7 *s = mk(dd, 16, 16, NULL, SYSPLAIN, NULL);
     if (s) {
         DDSURFACEDESC2 d;
-        DWORD bad[] = { 0, 108, 120, 124, 140 };
+        DWORD bad[] = { 0, DL_SD1, DL_SD1_OTHER, DL_SD2_OTHER, DL_SD2 + 4 };
         for (unsigned i = 0; i < 5; i++) {
             memset(&d, 0, sizeof d); d.dwSize = bad[i];
             HRESULT hr = IDirectDrawSurface7_GetSurfaceDesc(s, &d);
@@ -219,7 +219,7 @@ TEST(ddraw_legacy_surf_getsurfacedesc_older_interfaces) {
             DDSURFACEDESC d; memset(&d, 0, sizeof d); d.dwSize = sizeof d;
             EXPECT_HR(IDirectDrawSurface_GetSurfaceDesc(s1, &d), DD_OK);
             EXPECT_EQ(d.dwWidth, 16); EXPECT_EQ(d.dwHeight, 8);
-            d.dwSize = 108; EXPECT_HR(IDirectDrawSurface_GetSurfaceDesc(s1, &d), DDERR_INVALIDPARAMS);
+            d.dwSize = DL_SD1_OTHER; EXPECT_HR(IDirectDrawSurface_GetSurfaceDesc(s1, &d), DDERR_INVALIDPARAMS);
             IDirectDrawSurface_Release(s1);
         }
         if (s4) {
@@ -254,7 +254,7 @@ TEST(ddraw_legacy_surf_sysmem_formats_roundtrip) {
     for (int i = 0; i < n; i++) {
         HRESULT hr; IDirectDrawSurface7 *s = mk(dd, 13, 5, &c[i].pf, SYSPLAIN, &hr);
         if (fmt_core(c[i].name)) CHECKF(hr == DD_OK, "%s -> %s", c[i].name, d3dh_hr_name(hr));
-        else t_note("%s system-memory surface -> %s", c[i].name, d3dh_hr_name(hr));
+        else CHECKF(hr == DD_OK, "%s system-memory surface -> %s", c[i].name, d3dh_hr_name(hr));   /* all formats of the table work on Win10 */
         if (!s) continue;
         DDPIXELFORMAT pf; memset(&pf, 0, sizeof pf); pf.dwSize = sizeof pf;
         EXPECT_HR(IDirectDrawSurface7_GetPixelFormat(s, &pf), DD_OK);
@@ -267,22 +267,28 @@ TEST(ddraw_legacy_surf_sysmem_formats_roundtrip) {
         CHECKF(d.lPitch >= (LONG)(13 * bpp / 8), "%s pitch %ld", c[i].name, (long)d.lPitch);
         CHECKF((d.lPitch & 3) == 0, "%s pitch %ld not DWORD aligned", c[i].name, (long)d.lPitch);
         CHECK(d.lpSurface != NULL);
-        CHECK(d.dwFlags & DDSD_LPSURFACE);
+        CHECKF(!(d.dwFlags & DDSD_LPSURFACE), "%s: Win10 does not report DDSD_LPSURFACE from Lock (flags 0x%lx)", c[i].name, d.dwFlags);
         IDirectDrawSurface7_Unlock(s, NULL);
         IDirectDrawSurface7_Release(s);
     }
     teardown(dd, w);
 }
-TEST(ddraw_legacy_surf_pixelformat_bad_dwsize) {
+TEST(ddraw_legacy_surf_pixelformat_dwsize_ignored) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
     DDPIXELFORMAT pf; dl_pf_xrgb32(&pf);
-    DWORD bad[] = { 0, 24, 28, 36 };
-    for (unsigned i = 0; i < 4; i++) {
-        pf.dwSize = bad[i];
+    /* Win10: DDPIXELFORMAT.dwSize of the requested format is not validated at all: every value creates a 32 bpp surface */
+    DWORD sz[] = { 0, 1, 4, 24, 28, 32, 36, 40, 100, 0xffff };
+    for (unsigned i = 0; i < sizeof sz / sizeof *sz; i++) {
+        pf.dwSize = sz[i];
         HRESULT hr; IDirectDrawSurface7 *s = mk(dd, 8, 8, &pf, SYSPLAIN, &hr);
-        CHECKF(FAILED(hr), "pf.dwSize %lu -> %s", bad[i], d3dh_hr_name(hr));
-        if (hr != DDERR_INVALIDPARAMS && hr != DDERR_INVALIDPIXELFORMAT) t_note("pf.dwSize %lu -> %s", bad[i], d3dh_hr_name(hr));
-        if (s) IDirectDrawSurface7_Release(s);
+        CHECKF(hr == DD_OK, "pf.dwSize %lu -> %s", sz[i], d3dh_hr_name(hr));
+        if (s) {
+            DDPIXELFORMAT g; memset(&g, 0, sizeof g); g.dwSize = sizeof g;
+            EXPECT_HR(IDirectDrawSurface7_GetPixelFormat(s, &g), DD_OK);
+            EXPECT_EQ(g.dwSize, sz[i]);   /* GetPixelFormat hands back the dwSize that was passed at creation */
+            EXPECT_EQ(g.dwRGBBitCount, 32);
+            IDirectDrawSurface7_Release(s);
+        }
     }
     teardown(dd, w);
 }
@@ -365,7 +371,7 @@ TEST(ddraw_legacy_surf_lock_bad_rect) {
     RECT empty = { 8, 0, 8, 8 };                       /* right == left is not rejected */
     DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = sizeof d;
     HRESULT hr = IDirectDrawSurface7_Lock(s, &empty, &d, DDLOCK_WAIT, NULL);
-    t_note("Lock of an empty rectangle -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* Lock of an empty rectangle: measured on Win10 */
     if (SUCCEEDED(hr)) IDirectDrawSurface7_Unlock(s, &empty);
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
@@ -374,7 +380,7 @@ TEST(ddraw_legacy_surf_lock_bad_desc_size) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
     IDirectDrawSurface7 *s = mk(dd, 16, 16, NULL, SYSPLAIN, NULL);
     if (!s) { t_skip("no surface"); teardown(dd, w); return; }
-    DWORD bad[] = { 0, 108, 124, 132, 140 };          /* Lock accepts exactly 120 or 136 on every surface interface */
+    DWORD bad[] = { 0, DL_SD1_OTHER, DL_SD2_OTHER, DL_SD2 - 4, DL_SD2 + 4 };          /* Lock accepts exactly DDSURFACEDESC / DDSURFACEDESC2 sizes of its own bitness (120/136 on x64) */
     for (unsigned i = 0; i < 5; i++) {
         DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = bad[i];
         HRESULT hr = IDirectDrawSurface7_Lock(s, NULL, &d, DDLOCK_WAIT, NULL);
@@ -391,7 +397,9 @@ TEST(ddraw_legacy_surf_lock_desc_fields) {
     if (!s) { t_skip("no surface"); teardown(dd, w); return; }
     DDSURFACEDESC2 d;
     EXPECT_HR(lock_all(s, &d, 0), DD_OK);
-    CHECK((d.dwFlags & (DDSD_WIDTH | DDSD_HEIGHT | DDSD_PITCH | DDSD_LPSURFACE)) == (DDSD_WIDTH | DDSD_HEIGHT | DDSD_PITCH | DDSD_LPSURFACE));
+    /* Win10: Lock reports CAPS|HEIGHT|WIDTH|PITCH|PIXELFORMAT (0x100f); lpSurface is valid but DDSD_LPSURFACE is NOT set */
+    EXPECT_EQ(d.dwFlags, DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT);
+    CHECK(d.lpSurface != NULL);
     EXPECT_EQ(d.dwWidth, 30);
     EXPECT_EQ(d.dwHeight, 7);
     CHECK(d.lPitch >= 60);
@@ -513,7 +521,7 @@ TEST(ddraw_legacy_surf_getdc_palettized_surface) {
     if (s) {
         HDC dc = NULL;
         HRESULT hr = IDirectDrawSurface7_GetDC(s, &dc);
-        t_note("GetDC on a P8 surface without palette -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DD_OK);   /* GetDC on a P8 surface without palette: measured on Win10 */
         if (SUCCEEDED(hr)) IDirectDrawSurface7_ReleaseDC(s, dc);
         IDirectDrawSurface7_Release(s);
     }
@@ -718,12 +726,12 @@ TEST(ddraw_legacy_blt_format_conversion_32_to_16) {
     fill32(src, 0x00ff00ff);
     {
         HRESULT hr = IDirectDrawSurface7_Blt(dst, NULL, src, NULL, DDBLT_WAIT, NULL);
-        t_note("32->16 bpp blt -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_NOTIMPL);   /* 32->16 bpp blt: measured on Win10 */
         if (SUCCEEDED(hr)) {
             DDSURFACEDESC2 d; lock_all(dst, &d, DDLOCK_READONLY);
             WORD v = *(WORD *)d.lpSurface;
             IDirectDrawSurface7_Unlock(dst, NULL);
-            t_note("converted pixel 0x%04x", v);
+            (void)v;
         }
     }
 out:
@@ -784,7 +792,7 @@ TEST(ddraw_legacy_blt_keysrc_without_colorkey) {
     IDirectDrawSurface7 *src = mk(dd, 4, 4, NULL, SYSPLAIN, NULL), *dst = mk(dd, 4, 4, NULL, SYSPLAIN, NULL);
     if (src && dst) {
         HRESULT hr = IDirectDrawSurface7_Blt(dst, NULL, src, NULL, DDBLT_KEYSRC | DDBLT_WAIT, NULL);
-        t_note("DDBLT_KEYSRC with no colour key on the source -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);   /* DDBLT_KEYSRC with no colour key on the source: measured on Win10 */
     } else t_skip("no surfaces");
     if (src) IDirectDrawSurface7_Release(src);
     if (dst) IDirectDrawSurface7_Release(dst);
@@ -800,11 +808,11 @@ TEST(ddraw_legacy_blt_overlapping_self_copy) {
     IDirectDrawSurface7_Unlock(s, NULL);
     RECT dr = { 0, 1, 8, 8 }, sr = { 0, 0, 8, 7 };
     HRESULT hr = IDirectDrawSurface7_Blt(s, &dr, s, &sr, DDBLT_WAIT, NULL);
-    t_note("self blt shifted by one row -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* self blt shifted by one row: measured on Win10 */
     if (SUCCEEDED(hr)) {
         int bad = 0;
         for (int y = 1; y < 8; y++) for (int x = 0; x < 8; x++) if (px32(s, x, y) != (DWORD)((y - 1) * 8 + x)) bad++;
-        if (bad) t_note("overlapping self-blt produced %d unexpected pixels", bad);
+        EXPECT_EQ(bad, 0);   /* overlapping self-blt moves the rows as a memmove */
     }
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
@@ -939,7 +947,7 @@ TEST(ddraw_legacy_ckey_single_value_sets_high_equal_low) {
     EXPECT_HR(IDirectDrawSurface7_SetColorKey(s, DDCKEY_SRCBLT, &ck), DD_OK);
     EXPECT_HR(IDirectDrawSurface7_GetColorKey(s, DDCKEY_SRCBLT, &out), DD_OK);
     EXPECT_EQ(out.dwColorSpaceLowValue, 0x00abcdef);
-    t_note("high value after a single-value key: 0x%lx", out.dwColorSpaceHighValue);
+    EXPECT_EQ(out.dwColorSpaceHighValue, 0x00abcdef);   /* Win10: a single-value key reads back with high == low */
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
 }
@@ -986,7 +994,7 @@ TEST(ddraw_legacy_ckey_dest_and_overlay) {
     HRESULT h1 = IDirectDrawSurface7_SetColorKey(s, DDCKEY_DESTBLT, &ck);
     HRESULT h2 = IDirectDrawSurface7_SetColorKey(s, DDCKEY_SRCOVERLAY, &ck);
     HRESULT h3 = IDirectDrawSurface7_SetColorKey(s, DDCKEY_DESTOVERLAY, &ck);
-    t_note("DESTBLT -> %s, SRCOVERLAY -> %s, DESTOVERLAY -> %s", d3dh_hr_name(h1), d3dh_hr_name(h2), d3dh_hr_name(h3));
+    EXPECT_HR(h1, DDERR_NOCOLORKEYHW); EXPECT_HR(h2, DDERR_NOCOLORKEYHW); EXPECT_HR(h3, DDERR_NOCOLORKEYHW);   /* Win10 */
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
 }
@@ -1027,7 +1035,7 @@ TEST(ddraw_legacy_surf_qi_gamma_control_not_on_offscreen) {
     if (!s) { t_skip("no surface"); teardown(dd, w); return; }
     void *p = NULL;
     HRESULT hr = IDirectDrawSurface7_QueryInterface(s, &IID_IDirectDrawGammaControl, &p);
-    t_note("QI(IDirectDrawGammaControl) on an offscreen surface -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* QI(IDirectDrawGammaControl) on an offscreen surface: measured on Win10 */
     if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
@@ -1087,7 +1095,7 @@ TEST(ddraw_legacy_surf_get_dd_interface) {
     HRESULT hr = IDirectDrawSurface7_GetDDInterface(s, (LPVOID *)&g);
     EXPECT_HR(hr, DD_OK);
     if (g) {
-        t_note("GetDDInterface returned %s object", g == dd ? "the same" : "a different");
+        CHECK(g == dd);   /* Win10: the same interface pointer */
         DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = sizeof d;
         EXPECT_HR(IDirectDraw7_GetDisplayMode(g, &d), DD_OK);
         IDirectDraw7_Release(g);
@@ -1158,19 +1166,19 @@ TEST(ddraw_legacy_surf_uniqueness_value) {
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
 }
-TEST(ddraw_legacy_surf_priority_and_lod_need_managed) {
+TEST(ddraw_legacy_surf_priority_lod_not_managed) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
     IDirectDrawSurface7 *s = mk(dd, 8, 8, NULL, SYSPLAIN, NULL);
     if (!s) { t_skip("no surface"); teardown(dd, w); return; }
-    DWORD v = 0;
-    HRESULT h1 = IDirectDrawSurface7_SetPriority(s, 1);
-    HRESULT h2 = IDirectDrawSurface7_GetPriority(s, &v);
-    HRESULT h3 = IDirectDrawSurface7_SetLOD(s, 1);
-    HRESULT h4 = IDirectDrawSurface7_GetLOD(s, &v);
-    t_note("SetPriority=%s GetPriority=%s SetLOD=%s GetLOD=%s on a plain surface", d3dh_hr_name(h1), d3dh_hr_name(h2), d3dh_hr_name(h3), d3dh_hr_name(h4));
-    CHECK(FAILED(h4));                                         /* LOD is a managed-texture-only operation */
+    DWORD v = 5;
+    /* Win10: on a surface that is not a managed texture these are all DDERR_INVALIDOBJECT and the out value is left alone */
+    EXPECT_HR(IDirectDrawSurface7_GetPriority(s, &v), DDERR_INVALIDOBJECT); EXPECT_EQ(v, 5);
+    EXPECT_HR(IDirectDrawSurface7_SetLOD(s, 1), DDERR_INVALIDOBJECT);
+    EXPECT_HR(IDirectDrawSurface7_GetLOD(s, &v), DDERR_INVALIDOBJECT); EXPECT_EQ(v, 5);
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
+    /* SetPriority on the same surface dereferences a NULL function pointer inside ddraw (x64 Win10 22H2) */
+    EXPECT_EQ(t_run_child("ddl_setpriority_plain", "", 60000), 0xC0000005);
 }
 
 /* ---------------- attached surfaces, flipping ---------------- */
@@ -1230,7 +1238,7 @@ TEST(ddraw_legacy_surf_flip_not_flippable) {
     if (!s) { t_skip("no surface"); teardown(dd, w); return; }
     EXPECT_HR(IDirectDrawSurface7_Flip(s, NULL, DDFLIP_WAIT), DDERR_NOTFLIPPABLE);
     HRESULT hr = IDirectDrawSurface7_GetFlipStatus(s, DDGFS_CANFLIP);
-    t_note("GetFlipStatus on a plain surface -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* GetFlipStatus on a plain surface: measured on Win10 */
     IDirectDrawSurface7_Release(s);
     teardown(dd, w);
 }
@@ -1243,7 +1251,7 @@ TEST(ddraw_legacy_surf_mipmap_chain) {
     dl_pf_xrgb32(&d.ddpfPixelFormat); d.ddpfPixelFormat.dwFlags |= DDPF_ALPHAPIXELS; d.ddpfPixelFormat.dwRGBAlphaBitMask = 0xff000000;
     IDirectDrawSurface7 *top = NULL;
     HRESULT hr = IDirectDraw7_CreateSurface(dd, &d, &top, NULL);
-    if (FAILED(hr)) { t_skip("system-memory mip chain -> %s", d3dh_hr_name(hr)); teardown(dd, w); return; }
+    if (FAILED(hr)) { t_skip("system-memory mip chain -> %s: 64-bit ddraw cannot create DDSCAPS_TEXTURE surfaces (no d3dim); run ddraw_legacy_x86", d3dh_hr_name(hr)); teardown(dd, w); return; }
     DWORD expect = 32; IDirectDrawSurface7 *cur = top; IDirectDrawSurface7_AddRef(cur);
     for (int level = 0; level < 4; level++) {
         DDSURFACEDESC2 g; memset(&g, 0, sizeof g); g.dwSize = sizeof g;
@@ -1272,7 +1280,7 @@ TEST(ddraw_legacy_surf_zbuffer_create) {
     d.ddpfPixelFormat.dwZBufferBitDepth = 16; d.ddpfPixelFormat.dwZBitMask = 0xffff;
     IDirectDrawSurface7 *z = NULL;
     HRESULT hr = IDirectDraw7_CreateSurface(dd, &d, &z, NULL);
-    t_note("16-bit system-memory z-buffer -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* 16-bit system-memory z-buffer: measured on Win10 */
     if (SUCCEEDED(hr) && z) {
         DDPIXELFORMAT pf; memset(&pf, 0, sizeof pf); pf.dwSize = sizeof pf;
         EXPECT_HR(IDirectDrawSurface7_GetPixelFormat(z, &pf), DD_OK);
@@ -1337,7 +1345,7 @@ TEST(ddraw_legacy_primary_flip_chain_needs_exclusive) {
     IDirectDrawSurface7 *p = NULL;
     HRESULT hr = IDirectDraw7_CreateSurface(dd, &d, &p, NULL);
     CHECKF(FAILED(hr), "flip chain in NORMAL cooperative mode -> %s", d3dh_hr_name(hr));
-    t_note("primary flip chain without exclusive mode -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DDERR_NOEXCLUSIVEMODE);   /* primary flip chain without exclusive mode: measured on Win10 */
     if (p) IDirectDrawSurface7_Release(p);
     teardown(dd, w);
 }
@@ -1350,9 +1358,9 @@ TEST(ddraw_legacy_primary_gdi_surface) {
     IDirectDrawSurface7 *g = NULL;
     hr = IDirectDraw7_GetGDISurface(dd, &g);
     EXPECT_HR(hr, DD_OK);
-    if (g) { t_note("GDI surface is %s the primary", g == p ? "the same as" : "different from"); IDirectDrawSurface7_Release(g); }
+    if (g) { CHECK(g == p); IDirectDrawSurface7_Release(g); }   /* Win10: the GDI surface is the primary itself */
     hr = IDirectDraw7_FlipToGDISurface(dd);
-    t_note("FlipToGDISurface with a lone primary -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DDERR_NOTFLIPPABLE);   /* FlipToGDISurface with a lone primary: measured on Win10 */
     IDirectDrawSurface7_Release(p);
     teardown(dd, w);
 }
@@ -1364,11 +1372,11 @@ TEST(ddraw_legacy_primary_gamma_control_query_only) {
     if (FAILED(hr) || !p) { t_skip("primary surface unavailable: %s", d3dh_hr_name(hr)); teardown(dd, w); return; }
     IDirectDrawGammaControl *gc = NULL;
     hr = IDirectDrawSurface7_QueryInterface(p, &IID_IDirectDrawGammaControl, (void **)&gc);
-    t_note("QI(IDirectDrawGammaControl) on primary -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* QI(IDirectDrawGammaControl) on primary: measured on Win10 */
     if (SUCCEEDED(hr) && gc) {
         DDGAMMARAMP ramp; memset(&ramp, 0, sizeof ramp);
         HRESULT g = IDirectDrawGammaControl_GetGammaRamp(gc, 0, &ramp);   /* read only: never SetGammaRamp */
-        t_note("GetGammaRamp -> %s", d3dh_hr_name(g));
+        EXPECT_HR(g, E_INVALIDARG);   /* GetGammaRamp: measured on Win10 */
         if (SUCCEEDED(g)) {
             int mono = 1;
             for (int i = 1; i < 256; i++) if (ramp.red[i] < ramp.red[i - 1]) mono = 0;
@@ -1378,7 +1386,7 @@ TEST(ddraw_legacy_primary_gamma_control_query_only) {
     }
     void *cc = NULL;
     hr = IDirectDrawSurface7_QueryInterface(p, &IID_IDirectDrawColorControl, &cc);
-    t_note("QI(IDirectDrawColorControl) on primary -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);   /* QI(IDirectDrawColorControl) on primary: measured on Win10 */
     if (SUCCEEDED(hr) && cc) IUnknown_Release((IUnknown *)cc);
     IDirectDrawSurface7_Release(p);
     teardown(dd, w);
@@ -1400,12 +1408,34 @@ TEST(ddraw_legacy_dd1_surface_create_and_lock) {
         EXPECT_HR(IDirectDrawSurface_Unlock(s, NULL), DD_OK);
         IDirectDrawSurface_Release(s);
     }
-    d.dwSize = 108;
+    d.dwSize = DL_SD1_OTHER;
     hr = IDirectDraw_CreateSurface(dd, &d, &s, NULL);
-    CHECKF(FAILED(hr), "legacy 108-byte DDSURFACEDESC on x64 -> %s", d3dh_hr_name(hr));
+    CHECKF(FAILED(hr), "other-bitness DDSURFACEDESC size -> %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && s) IDirectDrawSurface_Release(s);
     IDirectDraw_Release(dd);
     teardown(dd7, w);
+}
+/* Children: operations that fault inside ddraw.dll on Win10 x64. They run in their own process because the fault leaves ddraw's global lock held. */
+static int dd7_setup_child(IDirectDraw7 **dd, HWND *w) { *dd = dl_create7(); if (!*dd) return 77; *w = dl_window(); return IDirectDraw7_SetCooperativeLevel(*dd, *w, DDSCL_NORMAL) == DD_OK ? 0 : 78; }
+CHILD(ddl_dup_lock) {
+    IDirectDraw7 *dd; HWND w; int rc = dd7_setup_child(&dd, &w); if (rc) return rc;
+    DDPIXELFORMAT pf; dl_pf_xrgb32(&pf);
+    IDirectDrawSurface7 *s = mk(dd, 4, 4, &pf, SYSPLAIN, NULL), *dup = NULL; if (!s) return 79;
+    if (FAILED(IDirectDraw7_DuplicateSurface(dd, s, &dup)) || !dup) return 80;
+    DDSURFACEDESC2 d; memset(&d, 0, sizeof d); d.dwSize = sizeof d;
+    IDirectDrawSurface7_Lock(dup, NULL, &d, DDLOCK_WAIT, NULL);      /* faults */
+    return 0;
+}
+CHILD(ddl_setpriority_plain) {
+    IDirectDraw7 *dd; HWND w; int rc = dd7_setup_child(&dd, &w); if (rc) return rc;
+    IDirectDrawSurface7 *s = mk(dd, 8, 8, NULL, SYSPLAIN, NULL); if (!s) return 79;
+    IDirectDrawSurface7_SetPriority(s, 1);                           /* faults */
+    return 0;
+}
+TEST(ddraw_legacy_dd7_duplicate_surface_lock_faults) {
+    DL_SKIP_IF_NO_DD7(dd0); IDirectDraw7_Release(dd0);
+    DWORD rc = t_run_child("ddl_dup_lock", "", 60000);
+    EXPECT_EQ(rc, 0xC0000005);   /* DuplicateSurface succeeds, Lock on the duplicate raises STATUS_ACCESS_VIOLATION */
 }
 TEST(ddraw_legacy_dd7_duplicate_surface) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
@@ -1415,12 +1445,10 @@ TEST(ddraw_legacy_dd7_duplicate_surface) {
     fill32(s, 0x00445566);
     IDirectDrawSurface7 *dup = NULL;
     HRESULT hr = IDirectDraw7_DuplicateSurface(dd, s, &dup);
-    t_note("DuplicateSurface -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DD_OK);   /* DuplicateSurface: measured on Win10 */
     if (SUCCEEDED(hr) && dup) {
         CHECK(dup != s);
-        EXPECT_EQ(px32(dup, 1, 1) & 0xffffff, 0x445566);   /* duplicates share the pixel memory */
-        fill32(s, 0x00112233);
-        EXPECT_EQ(px32(dup, 1, 1) & 0xffffff, 0x112233);
+        /* Win10: Lock() on the duplicate raises an access violation inside ddraw (see ddraw_legacy_dd7_duplicate_surface_lock_faults), so it is not touched here */
         IDirectDrawSurface7_Release(dup);
     }
     IDirectDrawSurface7_Release(s);
@@ -1437,6 +1465,15 @@ TEST(ddraw_legacy_dd7_evaluate_mode_flags) {
     HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
     DWORD timeout = 0;
     HRESULT hr = IDirectDraw7_EvaluateMode(dd, 0x80, &timeout);
-    t_note("EvaluateMode(0x80) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* EvaluateMode(0x80): measured on Win10 */
+    teardown(dd, w);
+}
+
+TEST(ddraw_legacy_surf_texture_caps_need_d3dim) {
+    HWND w; IDirectDraw7 *dd = setup(&w); if (!dd) return;
+    HRESULT hr; IDirectDrawSurface7 *s = mk(dd, 16, 16, NULL, DDSCAPS_TEXTURE | DDSCAPS_SYSTEMMEMORY, &hr);
+    /* Win10: DDSCAPS_TEXTURE needs the legacy Direct3D runtime, which only exists for 32-bit processes (SysWOW64\\d3dim700.dll) */
+    EXPECT_HR(hr, DL_X64 ? E_NOINTERFACE : DD_OK);
+    if (s) IDirectDrawSurface7_Release(s);
     teardown(dd, w);
 }
