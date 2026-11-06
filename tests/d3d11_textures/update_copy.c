@@ -347,7 +347,8 @@ CPY(3d_mip_to_smaller_volume, 3, 8,8,8,3,1,F_RGBA8, 4,4,4,1,1,F_RGBA8, 1,0,0, 0,
 CPY(3d_small_volume_into_mip, 3, 2,2,2,1,1,F_RGBA8, 8,8,8,3,1,F_RGBA8, 0,2,0, 0,0,0,0,0,0, 0,0,0, 1)
 CPY(3d_family, 3, 4,4,4,1,1,DXGI_FORMAT_R8G8B8A8_UNORM, 4,4,4,1,1,DXGI_FORMAT_R8G8B8A8_UINT, 0,0,0, 0,0,0,0,0,0, 0,0,0, 1)
 CPY(3d_bc1_whole, 3, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 0,0,0, 0,0,0,0,0,0, 0,0,0, 1)
-CPY(3d_bc1_box, 3, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 0,0,1, 4,0,1,4,8,2, 0,4,2, 1)
+/* (the destination box must stay inside the 8x8x4 volume: an out-of-range copy removes the WARP device) */
+CPY(3d_bc1_box, 3, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 0,0,1, 4,0,1,4,4,2, 0,4,2, 1)
 CPY(3d_bc1_to_r32g32, 3, 8,8,4,1,1,DXGI_FORMAT_BC1_UNORM, 2,2,4,1,1,DXGI_FORMAT_R32G32_UINT, 0,0,0, 0,0,0,0,0,0, 0,0,0, 1)
 
 /* Empty box: nothing is copied. */

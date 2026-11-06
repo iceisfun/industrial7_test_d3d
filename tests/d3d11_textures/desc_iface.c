@@ -217,49 +217,49 @@ QI3D(dxgisurface, IID_IDXGISurface, E_NOINTERFACE)
 QI3D(tex2d, IID_ID3D11Texture2D, E_NOINTERFACE)
 QI3D(tex1d, IID_ID3D11Texture1D, E_NOINTERFACE)
 
-/* Whether IDXGISurface is offered for multi-subresource textures is not verified: observation only. */
-static void tx_qi_note(const char *what, IUnknown *u, REFIID iid) {
+/* IDXGISurface is only offered for a texture with exactly one subresource (Win10 22H2). */
+static void tx_qi_note(const char *what, IUnknown *u, REFIID iid, HRESULT want) {
     void *p = NULL; HRESULT hr = IUnknown_QueryInterface(u, iid, &p);
-    t_note("QI IDXGISurface on %s texture: %s", what, d3dh_hr_name(hr));
+    t_check(hr == want, __FILE__, __LINE__, "QI IDXGISurface", "%s texture: got %s want %s", what, d3dh_hr_name(hr), d3dh_hr_name(want));
     if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
 }
 DEVTEST(d3d11_textures_qi_1d_dxgisurface_note) {
     ID3D11Texture1D *t = NULL;
     EXPECT_HR(tx_mk1d(c, 16, 1, 1, F_RGBA8, U_DEF, B_SRV, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_note("1D", (IUnknown *)t, &IID_IDXGISurface);
+    tx_qi_note("1D", (IUnknown *)t, &IID_IDXGISurface, S_OK);
     ID3D11Texture1D_Release(t);
 }
 DEVTEST(d3d11_textures_qi_surface_mip_chain_note) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 16, 16, 0, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_note("mip chain", (IUnknown *)t, &IID_IDXGISurface);
+    tx_qi_note("mip chain", (IUnknown *)t, &IID_IDXGISurface, E_NOINTERFACE);
     tx_qi_expect((IUnknown *)t, &IID_IDXGIResource, S_OK, __FILE__, __LINE__);
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_qi_surface_array_note) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 16, 16, 1, 2, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_note("array", (IUnknown *)t, &IID_IDXGISurface);
+    tx_qi_note("array", (IUnknown *)t, &IID_IDXGISurface, E_NOINTERFACE);
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_qi_surface_two_mips_note) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 16, 16, 2, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    tx_qi_note("two mips", (IUnknown *)t, &IID_IDXGISurface);
+    tx_qi_note("two mips", (IUnknown *)t, &IID_IDXGISurface, E_NOINTERFACE);
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_qi_surface_single_mip_with_chain_request_one) {
     ID3D11Texture2D *t = NULL;
     EXPECT_HR(tx_mk2d(c, 1, 1, 0, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
     tx_qi_expect((IUnknown *)t, &IID_IDXGIResource, S_OK, __FILE__, __LINE__);
-    t_note("1x1 with MipLevels=0 (one level) IDXGISurface -> %s", d3dh_hr_name(({ void *p = NULL; HRESULT h = IUnknown_QueryInterface((IUnknown *)t, &IID_IDXGISurface, &p); if (p) IUnknown_Release((IUnknown *)p); h; })));
+    { void *p = NULL; HRESULT h = IUnknown_QueryInterface((IUnknown *)t, &IID_IDXGISurface, &p); if (p) IUnknown_Release((IUnknown *)p); EXPECT_HR(h, S_OK); }   /* MipLevels=0 on a 1x1 texture resolves to one level */
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_qi_d3d10_texture_note) {
     ID3D11Texture2D *t = NULL; void *p = NULL; HRESULT hr;
     EXPECT_HR(tx_mk2d(c, 16, 16, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
     hr = IUnknown_QueryInterface((IUnknown *)t, &IID_ID3D10Texture2D, &p);
-    t_note("ID3D11Texture2D -> ID3D10Texture2D: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
         D3D10_TEXTURE2D_DESC d10;
         ID3D10Texture2D_GetDesc((ID3D10Texture2D *)p, &d10);
@@ -282,7 +282,18 @@ DEVTEST(d3d11_textures_dxgi_identity) {
         EXPECT_EQ(obj, (IDXGIObject *)res); SAFE_RELEASE(obj);
         EXPECT_HR(IDXGISurface_QueryInterface(sur, &IID_IDXGIDeviceSubObject, (void **)&sub), S_OK);
         EXPECT_EQ(sub, (IDXGIDeviceSubObject *)res); SAFE_RELEASE(sub);
-        EXPECT_EQ(sur, (IDXGISurface *)res);
+        /* The DXGI interfaces live on a separate vtable of the same object: the interface pointers differ (Win10 22H2),
+         * COM identity is established through IUnknown. */
+        {
+            IUnknown *u1 = NULL, *u2 = NULL, *u3 = NULL;
+            EXPECT_HR(IDXGISurface_QueryInterface(sur, &IID_IUnknown, (void **)&u1), S_OK);
+            EXPECT_HR(IDXGIResource_QueryInterface(res, &IID_IUnknown, (void **)&u2), S_OK);
+            EXPECT_HR(ID3D11Texture2D_QueryInterface(t, &IID_IUnknown, (void **)&u3), S_OK);
+            EXPECT_EQ(u1, u2); EXPECT_EQ(u2, u3);
+            SAFE_RELEASE(u1); SAFE_RELEASE(u2); SAFE_RELEASE(u3);
+        }
+        CHECK((void *)sur != (void *)t);
+        CHECK((void *)res != (void *)t);
     }
     SAFE_RELEASE(res); SAFE_RELEASE(sur);
     ID3D11Texture2D_Release(t);
@@ -358,7 +369,7 @@ DEVTEST(d3d11_textures_dxgi_eviction_priority_roundtrip) {
     if (res) {
         UINT p = 0; HRESULT hr = IDXGIResource_GetEvictionPriority(res, &p);
         EXPECT_HR(hr, S_OK);
-        t_note("default DXGI eviction priority %#x", p);
+        EXPECT_EQ(p, DXGI_RESOURCE_PRIORITY_NORMAL);
         for (UINT i = 0; i < 5; i++) {
             EXPECT_HR(IDXGIResource_SetEvictionPriority(res, prio[i]), S_OK);
             p = 0; EXPECT_HR(IDXGIResource_GetEvictionPriority(res, &p), S_OK);
@@ -372,7 +383,7 @@ DEVTEST(d3d11_textures_d3d11_eviction_priority) {
     ID3D11Texture2D *t = NULL; UINT p;
     EXPECT_HR(tx_mk2d(c, 8, 8, 1, 1, F_RGBA8, U_DEF, B_SRV, 0, 0, NULL, &t), S_OK); if (!t) return;
     p = ID3D11Texture2D_GetEvictionPriority(t);
-    t_note("default D3D11 eviction priority %#x", p);
+    EXPECT_EQ(p, DXGI_RESOURCE_PRIORITY_NORMAL);
     ID3D11Texture2D_SetEvictionPriority(t, DXGI_RESOURCE_PRIORITY_HIGH);
     p = ID3D11Texture2D_GetEvictionPriority(t);
     CHECKF(p == DXGI_RESOURCE_PRIORITY_HIGH, "got %#x", p);
@@ -415,7 +426,7 @@ DEVTEST(d3d11_textures_privdata_not_found) {
     ID3D11Texture2D *t = NULL; DWORD out = 0xCCCCCCCC; UINT sz = sizeof out;
     EXPECT_HR(tx_mk2d(c, 8, 8, 1, 1, F_RGBA8, U_DEF, B_SRV, 0, 0, NULL, &t), S_OK); if (!t) return;
     EXPECT_HR(ID3D11Texture2D_GetPrivateData(t, &tx_guid_b, &sz, &out), DXGI_ERROR_NOT_FOUND);
-    t_note("size after NOT_FOUND: %u", sz);
+    EXPECT_EQ(sz, 0); EXPECT_EQ(out, 0xCCCCCCCC);   /* NOT_FOUND zeroes the size and leaves the buffer alone */
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_privdata_replace_and_two_keys) {
@@ -507,7 +518,7 @@ DEVTEST(d3d11_textures_msq_count33_64_fail) {
 DEVTEST(d3d11_textures_msq_count32_ok_zero) {
     UINT q = 0xDEADBEEF;
     EXPECT_HR(ID3D11Device_CheckMultisampleQualityLevels(c->dev, F_RGBA8, 32, &q), S_OK);
-    t_note("RGBA8 32x quality levels: %u", q);
+    EXPECT_EQ(q, 0);
 }
 DEVTEST(d3d11_textures_msq_unsupported_counts_report_zero) {
     static const UINT counts[] = {3, 5, 6, 7, 9, 15};

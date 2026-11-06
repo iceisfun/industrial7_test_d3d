@@ -24,6 +24,23 @@ static void tx_close(tx_ctx *c) { SAFE_RELEASE(c->ctx); SAFE_RELEASE(c->dev); }
     TEST(n) { tx_ctx tc_; if (!tx_open(&tc_)) return; body_##n(&tc_); tx_close(&tc_); } \
     static void body_##n(tx_ctx *c)
 
+/* Expectation codes that depend on the device, resolved by tx_resolve():
+ *   TXW_MAPDEF  S_OK when D3D11_FEATURE_D3D11_OPTIONS2.MapOnDefaultTextures is set, otherwise E_INVALIDARG
+ *               (DEFAULT-usage textures with CPU access flags; Win10 WARP reports MapOnDefaultTextures = TRUE).
+ *   TXW_WARP    S_OK on the WARP rasteriser, E_INVALIDARG on other drivers (WARP does not enforce these limits). */
+#define TXW_MAPDEF ((HRESULT)0x7ff00001)
+#define TXW_WARP   ((HRESULT)0x7ff00002)
+static int tx_map_on_default(tx_ctx *c) {
+    D3D11_FEATURE_DATA_D3D11_OPTIONS2 o; memset(&o, 0, sizeof o);
+    if (FAILED(ID3D11Device_CheckFeatureSupport(c->dev, D3D11_FEATURE_D3D11_OPTIONS2, &o, sizeof o))) return 0;
+    return o.MapOnDefaultTextures != 0;
+}
+static HRESULT tx_resolve(tx_ctx *c, HRESULT want) {
+    if (want == TXW_MAPDEF) return tx_map_on_default(c) ? S_OK : E_INVALIDARG;
+    if (want == TXW_WARP) return c->drv == D3D_DRIVER_TYPE_WARP ? S_OK : E_INVALIDARG;
+    return want;
+}
+
 /* Hard check when the device's feature level is at least minfl, otherwise only a note. */
 #define TX_EXPECT_HR(c, hr, want, minfl) do { HRESULT h_ = (HRESULT)(hr), w_ = (HRESULT)(want); \
     if ((c)->fl >= (D3D_FEATURE_LEVEL)(minfl)) t_check(h_ == w_, __FILE__, __LINE__, #hr " == " #want, "got %s want %s", d3dh_hr_name(h_), d3dh_hr_name(w_)); \
@@ -96,7 +113,9 @@ static int tx_init_make(tx_init *o, UINT w, UINT h, UINT d, UINT mips, UINT arr,
         for (z = 0; z < md; z++) for (y = 0; y < rows; y++) for (x = 0; x < rb; x++, idx++)
             p[(size_t)z * slice + (size_t)y * pitch + x] = tx_pat(seed0 + sub, idx);
         o->blocks[sub] = p;
-        o->sd[sub].pSysMem = p; o->sd[sub].SysMemPitch = pitch; o->sd[sub].SysMemSlicePitch = md > 1 ? slice : 0;
+        /* Win10: a 3D resource needs a non-zero SysMemSlicePitch for every mip, even when that mip has depth 1
+         * (E_INVALIDARG otherwise); 1D/2D resources ignore the field. */
+        o->sd[sub].pSysMem = p; o->sd[sub].SysMemPitch = pitch; o->sd[sub].SysMemSlicePitch = slice ? slice : 1;
     }
     (void)i;
     return 1;

@@ -141,8 +141,35 @@ static void tx_clear_view_fmt(tx_ctx *c, DXGI_FORMAT texf, DXGI_FORMAT viewf, co
 }
 DEVTEST(d3d11_textures_clear_typeless_as_srgb) { static const unsigned char e[4] = {124, 170, 203, 204}; tx_clear_view_fmt(c, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, e, __FILE__, __LINE__); }
 DEVTEST(d3d11_textures_clear_typeless_as_unorm) { static const unsigned char e[4] = {51, 102, 153, 204}; tx_clear_view_fmt(c, DXGI_FORMAT_R8G8B8A8_TYPELESS, F_RGBA8, e, __FILE__, __LINE__); }
-DEVTEST(d3d11_textures_clear_unorm_as_srgb) { static const unsigned char e[4] = {124, 170, 203, 204}; tx_clear_view_fmt(c, F_RGBA8, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, e, __FILE__, __LINE__); }
-DEVTEST(d3d11_textures_clear_srgb_as_unorm) { static const unsigned char e[4] = {51, 102, 153, 204}; tx_clear_view_fmt(c, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, F_RGBA8, e, __FILE__, __LINE__); }
+/* A fully typed UNORM texture cannot be viewed as its sRGB twin (and vice versa): only a TYPELESS parent allows the
+ * reinterpretation. Win10 22H2, feature levels 11_0 and 11_1 (WARP): E_INVALIDARG for RTV and SRV alike. */
+static void tx_view_cast_rejected(tx_ctx *c, DXGI_FORMAT texf, DXGI_FORMAT viewf, const char *file, int line) {
+    ID3D11Texture2D *t = NULL; ID3D11RenderTargetView *v = NULL; ID3D11ShaderResourceView *s = NULL; D3D11_SHADER_RESOURCE_VIEW_DESC sd; HRESULT hr;
+    hr = tx_mk2d(c, 4, 4, 1, 1, texf, U_DEF, B_RT | B_SRV, 0, 0, NULL, &t);
+    t_check(hr == S_OK, file, line, "create", "%s", d3dh_hr_name(hr)); if (FAILED(hr)) return;
+    hr = tx_rtv(c, (ID3D11Resource *)t, viewf, D3D11_RTV_DIMENSION_TEXTURE2D, 0, 0, 0, &v);
+    t_check(hr == E_INVALIDARG && !v, file, line, "CreateRenderTargetView(cast)", "%s", d3dh_hr_name(hr)); SAFE_RELEASE(v);
+    memset(&sd, 0, sizeof sd); sd.Format = viewf; sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sd.Texture2D.MipLevels = 1;
+    hr = ID3D11Device_CreateShaderResourceView(c->dev, (ID3D11Resource *)t, &sd, &s);
+    t_check(hr == E_INVALIDARG && !s, file, line, "CreateShaderResourceView(cast)", "%s", d3dh_hr_name(hr)); SAFE_RELEASE(s);
+    ID3D11Texture2D_Release(t);
+}
+DEVTEST(d3d11_textures_clear_unorm_as_srgb_rejected) { tx_view_cast_rejected(c, F_RGBA8, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, __FILE__, __LINE__); }
+DEVTEST(d3d11_textures_clear_srgb_as_unorm_rejected) { tx_view_cast_rejected(c, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, F_RGBA8, __FILE__, __LINE__); }
+DEVTEST(d3d11_textures_view_cast_bgra_srgb_rejected) { tx_view_cast_rejected(c, F_BGRA8, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, __FILE__, __LINE__); }
+DEVTEST(d3d11_textures_view_cast_unorm_as_uint_rejected) { tx_view_cast_rejected(c, F_RGBA8, DXGI_FORMAT_R8G8B8A8_UINT, __FILE__, __LINE__); }
+DEVTEST(d3d11_textures_view_cast_r32f_as_r32u_rejected) { tx_view_cast_rejected(c, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_UINT, __FILE__, __LINE__); }
+DEVTEST(d3d11_textures_view_cast_rgba_as_bgra_rejected) { tx_view_cast_rejected(c, F_RGBA8, F_BGRA8, __FILE__, __LINE__); }
+/* The same cast, but with the 11.1 feature level explicitly requested, is also rejected. */
+DEVTEST(d3d11_textures_view_cast_unorm_as_srgb_fl11_1) {
+    static const D3D_FEATURE_LEVEL l[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
+    tx_ctx c1; HRESULT hr; memset(&c1, 0, sizeof c1);
+    hr = d3dh_make_device11_fl(&c1.dev, &c1.ctx, l, 2, &c1.fl, &c1.drv, D3D11_CREATE_DEVICE_BGRA_SUPPORT);
+    if (FAILED(hr)) { t_skip("no 11_1 device (%s)", d3dh_hr_name(hr)); return; }
+    if (c1.fl < D3D_FEATURE_LEVEL_11_1) { t_skip("device is only feature level %#x", c1.fl); tx_close(&c1); return; }
+    tx_view_cast_rejected(&c1, F_RGBA8, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, __FILE__, __LINE__);
+    tx_close(&c1);
+}
 DEVTEST(d3d11_textures_clear_bgra_typeless_as_unorm) { static const unsigned char e[4] = {153, 102, 51, 204}; tx_clear_view_fmt(c, DXGI_FORMAT_B8G8R8A8_TYPELESS, F_BGRA8, e, __FILE__, __LINE__); }
 DEVTEST(d3d11_textures_clear_rtv_incompatible_format) {
     ID3D11Texture2D *t = NULL; ID3D11RenderTargetView *v = NULL;
@@ -191,7 +218,7 @@ DEVTEST(d3d11_textures_clear_array_view_on_non_array_texture) {
     static const float B[4] = {0.f, 1.f, 0.f, 1.f}; static const unsigned char eB[4] = {0, 255, 0, 255};
     ID3D11Texture2D *t = NULL; ID3D11RenderTargetView *v = NULL; tx_img im;
     EXPECT_HR(tx_mk2d(c, 4, 4, 1, 1, F_RGBA8, U_DEF, B_RT, 0, 0, NULL, &t), S_OK); if (!t) return;
-    { HRESULT h_ = tx_rtv(c, (ID3D11Resource *)t, F_RGBA8, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 0, 1, &v); t_note("array-dimension RTV on a non-array texture -> %s", d3dh_hr_name(h_)); }
+    { HRESULT h_ = tx_rtv(c, (ID3D11Resource *)t, F_RGBA8, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 0, 1, &v); EXPECT_HR(h_, S_OK); }   /* an array view of a one-slice texture is legal */
     if (v) { ID3D11DeviceContext_ClearRenderTargetView(c->ctx, v, B); if (SUCCEEDED(tx_fetch(c, (ID3D11Resource *)t, 0, &im))) { tx_check_const(&im, 4, eB, 4, 0, "clear", __FILE__, __LINE__); tx_img_free(&im); } }
     SAFE_RELEASE(v);
     ID3D11Texture2D_Release(t);
@@ -507,7 +534,16 @@ DEVTEST(d3d11_textures_genmips_view_starts_at_mip1) {
     if (srv) {
         ID3D11DeviceContext_GenerateMips(c->ctx, srv);
         if (SUCCEEDED(tx_fetch(c, (ID3D11Resource *)t, 0, &im))) { tx_check_const(&im, 4, eA, 4, 0, "mip 0 untouched", __FILE__, __LINE__); tx_img_free(&im); }
-        for (UINT m = 1; m < 5; m++) if (SUCCEEDED(tx_fetch(c, (ID3D11Resource *)t, m, &im))) { tx_check_const(&im, 4, eB, 4, 1, "mip derived from mip 1", __FILE__, __LINE__); tx_img_free(&im); }
+        /* View = mips 1..4 of a 5-mip chain. Win10 WARP generates mips 2 and 3 from mip 1 (mip 1 itself is the source and
+         * stays), but leaves the last mip of the view (mip 4) untouched: with MostDetailedMip > 0 it generates
+         * MipLevels - 2 levels rather than MipLevels - 1. Recorded as a WARP divergence from the documented behaviour. */
+        for (UINT m = 1; m < 4; m++) if (SUCCEEDED(tx_fetch(c, (ID3D11Resource *)t, m, &im))) { tx_check_const(&im, 4, eB, 4, 1, "mip derived from mip 1", __FILE__, __LINE__); tx_img_free(&im); }
+        if (SUCCEEDED(tx_fetch(c, (ID3D11Resource *)t, 4, &im))) {
+            static const unsigned char z[4] = {0, 0, 0, 0};
+            if (c->drv == D3D_DRIVER_TYPE_WARP) tx_check_const(&im, 4, z, 4, 0, "last mip of the view (not generated by WARP)", __FILE__, __LINE__);
+            else t_note("last mip of the view: byte0 %02x", im.data[0]);
+            tx_img_free(&im);
+        }
         ID3D11ShaderResourceView_Release(srv);
     }
     ID3D11Texture2D_Release(t);

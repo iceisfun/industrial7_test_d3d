@@ -25,7 +25,9 @@ static void tx_pitch_case(tx_ctx *c, UINT w, UINT h, DXGI_FORMAT f, const char *
         t_check(m.pData != NULL, file, line, "pData", "NULL");
         t_check(m.RowPitch >= rb, file, line, "RowPitch >= row bytes", "RowPitch %u, row bytes %u (%ux%u fmt %u)", m.RowPitch, rb, w, h, f);
         t_check(m.DepthPitch >= (UINT64)m.RowPitch * rows, file, line, "DepthPitch >= RowPitch*rows", "DepthPitch %u RowPitch %u rows %u", m.DepthPitch, m.RowPitch, rows);
-        if (m.RowPitch != rb || m.DepthPitch != m.RowPitch * rows) t_note("%ux%u fmt %u: RowPitch %u (tight %u) DepthPitch %u (tight %u)", w, h, f, m.RowPitch, rb, m.DepthPitch, m.RowPitch * rows);
+        /* Win10 22H2 WARP: staging rows are padded to a multiple of 4 bytes and slices are tightly packed rows */
+        t_check(m.RowPitch == ((rb + 3) & ~3u), file, line, "RowPitch is the row size rounded up to 4 bytes", "RowPitch %u row bytes %u (%ux%u fmt %u)", m.RowPitch, rb, w, h, f);
+        t_check(m.DepthPitch == m.RowPitch * rows, file, line, "DepthPitch = RowPitch * rows", "DepthPitch %u RowPitch %u rows %u", m.DepthPitch, m.RowPitch, rows);
         ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
     }
     ID3D11Texture2D_Release(t);
@@ -72,8 +74,7 @@ DEVTEST(d3d11_textures_pitch_rgba8_512_tightness_note) {
     ID3D11Texture2D *t = NULL; D3D11_MAPPED_SUBRESOURCE m;
     EXPECT_HR(tx_mk2d(c, 512, 512, 1, 1, F_RGBA8, U_STG, 0, CPU_R | CPU_W, 0, NULL, &t), S_OK); if (!t) return;
     EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, D3D11_MAP_READ_WRITE, 0, &m), S_OK);
-    t_note("512x512 RGBA8 staging: RowPitch %u DepthPitch %u (tight %u / %u)", m.RowPitch, m.DepthPitch, 512 * 4, 512 * 512 * 4);
-    CHECK(m.RowPitch >= 2048);
+    EXPECT_EQ(m.RowPitch, 2048); EXPECT_EQ(m.DepthPitch, 512 * 2048);
     ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
     ID3D11Texture2D_Release(t);
 }
@@ -136,7 +137,7 @@ DEVTEST(d3d11_textures_pitch_1d_map) {
     memset(&m, 0, sizeof m);
     EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, D3D11_MAP_READ_WRITE, 0, &m), S_OK);
     CHECK(m.pData != NULL);
-    t_note("1D staging map: RowPitch %u DepthPitch %u", m.RowPitch, m.DepthPitch);
+    EXPECT_EQ(m.RowPitch, 132); EXPECT_EQ(m.DepthPitch, 132);   /* 33 RGBA8 texels = 132 bytes */
     ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
     ID3D11Texture1D_Release(t);
 }
@@ -186,7 +187,7 @@ static void tx_access(tx_ctx *c, ID3D11Resource *r, int dynamic, int cpu_r, int 
     t_check(hr == want, file, line, "Map(WRITE_DISCARD)", "got %s want %s", d3dh_hr_name(hr), d3dh_hr_name(want));
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(c->ctx, r, 0);
     hr = ID3D11DeviceContext_Map(c->ctx, r, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
-    t_note("%s:%d Map(WRITE_NO_OVERWRITE) on texture: %s", file, line, d3dh_hr_name(hr));
+    t_check(hr == E_INVALIDARG, file, line, "Map(WRITE_NO_OVERWRITE) on a texture", "got %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(c->ctx, r, 0);
 }
 /* kind: 1=1D 2=2D 3=3D */
@@ -225,8 +226,16 @@ ACCESS(3d_immutable, 3, U_IMM, B_SRV, 0)
 DEVTEST(d3d11_textures_map_invalid_type_note) {
     ID3D11Texture2D *t = NULL; D3D11_MAPPED_SUBRESOURCE m;
     EXPECT_HR(tx_mk2d(c, 8, 8, 1, 1, F_RGBA8, U_STG, 0, CPU_R | CPU_W, 0, NULL, &t), S_OK); if (!t) return;
-    t_note("Map type 0 -> %s", d3dh_hr_name(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, (D3D11_MAP)0, 0, &m)));
-    t_note("Map type 6 -> %s", d3dh_hr_name(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, (D3D11_MAP)6, 0, &m)));
+    EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, (D3D11_MAP)0, 0, &m), E_INVALIDARG);
+    EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, (D3D11_MAP)6, 0, &m), E_INVALIDARG);
+    EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, (D3D11_MAP)0xffffffffu, 0, &m), E_INVALIDARG);
+    /* undefined Map flag bits */
+    EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, D3D11_MAP_READ, 2, &m), E_INVALIDARG);
+    /* DO_NOT_WAIT is accepted on an idle staging texture */
+    EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m), S_OK);
+    ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
+    /* a subresource index past the end (1 mip x 1 slice) */
+    EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 1, D3D11_MAP_READ, 0, &m), E_INVALIDARG);
     ID3D11Texture2D_Release(t);
 }
 DEVTEST(d3d11_textures_map_double_map_note) {
@@ -234,10 +243,10 @@ DEVTEST(d3d11_textures_map_double_map_note) {
     EXPECT_HR(tx_mk2d(c, 8, 8, 2, 1, F_RGBA8, U_STG, 0, CPU_R | CPU_W, 0, NULL, &t), S_OK); if (!t) return;
     EXPECT_HR(ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, D3D11_MAP_READ, 0, &m), S_OK);
     hr = ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 0, D3D11_MAP_READ, 0, &m2);
-    t_note("second Map of the same subresource -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 does not reject a nested Map of the same subresource */
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
     hr = ID3D11DeviceContext_Map(c->ctx, (ID3D11Resource *)t, 1, D3D11_MAP_READ, 0, &m2);
-    t_note("Map of another subresource while one is mapped -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 1);
     ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
     ID3D11Texture2D_Release(t);

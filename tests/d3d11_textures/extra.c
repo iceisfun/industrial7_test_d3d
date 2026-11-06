@@ -20,13 +20,14 @@ F3D(odd, 7, 5, 3)
 F3D(unit, 1, 1, 1)
 F3D(flat, 33, 17, 1)
 
+/* A mip count beyond the full chain is rejected (Win10 22H2: E_INVALIDARG, creation and validation alike). */
 static void tx_too_many_mips(tx_ctx *c, UINT w, UINT h, UINT mips, const char *file, int line) {
     ID3D11Texture2D *t = NULL;
     HRESULT hr = tx_mk2d(c, w, h, mips, 1, F_RGBA8, U_DEF, B_SRV, 0, 0, NULL, &t);
-    t_note("%s:%d %ux%u with %u mip levels (full chain %u): %s", file, line, w, h, mips, tx_full_mips(w > h ? w : h), d3dh_hr_name(hr));
+    t_check(hr == E_INVALIDARG && !t, file, line, "mip count beyond the chain", "%ux%u with %u levels (full chain %u): %s", w, h, mips, tx_full_mips(w > h ? w : h), d3dh_hr_name(hr));
     SAFE_RELEASE(t);
 }
-DEVTEST(d3d11_textures_x2d_mip_count_beyond_chain_note) {
+DEVTEST(d3d11_textures_x2d_mip_count_beyond_chain) {
     tx_too_many_mips(c, 16, 16, 6, __FILE__, __LINE__);
     tx_too_many_mips(c, 16, 16, 20, __FILE__, __LINE__);
     tx_too_many_mips(c, 1, 1, 2, __FILE__, __LINE__);

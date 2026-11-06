@@ -190,7 +190,7 @@ DEVTEST(d3d11_textures_init2d_pitch_zero_note) {
     CHECK(tx_init_make(&in, 4, 4, 1, 1, 1, F_RGBA8, 0, 0, 92));
     in.sd[0].SysMemPitch = 0;
     hr = tx_mk2d(c, 4, 4, 1, 1, F_RGBA8, U_IMM, B_SRV, 0, 0, in.sd, &t);
-    t_note("2D initial data with SysMemPitch 0 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG); CHECK(t == NULL);
     SAFE_RELEASE(t);
     tx_init_free(&in);
 }
@@ -199,7 +199,7 @@ DEVTEST(d3d11_textures_init2d_pitch_too_small_note) {
     CHECK(tx_init_make(&in, 4, 4, 1, 1, 1, F_RGBA8, 0, 0, 93));
     in.sd[0].SysMemPitch = 4;      /* smaller than one row of 4 RGBA8 texels */
     hr = tx_mk2d(c, 4, 4, 1, 1, F_RGBA8, U_IMM, B_SRV, 0, 0, in.sd, &t);
-    t_note("2D initial data with SysMemPitch below row size -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 does not validate a SysMemPitch below the row size (it reads past the row: do not rely on it) */
     SAFE_RELEASE(t);
     tx_init_free(&in);
 }

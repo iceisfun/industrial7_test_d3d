@@ -8,6 +8,7 @@ static void tx_c1d(tx_ctx *c, const char *file, int line, UINT w, UINT mips, UIN
                    UINT bind, UINT cpu, UINT misc, HRESULT want, UINT minfl) {
     D3D11_TEXTURE1D_DESC d, g; tx_init in; D3D11_SUBRESOURCE_DATA *sd = NULL; ID3D11Texture1D *t = NULL; HRESULT hr, hr2, w2;
     int hard = c->fl >= (D3D_FEATURE_LEVEL)minfl;
+    want = tx_resolve(c, want);
     memset(&in, 0, sizeof in); memset(&d, 0, sizeof d);
     d.Width = w; d.MipLevels = mips; d.ArraySize = arr; d.Format = f; d.Usage = u; d.BindFlags = bind; d.CPUAccessFlags = cpu; d.MiscFlags = misc;
     if (u == D3D11_USAGE_IMMUTABLE && w && w <= 16384 && arr && arr <= 64 && tx_init_make(&in, w, 1, 1, mips <= 16 ? mips : 1, arr, f, 0, 0, 3)) sd = in.sd;
@@ -31,6 +32,7 @@ static void tx_c3d(tx_ctx *c, const char *file, int line, UINT w, UINT h, UINT d
                    UINT bind, UINT cpu, UINT misc, HRESULT want, UINT minfl) {
     D3D11_TEXTURE3D_DESC d, g; tx_init in; D3D11_SUBRESOURCE_DATA *sd = NULL; ID3D11Texture3D *t = NULL; HRESULT hr, hr2, w2;
     int hard = c->fl >= (D3D_FEATURE_LEVEL)minfl;
+    want = tx_resolve(c, want);
     memset(&in, 0, sizeof in); memset(&d, 0, sizeof d);
     d.Width = w; d.Height = h; d.Depth = dp; d.MipLevels = mips; d.Format = f; d.Usage = u; d.BindFlags = bind; d.CPUAccessFlags = cpu; d.MiscFlags = misc;
     if (u == D3D11_USAGE_IMMUTABLE && w && h && dp && w <= 256 && h <= 256 && dp <= 256 && tx_init_make(&in, w, h, dp, mips <= 16 ? mips : 1, 1, f, 0, 0, 5)) sd = in.sd;
@@ -84,8 +86,9 @@ C1D(arr512, 8, 1, 512, F_R8, U_DEF, B_SRV, 0, 0, OKAY, 0)
 C1D(arr2048, 8, 1, 2048, F_R8, U_DEF, B_SRV, 0, 0, OKAY, FL_11_0)
 C1D(arr2049, 8, 1, 2049, F_R8, U_DEF, B_SRV, 0, 0, BAD, 0)
 C1D(arr_huge, 8, 1, 0xFFFFFFFFu, F_R8, U_DEF, B_SRV, 0, 0, BAD, 0)
-C1D(def_cpuw, 64, 1, 1, F_RGBA8, U_DEF, B_SRV, CPU_W, 0, BAD, 0)
-C1D(def_cpur, 64, 1, 1, F_RGBA8, U_DEF, B_SRV, CPU_R, 0, BAD, 0)
+C1D(def_cpuw, 64, 1, 1, F_RGBA8, U_DEF, B_SRV, CPU_W, 0, TXW_MAPDEF, 0)
+C1D(def_cpur, 64, 1, 1, F_RGBA8, U_DEF, B_SRV, CPU_R, 0, TXW_MAPDEF, 0)
+C1D(def_cpu_bit0, 64, 1, 1, F_RGBA8, U_DEF, B_SRV, 1, 0, BAD, 0)
 C1D(def_nobind, 64, 1, 1, F_RGBA8, U_DEF, 0, 0, 0, OKAY, 0)
 C1D(dyn_srv_w, 64, 1, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, OKAY, 0)
 C1D(dyn_srv_nocpu, 64, 1, 1, F_RGBA8, U_DYN, B_SRV, 0, 0, BAD, 0)
@@ -170,7 +173,9 @@ C3D(bind_ds_d32, 8, 8, 8, 1, DXGI_FORMAT_D32_FLOAT, U_DEF, B_DS, 0, 0, BAD, 0)
 C3D(bind_ds_d24s8, 8, 8, 8, 1, DXGI_FORMAT_D24_UNORM_S8_UINT, U_DEF, B_DS, 0, 0, BAD, 0)
 C3D(bind_uav_r32u, 8, 8, 8, 1, DXGI_FORMAT_R32_UINT, U_DEF, B_UAV, 0, 0, OKAY, FL_11_0)
 C3D(bind_undef, 8, 8, 8, 1, F_RGBA8, U_DEF, 0x80000000u, 0, 0, BAD, 0)
-C3D(def_cpuw, 8, 8, 8, 1, F_RGBA8, U_DEF, B_SRV, CPU_W, 0, BAD, 0)
+C3D(def_cpuw, 8, 8, 8, 1, F_RGBA8, U_DEF, B_SRV, CPU_W, 0, TXW_MAPDEF, 0)
+C3D(def_cpur, 8, 8, 8, 1, F_RGBA8, U_DEF, B_SRV, CPU_R, 0, TXW_MAPDEF, 0)
+C3D(def_cpu_bit0, 8, 8, 8, 1, F_RGBA8, U_DEF, B_SRV, 1, 0, BAD, 0)
 C3D(def_nobind, 8, 8, 8, 1, F_RGBA8, U_DEF, 0, 0, 0, OKAY, 0)
 C3D(dyn_srv_w, 8, 8, 8, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, OKAY, 0)
 C3D(dyn_rt, 8, 8, 8, 1, F_RGBA8, U_DYN, B_RT, CPU_W, 0, BAD, 0)
@@ -337,26 +342,27 @@ DEVTEST(d3d11_textures_note_cube_array_sizes) {
     static const UINT sizes[] = {6, 7, 8, 11, 12, 13, 18};
     for (UINT i = 0; i < sizeof sizes / sizeof *sizes; i++) {
         ID3D11Texture2D *t = NULL; HRESULT hr = tx_mk2d(c, 16, 16, 1, sizes[i], F_RGBA8, U_DEF, B_SRV, 0, M_CUBE, NULL, &t);
-        t_note("TEXTURECUBE ArraySize %u -> %s", sizes[i], d3dh_hr_name(hr));
+        t_check(hr == S_OK, __FILE__, __LINE__, "TEXTURECUBE with ArraySize >= 6", "ArraySize %u: %s", sizes[i], d3dh_hr_name(hr));   /* any size >= 6 is accepted by WARP, not only multiples of 6 */
         SAFE_RELEASE(t);
     }
 }
 DEVTEST(d3d11_textures_note_dynamic_arrays_and_mips) {
     ID3D11Texture2D *t = NULL; HRESULT hr;
-    hr = tx_mk2d(c, 16, 16, 1, 2, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); t_note("dynamic array 2 -> %s", d3dh_hr_name(hr)); SAFE_RELEASE(t);
-    hr = tx_mk2d(c, 16, 16, 3, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); t_note("dynamic 3 mips -> %s", d3dh_hr_name(hr)); SAFE_RELEASE(t);
-    hr = tx_mk2d(c, 16, 16, 0, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); t_note("dynamic full chain -> %s", d3dh_hr_name(hr)); SAFE_RELEASE(t);
+    hr = tx_mk2d(c, 16, 16, 1, 2, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(t);   /* dynamic: one subresource only */
+    hr = tx_mk2d(c, 16, 16, 3, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(t);
+    hr = tx_mk2d(c, 16, 16, 0, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(t);
+    hr = tx_mk2d(c, 16, 16, 1, 1, F_RGBA8, U_DYN, B_SRV, CPU_W, 0, NULL, &t); EXPECT_HR(hr, S_OK); SAFE_RELEASE(t);
 }
 DEVTEST(d3d11_textures_note_bc_nonmultiple_of_4) {
     static const UINT sz[][2] = {{1,1},{2,2},{3,3},{5,5},{6,10},{7,4}};
     for (UINT i = 0; i < sizeof sz / sizeof *sz; i++) {
         ID3D11Texture2D *t = NULL; HRESULT hr = tx_mk2d(c, sz[i][0], sz[i][1], 1, 1, DXGI_FORMAT_BC1_UNORM, U_DEF, B_SRV, 0, 0, NULL, &t);
-        t_note("BC1 %ux%u -> %s", sz[i][0], sz[i][1], d3dh_hr_name(hr));
+        t_check(hr == E_INVALIDARG && !t, __FILE__, __LINE__, "BC1 base size not a multiple of 4", "%ux%u: %s", sz[i][0], sz[i][1], d3dh_hr_name(hr));   /* Win10 22H2 */
         SAFE_RELEASE(t);
     }
 }
 DEVTEST(d3d11_textures_note_default_nobind_1d_3d) {
     ID3D11Texture1D *t1 = NULL; ID3D11Texture3D *t3 = NULL;
-    t_note("1D default bind 0 -> %s", d3dh_hr_name(tx_mk1d(c, 8, 1, 1, F_RGBA8, U_DEF, 0, 0, 0, NULL, &t1))); SAFE_RELEASE(t1);
-    t_note("3D default bind 0 -> %s", d3dh_hr_name(tx_mk3d(c, 4, 4, 4, 1, F_RGBA8, U_DEF, 0, 0, 0, NULL, &t3))); SAFE_RELEASE(t3);
+    EXPECT_HR(tx_mk1d(c, 8, 1, 1, F_RGBA8, U_DEF, 0, 0, 0, NULL, &t1), S_OK); SAFE_RELEASE(t1);
+    EXPECT_HR(tx_mk3d(c, 4, 4, 4, 1, F_RGBA8, U_DEF, 0, 0, 0, NULL, &t3), S_OK); SAFE_RELEASE(t3);
 }

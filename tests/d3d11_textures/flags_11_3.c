@@ -109,7 +109,7 @@ DEVTEST(d3d11_textures_shared_open_shares_content) {
         EXPECT_HR(hr, S_OK);
         if (t2) {
             if (SUCCEEDED(tx_fetch(&c2, (ID3D11Resource *)t2, 0, &im))) {
-                t_note("content seen through the second device: %08x (expected 33669980 in byte order 51 102 153 204)", tx_px32(&im, 0, 0, 0));
+                EXPECT_EQ(tx_px32(&im, 0, 0, 0), 0xcc996633u);   /* bytes 51 102 153 204 */
                 tx_img_free(&im);
             }
             ID3D11Texture2D_Release(t2);
@@ -135,15 +135,14 @@ DEVTEST(d3d11_textures_shared_open_wrong_iid) {
         EXPECT_HR(hr, S_OK); if (p) IUnknown_Release((IUnknown *)p);
         p = NULL;
         hr = ID3D11Device_OpenSharedResource(c->dev, h, &IID_ID3D11Buffer, &p);
-        t_note("OpenSharedResource of a texture as ID3D11Buffer -> %s", d3dh_hr_name(hr)); if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
+        EXPECT_HR(hr, E_NOINTERFACE); CHECK(p == NULL); if (SUCCEEDED(hr) && p) IUnknown_Release((IUnknown *)p);
         IDXGIResource_Release(res);
     }
     ID3D11Texture2D_Release(tex);
 }
 DEVTEST(d3d11_textures_shared_open_null_handle) {
     void *p = (void *)(ULONG_PTR)0xDEADBEEF; HRESULT hr = ID3D11Device_OpenSharedResource(c->dev, NULL, &IID_ID3D11Texture2D, &p);
-    t_note("OpenSharedResource(NULL) -> %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
 }
 
 /* ---- IDXGIKeyedMutex semantics ------------------------------------------------------------------------------------------- */
@@ -318,7 +317,7 @@ DEVTEST(d3d11_textures_gdi_double_getdc_note) {
     EXPECT_HR(ID3D11Texture2D_QueryInterface(t, &IID_IDXGISurface1, (void **)&s), S_OK);
     if (s && SUCCEEDED(IDXGISurface1_GetDC(s, FALSE, &dc))) {
         hr = IDXGISurface1_GetDC(s, FALSE, &dc2);
-        t_note("second GetDC without ReleaseDC -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);
         if (SUCCEEDED(hr)) IDXGISurface1_ReleaseDC(s, NULL);
         IDXGISurface1_ReleaseDC(s, NULL);
     }
@@ -409,14 +408,14 @@ DEVTEST(d3d11_textures_t2d1_initial_data) {
     tx_init_free(&in);
     ID3D11Device3_Release(d3);
 }
-static void tx_layout_note(tx_ctx *c, D3D11_TEXTURE_LAYOUT layout, D3D11_USAGE u, UINT bind, UINT cpu) {
+static void tx_layout_note(tx_ctx *c, D3D11_TEXTURE_LAYOUT layout, D3D11_USAGE u, UINT bind, UINT cpu, HRESULT want_validate, HRESULT want_create) {
     ID3D11Device3 *d3 = tx_dev3(c); D3D11_TEXTURE2D_DESC1 d1; ID3D11Texture2D1 *t = NULL; HRESULT hr, hv;
     if (!d3) return;
     memset(&d1, 0, sizeof d1);
     d1.Width = d1.Height = 64; d1.MipLevels = d1.ArraySize = 1; d1.Format = F_RGBA8; d1.SampleDesc.Count = 1; d1.Usage = u; d1.BindFlags = bind; d1.CPUAccessFlags = cpu; d1.TextureLayout = layout;
     hv = ID3D11Device3_CreateTexture2D1(d3, &d1, NULL, NULL);
     hr = ID3D11Device3_CreateTexture2D1(d3, &d1, NULL, &t);
-    t_note("layout %d usage %d bind %#x cpu %#x: validate %s create %s", layout, u, bind, cpu, d3dh_hr_name(hv), d3dh_hr_name(hr));
+    t_check(hv == want_validate && hr == want_create, __FILE__, __LINE__, "texture layout", "layout %d usage %d bind %#x cpu %#x: validate %s create %s (want %s / %s)", layout, u, bind, cpu, d3dh_hr_name(hv), d3dh_hr_name(hr), d3dh_hr_name(want_validate), d3dh_hr_name(want_create));
     if (SUCCEEDED(hr) && t) {
         D3D11_TEXTURE2D_DESC1 g; ID3D11Texture2D1_GetDesc1(t, &g);
         CHECKF(g.TextureLayout == layout, "created layout %d reported as %d", layout, g.TextureLayout);
@@ -424,12 +423,12 @@ static void tx_layout_note(tx_ctx *c, D3D11_TEXTURE_LAYOUT layout, D3D11_USAGE u
     }
     ID3D11Device3_Release(d3);
 }
-DEVTEST(d3d11_textures_t2d1_layout_row_major_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_ROW_MAJOR, U_DEF, B_SRV, 0); }
-DEVTEST(d3d11_textures_t2d1_layout_row_major_staging_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_ROW_MAJOR, U_STG, 0, CPU_R | CPU_W); }
-DEVTEST(d3d11_textures_t2d1_layout_undefined_swizzle_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE, U_DEF, B_SRV, 0); }
-DEVTEST(d3d11_textures_t2d1_layout_standard_swizzle_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE, U_DEF, B_SRV | B_RT, 0); }
-DEVTEST(d3d11_textures_t2d1_layout_out_of_range_note) { tx_layout_note(c, (D3D11_TEXTURE_LAYOUT)9, U_DEF, B_SRV, 0); }
-DEVTEST(d3d11_textures_t2d1_layout_undefined_ok) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_UNDEFINED, U_DEF, B_SRV, 0); }
+DEVTEST(d3d11_textures_t2d1_layout_row_major_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_ROW_MAJOR, U_DEF, B_SRV, 0, E_INVALIDARG, E_INVALIDARG); }
+DEVTEST(d3d11_textures_t2d1_layout_row_major_staging_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_ROW_MAJOR, U_STG, 0, CPU_R | CPU_W, S_FALSE, S_OK); }
+DEVTEST(d3d11_textures_t2d1_layout_undefined_swizzle_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE, U_DEF, B_SRV, 0, E_INVALIDARG, E_INVALIDARG); }
+DEVTEST(d3d11_textures_t2d1_layout_standard_swizzle_note) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE, U_DEF, B_SRV | B_RT, 0, E_INVALIDARG, E_INVALIDARG); }
+DEVTEST(d3d11_textures_t2d1_layout_out_of_range_note) { tx_layout_note(c, (D3D11_TEXTURE_LAYOUT)9, U_DEF, B_SRV, 0, E_INVALIDARG, E_INVALIDARG); }
+DEVTEST(d3d11_textures_t2d1_layout_undefined_ok) { tx_layout_note(c, D3D11_TEXTURE_LAYOUT_UNDEFINED, U_DEF, B_SRV, 0, S_FALSE, S_OK); }
 
 DEVTEST(d3d11_textures_t3d1_qi_and_desc1) {
     ID3D11Device3 *d3 = tx_dev3(c); ID3D11Texture3D *t = NULL; ID3D11Texture3D1 *t1 = NULL; D3D11_TEXTURE3D_DESC1 d1; D3D11_TEXTURE3D_DESC d;
@@ -471,7 +470,7 @@ DEVTEST(d3d11_textures_t3d1_layout_row_major_note) {
     memset(&d1, 0, sizeof d1);
     d1.Width = d1.Height = d1.Depth = 8; d1.MipLevels = 1; d1.Format = F_RGBA8; d1.Usage = U_DEF; d1.BindFlags = B_SRV; d1.TextureLayout = D3D11_TEXTURE_LAYOUT_ROW_MAJOR;
     hv = ID3D11Device3_CreateTexture3D1(d3, &d1, NULL, NULL);
-    t_note("3D ROW_MAJOR layout validate -> %s", d3dh_hr_name(hv));
+    EXPECT_HR(hv, E_INVALIDARG);
     ID3D11Device3_Release(d3);
 }
 DEVTEST(d3d11_textures_t1d_has_no_desc1_interface) {
@@ -532,7 +531,7 @@ DEVTEST(d3d11_textures_video_nv12_staging_pitches) {
     CHECK(m.pData != NULL);
     CHECKF(m.RowPitch >= 18, "RowPitch %u", m.RowPitch);
     CHECKF(m.DepthPitch >= (UINT64)m.RowPitch * 10, "DepthPitch %u RowPitch %u", m.DepthPitch, m.RowPitch);
-    t_note("NV12 18x10 staging: RowPitch %u DepthPitch %u (luma-only %u, full %u)", m.RowPitch, m.DepthPitch, m.RowPitch * 10, m.RowPitch * 15);
+    EXPECT_EQ(m.RowPitch, 20); EXPECT_EQ(m.DepthPitch, 212);   /* WARP: 4-byte aligned rows; luma + chroma plane layout */
     ID3D11DeviceContext_Unmap(c->ctx, (ID3D11Resource *)t, 0);
     ID3D11Texture2D_Release(t);
 }
