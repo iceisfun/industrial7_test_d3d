@@ -33,7 +33,13 @@ static void by_ordinal(const char *dll) {
         if (!byname) { if (!t_is_wine()) CHECKF(0, "%s!%s missing", dll, g3_tab[i].name); continue; }
         DWORD rva = 0; unsigned ord = g3_find_named(m, g3_tab[i].name, &rva);
         CHECKF(ord != 0, "%s!%s in export directory", dll, g3_tab[i].name);
-        if (ord != g3_tab[i].ord) t_note("%s!%s ordinal %u (reference build %u)", dll, g3_tab[i].name, ord, g3_tab[i].ord);
+        if (ord != g3_tab[i].ord) {
+            typedef LONG (WINAPI *rtl_t)(OSVERSIONINFOW *);
+            rtl_t rv = (rtl_t)GetProcAddress(GetModuleHandleA("ntdll.dll"), "RtlGetVersion");
+            OSVERSIONINFOW vi; memset(&vi, 0, sizeof vi); vi.dwOSVersionInfoSize = sizeof vi;
+            if (rv && rv(&vi) == 0 && vi.dwBuildNumber == 19045) CHECKF(0, "%s!%s ordinal %u, reference build 19045 has %u", dll, g3_tab[i].name, ord, g3_tab[i].ord);
+            else t_note("%s!%s ordinal %u (reference build 19045: %u)", dll, g3_tab[i].name, ord, g3_tab[i].ord);
+        }
         FARPROC byord = GetProcAddress(m, (LPCSTR)(ULONG_PTR)ord);
         CHECKF(byord == byname, "%s!%s: GetProcAddress by ordinal %u equals by name", dll, g3_tab[i].name, ord);
     }

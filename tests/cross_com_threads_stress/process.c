@@ -70,11 +70,8 @@ static void load_case(const char *dll, const char *exp, int hard)
     char a[200]; DWORD rc;
     snprintf(a, sizeof a, "%s %s", dll, exp);
     rc = t_run_child("load_one", a, 30000);
-    if (hard) { EXPECT_EQ(rc, 0); }
-    else {
-        t_note("%s load child result %lu (0 = loaded from System32 with export %s)", dll, rc, exp);
-        CHECK(rc != 0xDEAD0000 && rc != 0xDEAD0001);
-    }
+    (void)hard;      /* Windows 10: every module of the family loads from System32 and exports the entry (child result 0) */
+    t_check(rc == 0, __FILE__, __LINE__, "module load child", "%s load child result %lu (0 = loaded from System32 with export %s)", dll, rc, exp);
 }
 #define LOADT(nm, dll, exp, hard) T(process_load_##nm) { load_case(dll, exp, hard); }
 LOADT(d3d11, "d3d11.dll", "D3D11CreateDevice", 1)
@@ -174,8 +171,7 @@ T(process_create11_minimal_environment_note)
     n += snprintf(blk + n, sizeof blk - n, "windir=%s", sysroot) + 1;
     blk[n] = 0;
     rc = run_ex("create11", "", 0, blk, 0, 60000);
-    t_note("device creation with only SystemRoot/windir in the environment: child result %lu", rc);
-    CHECK(rc != 0xDEAD0000 && rc != 0xDEAD0001);
+    EXPECT_EQ(rc, 0);                  /* Windows 10: a device is created with only SystemRoot/windir in the environment */
 }
 
 CHILD(create_dxgi)

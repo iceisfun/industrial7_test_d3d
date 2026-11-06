@@ -145,8 +145,7 @@ T(lifecycle_get_immediate_context_addrefs)
     ID3D11Device_GetImmediateContext(d, &c3);
     CHECK(c2 == c); CHECK(c3 == c);
     after = d3dh_refcount(c);
-    CHECK(after >= before + 1);
-    if (after != before + 2) t_note("immediate context refcount delta %d (expected 2)", (int)(after - before));
+    EXPECT_EQ(after, before + 2);       /* Windows 10: every GetImmediateContext adds exactly one reference */
     SAFE_RELEASE(c3); SAFE_RELEASE(c2);
     CHECK(d3dh_refcount(c) <= after);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -221,7 +220,12 @@ T(lifecycle_adapter_enumeration_protocol)
         if (FAILED(h) || n > 64) break;
         SAFE_RELEASE(a);
     }
-    t_note("adapter count %u", n);
+    {   /* the oracle has the Microsoft Basic Render Driver twice (one with the display output, one WARP adapter without) */
+        IDXGIAdapter1 *a0 = NULL; DXGI_ADAPTER_DESC1 ad;
+        if (SUCCEEDED(IDXGIFactory1_EnumAdapters1(f, 0, &a0)) && SUCCEEDED(IDXGIAdapter1_GetDesc1(a0, &ad)) && ad.VendorId == 0x1414) EXPECT_EQ(n, 2);
+        else t_note("adapter count %u (not the Basic Render Driver machine)", n);
+        SAFE_RELEASE(a0);
+    }
     a = (IDXGIAdapter1 *)(ULONG_PTR)0x1;
     EXPECT_HR(IDXGIFactory1_EnumAdapters1(f, n + 5, &a), DXGI_ERROR_NOT_FOUND);
     CHECK(a == NULL);
@@ -393,7 +397,6 @@ T(lifecycle_d3d12_new_device_after_removal)
     rc = t_run_child("d3d12_remove_then_new", "", 90000);
     if (rc == 0x4000) { t_skip("no d3d12 device"); return; }
     if (rc == 0x8000) { t_skip("ID3D12Device5 not available"); return; }
-    t_note("new device after removal child result %lu (0 = ok)", rc);
     EXPECT_EQ(rc, 0);
 }
 

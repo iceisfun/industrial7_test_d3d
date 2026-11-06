@@ -101,8 +101,26 @@ static void fmt_create(UINT f)
     UINT s; int video = cf_is_video(f);
     if (!d) { t_skip("no D3D11 device"); return; }
     s = cf_sup(d, f);
-    if (!s || cf_is_typeless(f) || f == 0) { t_skip("not a typed supported format"); return; }
-    if (f == DXGI_FORMAT_X24_TYPELESS_G8_UINT || f == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT || f == DXGI_FORMAT_R1_UNORM) { t_skip("view-only format"); return; }
+    if (f == 0) return;
+    {   /* formats that cannot be a resource format: no bind flag can create them (probed: E_INVALIDARG) */
+        D3D11_TEXTURE2D_DESC bd; ID3D11Texture2D *bt = NULL; HRESULT bh;
+        if (!s || f == DXGI_FORMAT_R1_UNORM) {
+            memset(&bd, 0, sizeof bd); bd.Width = 16; bd.Height = 16; bd.MipLevels = 1; bd.ArraySize = 1; bd.Format = (DXGI_FORMAT)f;
+            bd.SampleDesc.Count = 1; bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            bh = ID3D11Device_CreateTexture2D(d, &bd, NULL, &bt);
+            t_check(bh == E_INVALIDARG, __FILE__, __LINE__, "non-resource format texture", "%s (support %#x) got %s", cf_fmt_name(f), s, d3dh_hr_name(bh));
+            SAFE_RELEASE(bt);
+            return;
+        }
+        if (cf_is_typeless(f) || f == DXGI_FORMAT_X24_TYPELESS_G8_UINT || f == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT) {   /* the X24/X32 stencil views are creatable (SRV) on Windows 10 */
+            memset(&bd, 0, sizeof bd); bd.Width = 16; bd.Height = 16; bd.MipLevels = 1; bd.ArraySize = 1; bd.Format = (DXGI_FORMAT)f;
+            bd.SampleDesc.Count = 1; bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            bh = ID3D11Device_CreateTexture2D(d, &bd, NULL, &bt);
+            EXPECT_HR(bh, S_OK);          /* every typeless format can back a shader-resource texture (see typeless_bind_rules for the other binds) */
+            SAFE_RELEASE(bt);
+            return;
+        }
+    }
     D3D11_TEXTURE2D_DESC td; ID3D11Texture2D *tex; HRESULT hr;
     memset(&td, 0, sizeof(td));
     td.Width = 16; td.Height = 16; td.MipLevels = 1; td.ArraySize = 1; td.Format = (DXGI_FORMAT)f;

@@ -257,7 +257,13 @@ TEST(d3d11_caps_formats_counter_check_first_device_counter)
     char name[128], units[128], desc[256];
     if (!d) { t_skip("no D3D11 device"); return; }
     ID3D11Device_CheckCounterInfo(d, &ci);
-    if (ci.LastDeviceDependentCounter < D3D11_COUNTER_DEVICE_DEPENDENT_0) { t_skip("no device-dependent counters (WARP)"); return; }
+    if (ci.LastDeviceDependentCounter < D3D11_COUNTER_DEVICE_DEPENDENT_0) {
+        /* Windows 10 Basic Render Driver: no device counters, so the first one is rejected */
+        cd.Counter = D3D11_COUNTER_DEVICE_DEPENDENT_0; cd.MiscFlags = 0;
+        EXPECT_EQ(ci.LastDeviceDependentCounter, 0);
+        EXPECT_HR(ID3D11Device_CheckCounter(d, &cd, &t, &active, NULL, &nl, NULL, &ul, NULL, &dl), E_INVALIDARG);
+        return;
+    }
     cd.Counter = D3D11_COUNTER_DEVICE_DEPENDENT_0; cd.MiscFlags = 0;
     /* size query: lengths in, no buffers */
     HRESULT hr = ID3D11Device_CheckCounter(d, &cd, &t, &active, NULL, &nl, NULL, &ul, NULL, &dl);

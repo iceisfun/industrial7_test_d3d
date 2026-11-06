@@ -367,7 +367,7 @@ T(apartment_marshal_probe_note)
     REQUIRE(d3dh_D3D11CreateDevice());
     if (FAILED(cts_dev11(0, &d, &c))) { t_skip("no 11 device"); return; }
     hr = ID3D11Device_QueryInterface(d, &IID_IMarshal, (void **)&m);
-    t_note("ID3D11Device QI(IMarshal) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);       /* Windows 10: the device does not implement IMarshal itself (free-threaded marshaler is not offered) */
     if (SUCCEEDED(hr)) {
         CLSID cls; memset(&cls, 0, sizeof cls);
         HRESULT h2 = IMarshal_GetUnmarshalClass(m, &IID_ID3D11Device, d, MSHCTX_INPROC, NULL, MSHLFLAGS_NORMAL, &cls);

@@ -45,8 +45,8 @@ T(threads_refcount_hammer_buffer_and_texture)
     if (FAILED(cts_dev11(0, &d, &c))) { t_skip("no 11 device"); return; }
     EXPECT_HR_OK(cts_make_buffer(d, 64, D3D11_BIND_VERTEX_BUFFER, &b));
     EXPECT_HR_OK(cts_make_tex(d, 8, 8, &t));
-    if (b) { if (d3dh_refcount(b) != 1) t_note("new buffer refcount %u", (unsigned)d3dh_refcount(b)); rc_case((IUnknown *)b); }
-    if (t) { if (d3dh_refcount(t) != 1) t_note("new texture refcount %u", (unsigned)d3dh_refcount(t)); rc_case((IUnknown *)t); }
+    if (b) { EXPECT_EQ(d3dh_refcount(b), 1); rc_case((IUnknown *)b); }
+    if (t) { EXPECT_EQ(d3dh_refcount(t), 1); rc_case((IUnknown *)t); }
     SAFE_RELEASE(t); SAFE_RELEASE(b); SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 T(threads_refcount_hammer_dxgi_factory)
@@ -99,7 +99,7 @@ T(threads_queryinterface_concurrent_device)
     CHECK(cts_run(NT, j, qi_hammer, 60000));
     EXPECT_EQ(cts_total_fails(NT, j), 0);
     EXPECT_EQ(cts_total_done(NT, j), NT * 300);
-    if (d3dh_refcount(d) != before) t_note("device refcount changed after resource churn");
+    EXPECT_EQ(d3dh_refcount(d), before);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
@@ -131,7 +131,7 @@ T(threads_create_destroy_buffers_8x200)
     CHECK(cts_run(NT, j, create_buffers, 120000));
     EXPECT_EQ(cts_total_fails(NT, j), 0);
     EXPECT_EQ(cts_total_done(NT, j), NT * 200);
-    if (d3dh_refcount(d) != before) t_note("device refcount changed after resource churn");
+    EXPECT_EQ(d3dh_refcount(d), before);
     EXPECT_HR(ID3D11Device_GetDeviceRemovedReason(d), S_OK);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
@@ -194,7 +194,7 @@ T(threads_objects_outlive_creating_threads)
         EXPECT_EQ(bd.ByteWidth, 32 + k);
         EXPECT_EQ(ID3D11Buffer_Release(keep[i][k]), 0);
     } else CHECK(0);
-    if (d3dh_refcount(d) != before) t_note("device refcount %u != %u after releasing resources", (unsigned)d3dh_refcount(d), (unsigned)before);
+    EXPECT_EQ(d3dh_refcount(d), before);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 

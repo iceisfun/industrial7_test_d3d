@@ -130,15 +130,15 @@ static int warp_init(void) {
 TEST(gap3_d3d11refgetlastcreation_null_out) {
     lastcreate_t f = (lastcreate_t)t_proc_in("d3d10warp.dll", "D3D11RefGetLastCreation"); REQUIRE(f);
     unsigned hr = f(NULL);
-    if (hr == E_FAIL_UNSPEC) { t_note("module initialisation failed on this host (0x8000FFFF)"); return; }
+    if (hr == E_FAIL_UNSPEC && t_is_wine()) { t_note("module initialisation failed in the emulator (0x8000FFFF)"); return; }
     EXPECT_EQ(hr, E_INVALIDARG_);
 }
 TEST(gap3_d3d11refgetlastcreation_out_is_written) {
     lastcreate_t f = (lastcreate_t)t_proc_in("d3d10warp.dll", "D3D11RefGetLastCreation"); REQUIRE(f);
     void *o = (void *)(ULONG_PTR)0x1; unsigned hr = f(&o);
-    if (hr == E_FAIL_UNSPEC) { t_note("module initialisation failed on this host"); return; }
+    if (hr == E_FAIL_UNSPEC && t_is_wine()) { t_note("module initialisation failed in the emulator"); return; }
     EXPECT_EQ(hr, 0);
-    t_note("last created WARP device before any creation in this process: %p", o);
+    EXPECT_EQ(o, 0);    /* Windows 10: no WARP device has been created yet in this process */
     void *o2 = (void *)(ULONG_PTR)0x2; EXPECT_EQ(f(&o2), 0);
     EXPECT_EQ(o2, o);   /* no device is created between the two calls */
 }
