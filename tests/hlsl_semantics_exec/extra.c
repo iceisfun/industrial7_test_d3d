@@ -26,7 +26,7 @@ HSE_P(x_firstbithigh_uint2, "uint2 v = firstbithigh(uint2(ua, ub));", "v.x ^ (v.
 HSE_P(x_firstbitlow_uint2, "uint2 v = firstbitlow(uint2(ua, ub));", "v.x ^ (v.y * 7u)", HSE_EXACT, 0, x_fbl(a) ^ (x_fbl(b) * 7u))
 HSE_P(x_reversebits_uint3, "uint3 v = reversebits(uint3(ua, ub, uc));", "v.x ^ (v.y * 3u) ^ (v.z * 5u)", HSE_EXACT, 0, x_rev(a) ^ (x_rev(b) * 3u) ^ (x_rev(c) * 5u))
 HSE_P(x_asuint_asint_identity, "", "asuint(asint(ua)) ^ asuint(ib)", HSE_EXACT, 0, a ^ b)
-HSE_P(x_asfloat_roundtrip_bits_observed, "", "asuint(asfloat(ua))", HSE_EXACT | HSE_SOFT, 0, a)
+HSE_P(x_asfloat_roundtrip_bits_observed, "", "asuint(asfloat(ua))", HSE_WARPHARD, 0, a)
 HSE_P(x_bool_to_int_is_zero_or_one, "", "(uint)(ua < ub) + (uint)(ua == ub) * 2u + (uint)(int)(ua > ub) * 4u", HSE_EXACT, 0,
       (a < b ? 1u : 0u) + (a == b ? 2u : 0u) + (a > b ? 4u : 0u))
 HSE_P(x_bool_to_float, "", "(float)(ua < ub) + (float)(ua > ub) * 2.0", HSE_EXACT, 0, FB((a < b ? 1.0f : 0.0f) + (a > b ? 2.0f : 0.0f)))
@@ -71,9 +71,9 @@ HSE_T(x_saturate_vector_lanes, "float3 s = saturate(float3(fa, fb, fc));", "s.x 
 HSE_T(x_sincos_zero, "float s, c; sincos(fa, s, c);", "s * 10.0 + c", HSE_ULP, 1, { 0, 0, 0, FB(1.0f) })
 HSE_T(x_modf_splits_integer_fraction, "float ip; float fp = modf(fa, ip);", "ip * 10.0 + fp", HSE_ULP, 1,
       { FB(3.5f), 0, 0, FB(30.5f) }, { FB(-3.5f), 0, 0, FB(-30.5f) }, { FB(7.0f), 0, 0, FB(70.0f) }, { FB(0.25f), 0, 0, FB(0.25f) })
-HSE_T(x_exp2_integers_observed, "", "exp2(fa)", HSE_EXACT | HSE_SOFT, 0,
+HSE_T(x_exp2_integers_observed, "", "exp2(fa)", HSE_WARPHARD, 0,
       { FB(3.0f), 0, 0, FB(8.0f) }, { FB(-2.0f), 0, 0, FB(0.25f) }, { FB(10.0f), 0, 0, FB(1024.0f) }, { FB(0.0f), 0, 0, FB(1.0f) })
-HSE_T(x_log2_powers_of_two_observed, "", "log2(fa)", HSE_EXACT | HSE_SOFT, 0,
+HSE_T(x_log2_powers_of_two_observed, "", "log2(fa)", HSE_WARPHARD, 0,
       { FB(8.0f), 0, 0, FB(3.0f) }, { FB(0.25f), 0, 0, FB(-2.0f) }, { FB(1024.0f), 0, 0, FB(10.0f) }, { FB(1.0f), 0, 0, 0 })
 HSE_T(x_log2_powers_of_two_within_ulp, "", "log2(fa)", HSE_ULP, 2,
       { FB(8.0f), 0, 0, FB(3.0f) }, { FB(0.25f), 0, 0, FB(-2.0f) }, { FB(1024.0f), 0, 0, FB(10.0f) })
@@ -87,13 +87,13 @@ HSE_T(x_float_to_int_after_floor, "", "(int)floor(fa)", HSE_EXACT, 0,
       { FB(2.5f), 0, 0, 2 }, { FB(-2.5f), 0, 0, (uint32_t)-3 }, { FB(-0.0f), 0, 0, 0 }, { FB(1e10f), 0, 0, 0x7fffffffu })
 
 /* ---- minimum precision types: results need at least 10 mantissa bits / 16 integer bits ------------------------------ */
-HSE_T(x_min16float_add_exact, "min16float x = (min16float)fa + (min16float)fb;", "(float)x", HSE_FLT, 0,
+HSE_TF(x_min16float_add_exact, HSE_NO_IEEE, "min16float x = (min16float)fa + (min16float)fb;", "(float)x", HSE_FLT, 0,
       { FB(1.5f), FB(2.25f), 0, FB(3.75f) }, { FB(-6.0f), FB(2.0f), 0, FB(-4.0f) }, { FB(0.5f), FB(0.25f), 0, FB(0.75f) })
-HSE_T(x_min16float_mul_exact, "min16float x = (min16float)fa * (min16float)fb;", "(float)x", HSE_FLT, 0,
+HSE_TF(x_min16float_mul_exact, HSE_NO_IEEE, "min16float x = (min16float)fa * (min16float)fb;", "(float)x", HSE_FLT, 0,
       { FB(0.5f), FB(0.25f), 0, FB(0.125f) }, { FB(-3.0f), FB(4.0f), 0, FB(-12.0f) }, { FB(100.0f), FB(10.0f), 0, FB(1000.0f) })
-HSE_T(x_min16float_within_half_precision, "min16float x = (min16float)fa * (min16float)fb;", "(float)x", HSE_ULP, 20000,
+HSE_TF(x_min16float_within_half_precision, HSE_NO_IEEE, "min16float x = (min16float)fa * (min16float)fb;", "(float)x", HSE_ULP, 20000,
       { FB(3.14159f), FB(2.0f), 0, FB(6.28318f) }, { FB(1.1f), FB(1.1f), 0, FB(1.21f) })
-HSE_T(x_min16int_add, "min16int x = (min16int)ia + (min16int)ib;", "asuint((int)x)", HSE_EXACT, 0,
+HSE_TF(x_min16int_add, HSE_NO_IEEE, "min16int x = (min16int)ia + (min16int)ib;", "asuint((int)x)", HSE_EXACT, 0,
       { 100, 23, 0, 123 }, { (uint32_t)-100, 40, 0, (uint32_t)-60 }, { 0, 0, 0, 0 })
-HSE_T(x_min16uint_mul, "min16uint x = (min16uint)ua * (min16uint)ub;", "(uint)x", HSE_EXACT, 0,
+HSE_TF(x_min16uint_mul, HSE_NO_IEEE, "min16uint x = (min16uint)ua * (min16uint)ub;", "(uint)x", HSE_EXACT, 0,
       { 100, 200, 0, 20000 }, { 255, 255, 0, 65025 }, { 7, 0, 0, 0 })

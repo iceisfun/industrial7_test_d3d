@@ -93,8 +93,8 @@ HSE_T(int_utof_exact, "", "(float)ua", HSE_EXACT, 0,
       { 0, 0, 0, 0 }, { 1, 0, 0, 0x3f800000u }, { 0x80000000u, 0, 0, 0x4f000000u }, { 16777216, 0, 0, 0x4b800000u }, { 0xffff0000u, 0, 0, 0x4f7fff00u })
 HSE_P(int_itof_pattern_within_1ulp, "", "(float)ia", HSE_ULP, 1, FB((float)(int32_t)a))
 HSE_P(int_utof_pattern_within_1ulp, "", "(float)ua", HSE_ULP, 1, FB((float)a))
-HSE_P(int_itof_round_nearest_even_observed, "", "(float)ia", HSE_EXACT | HSE_SOFT, 0, FB((float)(int32_t)a))
-HSE_P(int_utof_round_nearest_even_observed, "", "(float)ua", HSE_EXACT | HSE_SOFT, 0, FB((float)a))
+HSE_P(int_itof_round_nearest_even_observed, "", "(float)ia", HSE_WARPHARD, 0, FB((float)(int32_t)a))
+HSE_P(int_utof_round_nearest_even_observed, "", "(float)ua", HSE_WARPHARD, 0, FB((float)a))
 HSE_T(int_ftoi_truncates_and_saturates, "", "(int)fa", HSE_EXACT, 0,
       { FB(0.9f), 0, 0, 0 }, { FB(-0.9f), 0, 0, 0 }, { FB(1.5f), 0, 0, 1 }, { FB(-1.5f), 0, 0, (uint32_t)-1 }, { FB(-2.99f), 0, 0, (uint32_t)-2 },
       { FB(2147483648.0f), 0, 0, 0x7fffffffu }, { FB(-2147483904.0f), 0, 0, 0x80000000u }, { FB(-2147483648.0f), 0, 0, 0x80000000u },
@@ -143,10 +143,10 @@ HSE_T(int_f32tof16_exact_values, "uint h = f32tof16(fa); bool nn = (h & 0x7c00) 
       { 0x33800000u, 0, 0, 0x0001 }, { 0x38800000u, 0, 0, 0x0400 }, { FB(-0.0009765625f), 0, 0, 0x9400 }, { FB(0.333251953125f), 0, 0, 0x3555 })
 HSE_T(int_f32tof16_high_half_is_zero, "", "f32tof16(fa) >> 16", HSE_EXACT, 0,
       { FB(1.0f), 0, 0, 0 }, { FB(-1.0f), 0, 0, 0 }, { F_NINF, 0, 0, 0 }, { F_NAN, 0, 0, 0 })
-/* Rounding of inexact conversions: the instruction may truncate or round; recorded, not asserted. */
-HSE_T(int_f32tof16_inexact_rounding_observed, "", "f32tof16(fa)", HSE_EXACT | HSE_SOFT, 0,
-      { FB(1.0f + 3.0f / 2048.0f), 0, 0, 0x3c02 }, { FB(65520.0f), 0, 0, 0x7c00 }, { FB(1.0f + 1.0f / 2048.0f), 0, 0, 0x3c00 },
-      { FB(1.0f + 3.5f / 2048.0f), 0, 0, 0x3c02 }, { FB(-1.0f - 3.0f / 2048.0f), 0, 0, 0xbc02 })
+/* Rounding of inexact conversions, measured on Win10 WARP: f32tof16 TRUNCATES toward zero (not round-to-nearest-even): 65520 gives 7bff, not inf. */
+HSE_T(int_f32tof16_inexact_truncates_toward_zero, "", "f32tof16(fa)", HSE_WARPHARD, 0,
+      { FB(1.0f + 3.0f / 2048.0f), 0, 0, 0x3c01 }, { FB(65520.0f), 0, 0, 0x7bff }, { FB(1.0f + 1.0f / 2048.0f), 0, 0, 0x3c00 },
+      { FB(1.0f + 3.5f / 2048.0f), 0, 0, 0x3c01 }, { FB(-1.0f - 3.0f / 2048.0f), 0, 0, 0xbc01 })
 TEST(hlsl_semantics_exec_int_f32tof16_inexact_truncated_or_rounded) {
     HSE_NEED();
     hse_row r[] = { { FB(1.0f + 3.0f / 2048.0f), 0, 0, 0 }, { FB(1.0f + 3.5f / 2048.0f), 0, 0, 0 }, { FB(3.14159265f), 0, 0, 0 }, { FB(-0.1f), 0, 0, 0 } };
@@ -157,7 +157,8 @@ TEST(hlsl_semantics_exec_int_f32tof16_inexact_truncated_or_rounded) {
     uint32_t out[4] = { 0 };
     hse_cs c; memset(&c, 0, sizeof c); c.src = src; c.in = r; c.inbytes = sizeof r; c.outbytes = 16; c.gx = 1; c.out = out;
     if (!HSE_DISPATCH(&c)) return;
-    for (int i = 0; i < 4; i++) CHECKF(out[i] == lo[i] || out[i] == hi[i], "i=%d got %04x (acceptable %04x or %04x)", i, out[i], lo[i], hi[i]);
+    for (int i = 0; i < 4; i++) if (hse.drv == D3D_DRIVER_TYPE_WARP) EXPECT_EQ(out[i], lo[i]);   /* WARP truncates */
+    else CHECKF(out[i] == lo[i] || out[i] == hi[i], "i=%d got %04x (acceptable %04x or %04x)", i, out[i], lo[i], hi[i]);
     t_note("f32tof16 inexact results: %04x %04x %04x %04x (round-to-nearest-even would be 3c02 3c02 4248 ae66)", out[0], out[1], out[2], out[3]);
 }
 HSE_T(int_f16_roundtrip_all_normals_sample, "", "f32tof16(f16tof32(ua))", HSE_EXACT, 0,

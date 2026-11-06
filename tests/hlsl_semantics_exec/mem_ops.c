@@ -143,7 +143,7 @@ TEST(hlsl_semantics_exec_mem_uav_atomic_unsigned_min_max) {
     uint32_t init[4] = { 0x80000000u, 0x80000000u, 5, 5 }, out[8];
     hse_cs c; memset(&c, 0, sizeof c);
     c.src = "RWByteAddressBuffer O : register(u0);\n"
-            "[numthreads(1,1,1)] void main() { uint a, b, c, d; O.InterlockedMin(0, 1, a); O.InterlockedMax(4, 1, b); O.InterlockedMax(8, 0xffffffff, c); O.InterlockedMin(12, 0xffffffff, d);\n"
+            "[numthreads(1,1,1)] void main() { uint a, b, c, d; O.InterlockedMin(0, 1u, a); O.InterlockedMax(4, 1u, b); O.InterlockedMax(8, 0xffffffff, c); O.InterlockedMin(12, 0xffffffff, d);\n"
             "  O.Store4(16, uint4(a, b, c, d)); }";
     c.outinit = init; c.outbytes = sizeof out; c.gx = 1; c.out = out;
     if (!HSE_DISPATCH(&c)) return;

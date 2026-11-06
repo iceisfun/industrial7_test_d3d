@@ -54,8 +54,8 @@ HSE_T(cmp_float_negzero_equals_zero, "", "fa == fb ? 1u : 0u", HSE_EXACT, 0, { 0
 HSE_T(cmp_float_negzero_not_less_than_zero, "", "fa < fb ? 1u : 0u", HSE_EXACT, 0, { F_NZERO, 0, 0, 0 }, { 0, F_NZERO, 0, 0 })
 HSE_T(sel_float_condition_nonzero_true, "", "fa ? 1u : 2u", HSE_EXACT, 0,
       { FB(1.0f), 0, 0, 1 }, { 0, 0, 0, 2 }, { FB(-1.0f), 0, 0, 1 }, { I, 0, 0, 1 }, { NaN, 0, 0, 1 }, { 0x3f800000u, 0, 0, 1 })
-HSE_T(sel_float_condition_negzero_observed, "", "fa ? 1u : 2u", HSE_EXACT | HSE_SOFT, 0, { F_NZERO, 0, 0, 2 })
-HSE_T(sel_float_select_passes_nan_bits_observed, "", "(fa == fa) ? fb : fc", HSE_EXACT | HSE_SOFT, 0,
+HSE_T(sel_float_condition_negzero_observed, "", "fa ? 1u : 2u", HSE_WARPHARD, 0, { F_NZERO, 0, 0, 2 })
+HSE_T(sel_float_select_passes_nan_bits_observed, "", "(fa == fa) ? fb : fc", HSE_WARPHARD, 0,
       { FB(1.0f), 0x7fc00123u, FB(5.0f), 0x7fc00123u }, { NaN, FB(1.0f), FB(5.0f), FB(5.0f) })
 HSE_T(sel_float_select_negzero_preserved, "", "(ua == 0) ? fb : fc", HSE_EXACT, 0, { 0, F_NZERO, FB(1.0f), F_NZERO }, { 1, F_NZERO, FB(1.0f), FB(1.0f) })
 HSE_T(sel_any_all_float, "", "(any(float3(fa, fb, fc)) ? 1u : 0u) | (all(float3(fa, fb, fc)) ? 2u : 0u)", HSE_EXACT, 0,

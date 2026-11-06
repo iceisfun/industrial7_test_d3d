@@ -41,6 +41,8 @@ static inline double hse_bd(uint64_t u) { union { double f; uint64_t u; } x; x.u
 
 /* Compile with default flags + IEEE strictness. Failure: CHECK fails (skip under wine). */
 ID3DBlob *hse_compile_at(const char *file, int line, const char *src, const char *target, UINT flags);
+/* OR into the compile flags to leave IEEE strictness off (required by minimum-precision types: Windows rejects precise + min16 with X4028). */
+#define HSE_NO_IEEE 0x80000000u
 #define HSE_COMPILE(src, target, flags) hse_compile_at(__FILE__, __LINE__, src, target, flags)
 
 /* One compute dispatch. */
@@ -91,10 +93,18 @@ void hse_patterns(hse_row *r, int n);
 int hse_sweep_at(const char *file, int line, const char *name, const char *expr, double (*ref)(double, double), double lo, double hi, double y, int n);
 #define HSE_SWEEP(name, expr, ref, lo, hi, y, n) hse_sweep_at(__FILE__, __LINE__, name, expr, ref, lo, hi, y, n)
 
+/* Mode for behaviour measured on the Win10 WARP rasteriser (min-precision types execute at 32 bit there): exact on WARP, reported only on other drivers. */
+#define HSE_WARPHARD (hse.drv == D3D_DRIVER_TYPE_WARP ? HSE_EXACT : (HSE_EXACT | HSE_SOFT))
+#define HSE_WARPS0 (hse.drv == D3D_DRIVER_TYPE_WARP ? HSE_SIGNED0 : (HSE_SIGNED0 | HSE_SOFT))
 /* Define a table test. */
 #define HSE_T(name, pre, expr, mode, ulps, ...) \
     TEST(hlsl_semantics_exec_##name) { HSE_NEED(); hse_row r_[] = { __VA_ARGS__ }; \
         HSE_ROWS(pre, expr, r_, (int)(sizeof r_ / sizeof r_[0]), mode, ulps); }
+
+/* Same as HSE_T with explicit compile flags. */
+#define HSE_TF(name, cflags, pre, expr, mode, ulps, ...) \
+    TEST(hlsl_semantics_exec_##name) { HSE_NEED(); hse_row r_[] = { __VA_ARGS__ }; \
+        hse_rows_at(__FILE__, __LINE__, pre, expr, r_, (int)(sizeof r_ / sizeof r_[0]), mode, ulps, cflags); }
 
 /* Pixel shader runs: full-screen triangle into a w*h render target, returns tightly packed pixels. */
 typedef struct {

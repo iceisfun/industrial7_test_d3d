@@ -31,7 +31,7 @@ uint32_t hse_ulp_dist(uint32_t a, uint32_t b) {
 
 ID3DBlob *hse_compile_at(const char *file, int line, const char *src, const char *target, UINT flags) {
     ID3DBlob *b = NULL;
-    HRESULT hr = d3dh_compile(src, "main", target, flags | D3DCOMPILE_IEEE_STRICTNESS, &b);
+    HRESULT hr = d3dh_compile(src, "main", target, (flags & HSE_NO_IEEE) ? (flags & ~HSE_NO_IEEE) : (flags | D3DCOMPILE_IEEE_STRICTNESS), &b);
     if (FAILED(hr)) {
         if (t_is_wine() && !getenv("HSE_STRICT_COMPILE")) { t_skip("shader compile failed under wine (hr=%s)", d3dh_hr_name(hr)); return NULL; }
         if (t_is_wine()) t_check(0, file, line, "shader compile", "hr=%s err=%.200s", d3dh_hr_name(hr), d3dh_compile_errors());
@@ -285,6 +285,9 @@ int hse_sweep_at(const char *file, int line, const char *name, const char *expr,
             uint32_t d = hse_ulp_dist(out[i], r[i].want);
             double ae = fabs((double)g - (double)w);
             if (ae > maxabs && ae < 1e30) maxabs = ae;
+            /* measured on Win10 WARP (worst abs 6.3e-5 for asin/acos, worst relative ~2e-6 for pow): a gross-error bound, hard on WARP only */
+            if (hse.drv == D3D_DRIVER_TYPE_WARP && ae >= 1e-30 && ae < 1e30)
+                t_check(ae <= 1.5e-4 + 1e-5 * fabs((double)w), file, line, name, "x=%g got %g want %g", (double)hse_bf(r[i].a), (double)g, (double)w);
             if (d > worst && (r[i].want & 0x7fffffffu) != 0x7f800000u) { worst = d; wi = i; }
         }
         t_note("%s: max error %u ulp (at x=%g, got %g want %g), max abs error %g, unexpected NaNs %d, over %d samples", name, worst,

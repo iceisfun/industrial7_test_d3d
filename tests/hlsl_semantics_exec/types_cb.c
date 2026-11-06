@@ -116,16 +116,17 @@ TEST(hlsl_semantics_exec_cb_struct_small_members_new_vector) {
     hse_init();
     check_layout_at(__FILE__, __LINE__, "float Val1; SS Val2;", "struct SS { float SVal1; float4 SVal2; };", v, 2, 48, !t_is_wine(), 0);
 }
-TEST(hlsl_semantics_exec_cb_scalar_after_struct_new_vector) {
-    static const lv v[] = { { "Val1", 0, "Val1.SVal1.x" }, { "Val2", 32, "Val2" } };
+TEST(hlsl_semantics_exec_cb_scalar_after_struct_packs_into_last_vector) {
+    static const lv v[] = { { "Val1", 0, "Val1.SVal1.x" }, { "Val2", 20, "Val2" } };
     hse_init();
-    check_layout_at(__FILE__, __LINE__, "SS Val1; float Val2;", "struct SS { float4 SVal1; float SVal2; };", v, 2, 48, !t_is_wine(), 0);
+    /* Win10 fxc: a struct is 16-byte aligned at its start but is NOT padded at its end: the 20-byte struct leaves 12 bytes of its last vector for Val2 */
+    check_layout_at(__FILE__, __LINE__, "SS Val1; float Val2;", "struct SS { float4 SVal1; float SVal2; };", v, 2, 32, 1, 0);
 }
-TEST(hlsl_semantics_exec_cb_struct_size_rounded_to_vector) {
-    static const lv v[] = { { "a", 0, "a.x.x" }, { "b", 16, "b.x.x" }, { "c", 32, "c" } };
+TEST(hlsl_semantics_exec_cb_struct_size_not_rounded_to_vector) {
+    static const lv v[] = { { "a", 0, "a.x" }, { "b", 16, "b.x" }, { "c", 28, "c" } };
     hse_init();
-    /* each 12-byte struct occupies a full vector, the following variable starts on the next one */
-    check_layout_at(__FILE__, __LINE__, "SS a; SS b; float c;", "struct SS { float x; float2 y; };", v, 3, 48, !t_is_wine(), 0);
+    /* Win10 fxc: each 12-byte struct starts a vector; the size is not rounded up, so the following scalar packs into the 4 bytes left (offset 28) */
+    check_layout_at(__FILE__, __LINE__, "SS a; SS b; float c;", "struct SS { float x; float2 y; };", v, 3, 32, 1, 0);
 }
 TEST(hlsl_semantics_exec_cb_ints_bool_are_four_bytes) {
     static const lv v[] = { { "a", 0, "a" }, { "b", 4, "b" }, { "c", 8, NULL }, { "d", 12, "d" } };
@@ -166,13 +167,13 @@ TEST(hlsl_semantics_exec_cb_array_element_per_vector) {
         if (HSE_DISPATCH(&c)) { EXPECT_EQ(out[0], 1000); EXPECT_EQ(out[1], 1004); EXPECT_EQ(out[2], 1008); EXPECT_EQ(out[3], 1012); EXPECT_EQ(out[4], 1016); }
     }
 }
-TEST(hlsl_semantics_exec_cb_array_scalar_after_array_observed) {
-    static const lv v[] = { { "e", 0, "e[1]" }, { "g", 20, "g" } };
-    NOTE_LAYOUT("float e[2]; float g;", v, 32);
+TEST(hlsl_semantics_exec_cb_array_scalar_after_array_packs) {
+    static const lv v[] = { { "e", 0, "e[0]" }, { "g", 20, "g" } };
+    CHECK_LAYOUT("float e[2]; float g;", v, 32);   /* the last array element is not padded: g packs behind it in the same vector */
 }
-TEST(hlsl_semantics_exec_cb_float2_array_then_float2_observed) {
-    static const lv v[] = { { "e", 0, "e[1].x" }, { "g", 24, "g.x" } };
-    NOTE_LAYOUT("float2 e[2]; float2 g;", v, 32);
+TEST(hlsl_semantics_exec_cb_float2_array_then_float2_packs) {
+    static const lv v[] = { { "e", 0, "e[0].x" }, { "g", 24, "g.x" } };
+    CHECK_LAYOUT("float2 e[2]; float2 g;", v, 32);
 }
 TEST(hlsl_semantics_exec_cb_packoffset_places_variables) {
     static const lv v[] = { { "a", 16, "a.x" }, { "b", 8, "b" }, { "c", 0, "c" }, { "d", 44, "d" } };
@@ -386,10 +387,11 @@ static void dbl_run_at(const char *file, int line, const char *pre, const char *
         snprintf(src, sizeof src, "ByteAddressBuffer I : register(t0); RWByteAddressBuffer O : register(u0);\n[numthreads(64,1,1)] void main(uint3 id : SV_DispatchThreadID) {\n"
                  "  uint4 w = I.Load4(id.x * 16); double x = asdouble(w.x, w.y), y = asdouble(w.z, w.w); %s\n  double r = (%s); uint lo, hi; asuint(r, lo, hi); O.Store2(id.x * 8, uint2(lo, hi)); }", pre, expr);
     int groups = (n + 63) / 64;
-    drow *in = calloc(groups * 64, sizeof *in); uint64_t *out = calloc(groups * 64, 8);
-    memcpy(in, rows, n * sizeof *rows);
+    /* the shader reads 16 bytes (x, y) per thread: pack the rows without the `want` member */
+    uint64_t *in = calloc(groups * 64 * 2, 8); uint64_t *out = calloc(groups * 64, 8);
+    for (int i = 0; i < n; i++) { in[i * 2] = rows[i].x; in[i * 2 + 1] = rows[i].y; }
     hse_cs c; memset(&c, 0, sizeof c);
-    c.src = src; c.in = in; c.inbytes = groups * 64 * sizeof *in; c.outbytes = groups * 64 * 8; c.gx = groups; c.out = out;
+    c.src = src; c.in = in; c.inbytes = groups * 64 * 16; c.outbytes = groups * 64 * 8; c.gx = groups; c.out = out;
     if (hse_dispatch_at(file, line, &c))
         for (int i = 0; i < n; i++) {
             uint64_t g = out[i], w = rows[i].want;
@@ -510,34 +512,34 @@ TEST(hlsl_semantics_exec_dbl_extended_fma_is_fused) {
     char src[1024];
     snprintf(src, sizeof src, "ByteAddressBuffer I : register(t0); RWByteAddressBuffer O : register(u0);\n[numthreads(2,1,1)] void main(uint3 id : SV_DispatchThreadID) {\n"
              "  uint4 w = I.Load4(id.x * 16); double x = asdouble(w.x, w.y), y = asdouble(w.z, w.w); double r = fma(x, id.x == 0 ? x : 2.0, id.x == 0 ? y : 1.0); uint lo, hi; asuint(r, lo, hi); O.Store2(id.x * 8, uint2(lo, hi)); }");
-    uint64_t out[2] = { 0 };
+    uint64_t out[2] = { 0 }, in2[4] = { r[0].x, r[0].y, r[1].x, r[1].y };   /* 16-byte rows (x, y) */
     hse_cs c; memset(&c, 0, sizeof c);
-    c.src = src; c.in = r; c.inbytes = sizeof r; c.outbytes = sizeof out; c.gx = 1; c.out = out;
+    c.src = src; c.in = in2; c.inbytes = sizeof in2; c.outbytes = sizeof out; c.gx = 1; c.out = out;
     if (!HSE_DISPATCH(&c)) return;
     EXPECT_EQ(out[0], D(5.551115123125783e-17));   /* 2^-54 */
     EXPECT_EQ(out[1], D(5.0));
 }
 
 /* ---- minimum precision types --------------------------------------------------------------------------------------------------- */
-HSE_T(minprec_exact_float_arith_same_either_way, "min16float x = (min16float)fa, y = (min16float)fb; min16float z = x * y + (min16float)fc;", "(float)z", HSE_EXACT, 0,
+HSE_TF(minprec_exact_float_arith_same_either_way, HSE_NO_IEEE, "min16float x = (min16float)fa, y = (min16float)fb; min16float z = x * y + (min16float)fc;", "(float)z", HSE_EXACT, 0,
       { FB(1.5f), FB(2.5f), FB(0.25f), FB(4.0f) }, { FB(-2.0f), FB(8.0f), FB(1.0f), FB(-15.0f) }, { FB(0.5f), FB(0.5f), FB(0.0f), FB(0.25f) })
-HSE_T(minprec_float_precision_16_or_32, "min16float x = (min16float)fa;", "(float)x", HSE_EXACT | HSE_SOFT, 0,
-      { 0x3f800800u, 0, 0, FB(1.0f) }, { FB(0.1f), 0, 0, 0x3dcccccdu })
-HSE_T(minprec_float_value_is_one_of_two_precisions, "min16float x = (min16float)fa; uint r = asuint((float)x);", "(r == asuint(fa) || r == 0x3f800000u) ? 1u : 0u", HSE_EXACT, 0,
+HSE_TF(minprec_float_precision_16_or_32, HSE_NO_IEEE, "min16float x = (min16float)fa;", "(float)x", HSE_WARPHARD, 0,
+      { 0x3f800800u, 0, 0, 0x3f800800u }, { FB(0.1f), 0, 0, 0x3dcccccdu })
+HSE_TF(minprec_float_value_is_one_of_two_precisions, HSE_NO_IEEE, "min16float x = (min16float)fa; uint r = asuint((float)x);", "(r == asuint(fa) || r == 0x3f800000u) ? 1u : 0u", HSE_EXACT, 0,
       { 0x3f800800u, 0, 0, 1 }, { 0x3f800000u, 0, 0, 1 })
-HSE_T(minprec_float_overflow_observed, "min16float x = (min16float)fa;", "(float)x", HSE_EXACT | HSE_SOFT, 0, { FB(70000.0f), 0, 0, F_INF })
-HSE_T(minprec_float_overflow_is_inf_or_value, "min16float x = (min16float)fa; uint r = asuint((float)x);", "(r == 0x7f800000u || r == asuint(fa)) ? 1u : 0u", HSE_EXACT, 0, { FB(70000.0f), 0, 0, 1 })
-HSE_T(minprec_int_wrap_observed, "min16int x = (min16int)ia;", "(int)x", HSE_EXACT | HSE_SOFT, 0, { 40000, 0, 0, (uint32_t)-25536 }, { 70000, 0, 0, 4464 })
-HSE_T(minprec_int_value_is_one_of_two_precisions, "min16int x = (min16int)ia; int r = (int)x;", "(r == ia || r == ((ia << 16) >> 16)) ? 1u : 0u", HSE_EXACT, 0, { 40000, 0, 0, 1 }, { 5, 0, 0, 1 }, { (uint32_t)-7, 0, 0, 1 })
-HSE_T(minprec_uint_value_is_one_of_two_precisions, "min16uint x = (min16uint)ua; uint r = (uint)x;", "(r == ua || r == (ua & 0xffff)) ? 1u : 0u", HSE_EXACT, 0, { 70000, 0, 0, 1 }, { 5, 0, 0, 1 }, { 65535, 0, 0, 1 })
-HSE_T(minprec_small_ints_exact, "min16int x = (min16int)ia, y = (min16int)ib;", "(int)(x + y * 2)", HSE_EXACT, 0, { 1, 2, 0, 5 }, { (uint32_t)-3, 4, 0, 5 }, { 100, (uint32_t)-50, 0, 0 })
-HSE_T(minprec_min16uint_small_exact, "min16uint x = (min16uint)ua, y = (min16uint)ub;", "(uint)(x * y)", HSE_EXACT, 0, { 7, 8, 0, 56 }, { 255, 255, 0, 65025 }, { 0, 5, 0, 0 })
-HSE_T(minprec_half_maps_to_float_observed, "half h = fa;", "(float)h", HSE_EXACT | HSE_SOFT, 0, { 0x3f800800u, 0, 0, 0x3f800800u })
-HSE_T(minprec_min10float_value_observed, "min10float h = (min10float)fa;", "(float)h", HSE_EXACT | HSE_SOFT, 0, { FB(1.5f), 0, 0, FB(1.5f) }, { FB(0.1f), 0, 0, FB(0.1f) })
+HSE_TF(minprec_float_overflow_warp_keeps_32bit, HSE_NO_IEEE, "min16float x = (min16float)fa;", "(float)x", HSE_WARPHARD, 0, { FB(70000.0f), 0, 0, FB(70000.0f) })
+HSE_TF(minprec_float_overflow_is_inf_or_value, HSE_NO_IEEE, "min16float x = (min16float)fa; uint r = asuint((float)x);", "(r == 0x7f800000u || r == asuint(fa)) ? 1u : 0u", HSE_EXACT, 0, { FB(70000.0f), 0, 0, 1 })
+HSE_TF(minprec_int_no_wrap_warp_keeps_32bit, HSE_NO_IEEE, "min16int x = (min16int)ia;", "(int)x", HSE_WARPHARD, 0, { 40000, 0, 0, 40000 }, { 70000, 0, 0, 70000 })
+HSE_TF(minprec_int_value_is_one_of_two_precisions, HSE_NO_IEEE, "min16int x = (min16int)ia; int r = (int)x;", "(r == ia || r == ((ia << 16) >> 16)) ? 1u : 0u", HSE_EXACT, 0, { 40000, 0, 0, 1 }, { 5, 0, 0, 1 }, { (uint32_t)-7, 0, 0, 1 })
+HSE_TF(minprec_uint_value_is_one_of_two_precisions, HSE_NO_IEEE, "min16uint x = (min16uint)ua; uint r = (uint)x;", "(r == ua || r == (ua & 0xffff)) ? 1u : 0u", HSE_EXACT, 0, { 70000, 0, 0, 1 }, { 5, 0, 0, 1 }, { 65535, 0, 0, 1 })
+HSE_TF(minprec_small_ints_exact, HSE_NO_IEEE, "min16int x = (min16int)ia, y = (min16int)ib;", "(int)(x + y * 2)", HSE_EXACT, 0, { 1, 2, 0, 5 }, { (uint32_t)-3, 4, 0, 5 }, { 100, (uint32_t)-50, 0, 0 })
+HSE_TF(minprec_min16uint_small_exact, HSE_NO_IEEE, "min16uint x = (min16uint)ua, y = (min16uint)ub;", "(uint)(x * y)", HSE_EXACT, 0, { 7, 8, 0, 56 }, { 255, 255, 0, 65025 }, { 0, 5, 0, 0 })
+HSE_TF(minprec_half_maps_to_float_observed, HSE_NO_IEEE, "half h = fa;", "(float)h", HSE_WARPHARD, 0, { 0x3f800800u, 0, 0, 0x3f800800u })
+HSE_TF(minprec_min10float_value_observed, HSE_NO_IEEE, "min10float h = (min10float)fa;", "(float)h", HSE_WARPHARD, 0, { FB(1.5f), 0, 0, FB(1.5f) }, { FB(0.1f), 0, 0, FB(0.1f) })
 TEST(hlsl_semantics_exec_minprec_cbuffer_layout_observed) {
     static const lv v[] = { { "a", 0, "(float)a" }, { "b", 4, "(float)b" }, { "c", 8, "(float)c" } };
     hse_init();
     UINT f = 0;
     (void)f;
-    NOTE_LAYOUT("min16float a; min16float b; float c;", v, 16);
+    check_layout_at(__FILE__, __LINE__, "min16float a; min16float b; float c;", NULL, v, 3, 16, 0, HSE_NO_IEEE);
 }
