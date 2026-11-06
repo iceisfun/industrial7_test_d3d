@@ -215,3 +215,36 @@ static void cb_instance_case(UINT inst_ix)
 }
 TEST(d3d11_shaders_linkage_data_instance_g_a_draws) { cb_instance_case(0); }
 TEST(d3d11_shaders_linkage_data_instance_g_b_draws) { cb_instance_case(1); }
+
+/* ---- creation matrix: every table shader on every feature level ------------------------------------------------------------------ */
+/* A shader is creatable when the device level reaches the shader's own minimum and is at least 10_0 (plain SM4/5 bytecode is rejected
+ * at 9_x; level-9 profiles are a separate encoding). Everything else is E_INVALIDARG, on the validation path too. */
+static void matrix_for(D3D_FEATURE_LEVEL fl)
+{
+    SH_ENV_EXACT(e, fl);
+    int ok = 0, rej = 0;
+    for (int i = 0; i < SH_NTABLE; i++) {
+        const sh_ent *t = &sh_table[i];
+        if (!strcmp(t->name, "gs_stream")) continue;                    /* needs the stream-output creator */
+        ID3DBlob *b = sh_blob(t->name); if (!b) continue;
+        int st = sh_stage_of_target(t->target);
+        ID3D11ClassLinkage *cl = NULL; void *sh = NULL; HRESULT hv, hr;
+        if (sh_needs_linkage(t)) ID3D11Device_CreateClassLinkage(e.dev, &cl);
+        int want_ok = (UINT)fl >= t->minfl && (UINT)fl >= 0xa000;
+        /* WARP quirk: compute shaders written for cs_5_0 at minfl 0xb000 are the only ones above 10_x */
+        hv = sh_create(e.dev, st, SH_BP(b), SH_BN(b), cl, NULL);
+        hr = sh_create(e.dev, st, SH_BP(b), SH_BN(b), cl, &sh);
+        t_check(hr == (want_ok ? S_OK : E_INVALIDARG) && hv == (want_ok ? S_FALSE : E_INVALIDARG) && !!sh == want_ok, __FILE__, __LINE__, "shader x feature level",
+                "%s (%s min %#x) at FL %#x: create %s validate %s", t->name, t->target, t->minfl, (UINT)fl, d3dh_hr_name(hr), d3dh_hr_name(hv));
+        if (want_ok) ok++; else rej++;
+        SH_REL(sh); SH_REL(cl);
+    }
+    CHECK(ok > 0 || (UINT)fl < 0xa000);
+    sh_env_free(&e);
+}
+TEST(d3d11_shaders_matrix_fl9_1) { matrix_for(D3D_FEATURE_LEVEL_9_1); }
+TEST(d3d11_shaders_matrix_fl9_3) { matrix_for(D3D_FEATURE_LEVEL_9_3); }
+TEST(d3d11_shaders_matrix_fl10_0) { matrix_for(D3D_FEATURE_LEVEL_10_0); }
+TEST(d3d11_shaders_matrix_fl10_1) { matrix_for(D3D_FEATURE_LEVEL_10_1); }
+TEST(d3d11_shaders_matrix_fl11_0) { matrix_for(D3D_FEATURE_LEVEL_11_0); }
+TEST(d3d11_shaders_matrix_fl11_1) { matrix_for(D3D_FEATURE_LEVEL_11_1); }
