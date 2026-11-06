@@ -32,6 +32,11 @@ static UINT64 expect_total(UINT64 off, UINT rp, UINT rows, UINT rowb, UINT depth
 
 static const char *dn(D3D12_RESOURCE_DIMENSION d) { return d == D3D12_RESOURCE_DIMENSION_TEXTURE1D ? "tex1d" : d == D3D12_RESOURCE_DIMENSION_TEXTURE2D ? "tex2d" : "tex3d"; }
 
+static D3D12_RESOURCE_DESC g_baddesc;
+static D3D12_RESOURCE_DESC *desc_bad_p(D3D12_RESOURCE_DIMENSION dim, UINT w, UINT h, UINT id)
+{ g_baddesc = mkdesc(dim, w, h, dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 3 : 1, 1, (DXGI_FORMAT)id); return &g_baddesc; }
+#define desc_bad(dim, w, h, id) (*desc_bad_p(dim, w, h, id))
+
 static void run_group(UINT grp, D3D12_RESOURCE_DIMENSION dim)
 {
     ID3D12Device *dev = fpt_dev12(); UINT id, wi;
@@ -39,16 +44,25 @@ static void run_group(UINT grp, D3D12_RESOURCE_DIMENSION dim)
     for (id = 0; id < FPT_NFORMATS; id++) {
         const fpt_fmt *f = &fpt_formats[id]; UINT bit; HRESULT hr; UINT sup; char line[400]; int n, any = 0;
         if (f->group != grp || (id >= 19 && id <= 22) || id == 46 || id == 47) continue;
+        if (plane_count(dev, id) > 1) continue;      /* depth-stencil formats (R24G8, D24S8, ...) have a plane per aspect: see the *_planes tests */
         bit = dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D ? D3D12_FORMAT_SUPPORT1_TEXTURE1D : dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D ? D3D12_FORMAT_SUPPORT1_TEXTURE2D : D3D12_FORMAT_SUPPORT1_TEXTURE3D;
         sup = support1(dev, id, &hr);
         if (FAILED(hr) || !(sup & bit)) { t_note("%s %s not supported by D3D12 for this dimension (hr=%s support1=0x%x)", dn(dim), f->name, d3dh_hr_name(hr), sup); continue; }
         n = snprintf(line, sizeof line, "%s %s rowSize/rowPitch/total by width:", dn(dim), f->name);
         for (wi = 0; wi < FPT_NW; wi++) {
-            UINT w = fpt_widths[wi], h = dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D ? 1 : 5, d = dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 3 : 1;
+            UINT w = fpt_widths[wi], h = dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D ? 1 : (fpt_is_bc(f) ? 8 : 5), d = dim == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 3 : 1;
             UINT rowb, rows, rp;
             D3D12_RESOURCE_DESC desc = mkdesc(dim, w, h, d, 1, (DXGI_FORMAT)id);
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay; UINT nrows = 0; UINT64 rsz = 0, total = 0;
             if ((w & 1) && !(f->group >= G_B8 && f->group <= G_B128) && !fpt_is_bc(f)) continue;
+            if (fpt_is_bc(f) && (w % 4 || h % 4)) {
+                /* D3D12 refuses block-compressed textures whose top mip is not a multiple of the block size: every output is all-ones */
+                memset(&lay, 0xcd, sizeof lay); nrows = 0; rsz = total = 0;
+                ID3D12Device_GetCopyableFootprints(dev, desc_bad_p(dim, w, h, id), 0, 1, 0, &lay, &nrows, &rsz, &total);
+                CHECKF(rsz == ~0ull && nrows == ~0u && total == ~0ull && lay.Footprint.RowPitch == ~0u && lay.Footprint.Width == ~0u && lay.Footprint.Height == ~0u,
+                       "%s %s w=%u h=%u: invalid BC size gave rowsize %llx rows %x pitch %x total %llx", dn(dim), f->name, w, h, (unsigned long long)rsz, nrows, lay.Footprint.RowPitch, (unsigned long long)total);
+                continue;
+            }
             rowb = fpt_row_bytes(f, w); rows = fpt_rows(f, h); rp = fpt_align(rowb, ROWPITCH_ALIGN);
             memset(&lay, 0xcd, sizeof lay);
             ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 1, 0, &lay, &nrows, &rsz, &total);
@@ -86,17 +100,44 @@ GT(tex3d_bc1, G_BC1, T3) GT(tex3d_bc3, G_BC3, T3) GT(tex3d_bc7, G_BC7, T3)
 /* Height rounding for block compression and tall textures. */
 TEST(fpt_d3d12_footprint_bc_height_rounding)
 {
-    ID3D12Device *dev = fpt_dev12(); static const UINT hs[] = { 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17 }; UINT i;
+    ID3D12Device *dev = fpt_dev12(); static const UINT hs[] = { 4, 8, 12, 16, 20, 64 }; UINT i;
     if (!dev) { t_skip("no D3D12 device"); return; }
     for (i = 0; i < sizeof hs / sizeof *hs; i++) {
         D3D12_RESOURCE_DESC desc = mkdesc(T2, 16, hs[i], 1, 1, DXGI_FORMAT_BC1_UNORM);
         UINT nrows = 0; UINT64 rsz = 0, total = 0;
         ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 1, 0, NULL, &nrows, &rsz, &total);
-        CHECKF(nrows == fpt_ceil_div(hs[i], 4), "BC1 height %u NumRows %u", hs[i], nrows);
+        CHECKF(nrows == hs[i] / 4, "BC1 height %u NumRows %u", hs[i], nrows);
         CHECKF(rsz == 32, "BC1 width 16 RowSizeInBytes %llu", (unsigned long long)rsz);
         CHECKF(total == 256ull * (nrows - 1) + 32, "BC1 height %u total %llu", hs[i], (unsigned long long)total);
     }
 }
+
+static HRESULT create_tex(ID3D12Device *dev, D3D12_RESOURCE_DIMENSION dim, UINT w, UINT h, UINT dp, UINT mips, DXGI_FORMAT f, ID3D12Resource **out);
+/* A BC texture whose top mip is not a multiple of 4 in both directions is invalid on D3D12: creation gives E_INVALIDARG and the footprint call answers with all-ones. */
+TEST(fpt_d3d12_bc_requires_block_multiple)
+{
+    ID3D12Device *dev = fpt_dev12(); static const UINT dims[][2] = { {1,1}, {2,2}, {3,3}, {5,5}, {4,1}, {1,4}, {4,2}, {2,4}, {6,8}, {8,6}, {17,16}, {16,17}, {4,4}, {8,8}, {12,12}, {16,16}, {4,16}, {16,4} };
+    static const DXGI_FORMAT fm[] = { DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC2_UNORM, DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC4_UNORM, DXGI_FORMAT_BC5_UNORM, DXGI_FORMAT_BC6H_UF16, DXGI_FORMAT_BC7_UNORM, DXGI_FORMAT_BC7_UNORM_SRGB };
+    UINT i, f, mp;
+    if (!dev) { t_skip("no D3D12 device"); return; }
+    for (f = 0; f < sizeof fm / sizeof *fm; f++) for (i = 0; i < sizeof dims / sizeof *dims; i++) for (mp = 1; mp <= 3; mp += 2) {
+        UINT w = dims[i][0], h = dims[i][1]; int good = !(w % 4) && !(h % 4);
+        D3D12_RESOURCE_DESC desc = mkdesc(T2, w, h, 1, mp, fm[f]); D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay; UINT nrows = 0; UINT64 rsz = 0, total = 0; ID3D12Resource *r; HRESULT hr;
+        memset(&lay, 0xcd, sizeof lay);
+        ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 1, 0, &lay, &nrows, &rsz, &total);
+        hr = create_tex(dev, T2, w, h, 1, mp, fm[f], &r);
+        CHECKF(hr == (good ? S_OK : E_INVALIDARG), "%s %ux%u mips %u: create %s", fpt_formats[fm[f]].name, w, h, mp, d3dh_hr_name(hr));
+        if (good) CHECKF(rsz == fpt_row_bytes(&fpt_formats[fm[f]], w) && nrows == h / 4 && total != ~0ull, "%s %ux%u mips %u: rowsize %llu rows %u total %llx", fpt_formats[fm[f]].name, w, h, mp, (unsigned long long)rsz, nrows, (unsigned long long)total);
+        else CHECKF(rsz == ~0ull && nrows == ~0u && total == ~0ull && lay.Footprint.RowPitch == ~0u, "%s %ux%u mips %u: rowsize %llx rows %x total %llx pitch %x", fpt_formats[fm[f]].name, w, h, mp, (unsigned long long)rsz, nrows, (unsigned long long)total, lay.Footprint.RowPitch);
+        SAFE_RELEASE(r);
+    }
+    /* smaller mips of a valid chain still occupy whole blocks */
+    { D3D12_RESOURCE_DESC desc = mkdesc(T2, 16, 16, 1, 5, DXGI_FORMAT_BC1_UNORM); D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay[5]; UINT nr[5]; UINT64 rs[5], tot; UINT k;
+      static const UINT64 wantrs[5] = { 32, 16, 8, 8, 8 }; static const UINT wantnr[5] = { 4, 2, 1, 1, 1 };
+      ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 5, 0, lay, nr, rs, &tot);
+      for (k = 0; k < 5; k++) CHECKF(rs[k] == wantrs[k] && nr[k] == wantnr[k], "BC1 16x16 mip %u: rowsize %llu rows %u", k, (unsigned long long)rs[k], nr[k]); }
+}
+
 TEST(fpt_d3d12_footprint_optional_outputs)
 {
     ID3D12Device *dev = fpt_dev12(); D3D12_RESOURCE_DESC desc; D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay; UINT nr; UINT64 rs, t1, t2, t3;
@@ -154,9 +195,9 @@ static void mip_array(D3D12_RESOURCE_DIMENSION dim, DXGI_FORMAT fmt, UINT w, UIN
 #define MA(nm, dim, fmt, w, h, dp, mips, arr) TEST(fpt_d3d12_mipchain_##nm) { mip_array(dim, DXGI_FORMAT_##fmt, w, h, dp, mips, arr); }
 MA(r8_2d, T2, R8_UNORM, 33, 17, 1, 6, 3)         MA(rgba8_2d, T2, R8G8B8A8_UNORM, 64, 64, 1, 7, 2)
 MA(rgba32f_2d, T2, R32G32B32A32_FLOAT, 100, 20, 1, 7, 2) MA(r16g16_2d, T2, R16G16_UNORM, 5, 3, 1, 3, 4)
-MA(b5g6r5_2d, T2, B5G6R5_UNORM, 31, 31, 1, 5, 2)  MA(bc1_2d, T2, BC1_UNORM, 33, 17, 1, 6, 3)
-MA(bc3_2d, T2, BC3_UNORM, 64, 16, 1, 7, 2)        MA(bc7_2d, T2, BC7_UNORM, 17, 31, 1, 5, 2)
-MA(bc4_2d, T2, BC4_UNORM, 7, 7, 1, 3, 2)          MA(bc6h_2d, T2, BC6H_UF16, 8, 8, 1, 4, 1)
+MA(b5g6r5_2d, T2, B5G6R5_UNORM, 31, 31, 1, 5, 2)  MA(bc1_2d, T2, BC1_UNORM, 36, 20, 1, 6, 3)
+MA(bc3_2d, T2, BC3_UNORM, 64, 16, 1, 7, 2)        MA(bc7_2d, T2, BC7_UNORM, 20, 32, 1, 5, 2)
+MA(bc4_2d, T2, BC4_UNORM, 12, 8, 1, 3, 2)          MA(bc6h_2d, T2, BC6H_UF16, 8, 8, 1, 4, 1)
 MA(rgba8_3d, T3, R8G8B8A8_UNORM, 16, 8, 8, 5, 1)  MA(r8_3d, T3, R8_UNORM, 5, 7, 11, 4, 1)
 MA(bc1_3d, T3, BC1_UNORM, 16, 16, 16, 5, 1)       MA(rgba16f_3d, T3, R16G16B16A16_FLOAT, 9, 9, 9, 4, 1)
 
@@ -208,7 +249,7 @@ TEST(fpt_d3d12_format_info_all_formats_note)
         HRESULT hr; UINT s; int pc;
         if (fpt_formats[id].group == G_NONE) continue;
         s = support1(dev, id, &hr); pc = plane_count(dev, id);
-        t_note("d3d12 %-30s planes=%d hr=%s support1=0x%08x", fpt_formats[id].name, pc, d3dh_hr_name(hr), s);
+        { char key[80]; snprintf(key, sizeof key, "d12 %s", fpt_formats[id].name); FPT_GOLDEN(key, "%d %s 0x%08x", pc, d3dh_hr_name(hr), s); }
     }
 }
 TEST(fpt_d3d12_format_info_undefined_ids_fail)
@@ -222,6 +263,10 @@ TEST(fpt_d3d12_format_info_undefined_ids_fail)
     }
 }
 
+/* Row pitch alignment of multi-plane footprints (planar video, depth+stencil): 512 on the WARP oracle (all single-plane formats use 256). */
+static UINT plane_align(void) { return fpt_is_warp() ? 512 : 256; }
+
+static HRESULT create_tex(ID3D12Device *dev, D3D12_RESOURCE_DIMENSION dim, UINT w, UINT h, UINT dp, UINT mips, DXGI_FORMAT f, ID3D12Resource **out);
 static void planar_case(DXGI_FORMAT fmt, UINT w, UINT h, UINT lumab, UINT chromab, int hard)
 {
     ID3D12Device *dev = fpt_dev12(); D3D12_RESOURCE_DESC desc; D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay[2]; UINT nr[2]; UINT64 rs[2], tot = 0;
@@ -230,12 +275,18 @@ static void planar_case(DXGI_FORMAT fmt, UINT w, UINT h, UINT lumab, UINT chroma
     desc = mkdesc(T2, w, h, 1, 1, fmt);
     memset(lay, 0, sizeof lay);
     ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 2, 0, lay, nr, rs, &tot);
-    rp0 = fpt_align(w * lumab, ROWPITCH_ALIGN); rp1 = fpt_align((w / 2) * chromab, ROWPITCH_ALIGN);
-    if (!hard) { t_note("%s %ux%u: rows %u/%u rowsize %llu/%llu pitch %u/%u off1 %llu total %llu", fpt_formats[fmt].name, w, h, nr[0], nr[1], (unsigned long long)rs[0], (unsigned long long)rs[1], lay[0].Footprint.RowPitch, lay[1].Footprint.RowPitch, (unsigned long long)lay[1].Offset, (unsigned long long)tot); return; }
+    rp0 = fpt_align(w * lumab, plane_align()); rp1 = fpt_align((w / 2) * chromab, plane_align());
+    if (!hard) {
+        /* an odd width (or height) cannot be sub-sampled: the description is invalid and every output is all-ones */
+        CHECKF(nr[0] == ~0u && nr[1] == ~0u && rs[0] == ~0ull && rs[1] == ~0ull && tot == ~0ull && lay[0].Footprint.RowPitch == ~0u,
+               "%s %ux%u (odd): rows %x/%x rowsize %llx/%llx pitch %x total %llx", fpt_formats[fmt].name, w, h, nr[0], nr[1], (unsigned long long)rs[0], (unsigned long long)rs[1], lay[0].Footprint.RowPitch, (unsigned long long)tot);
+        return;
+    }
     CHECKF(nr[0] == h && nr[1] == crows, "%s %ux%u rows %u/%u want %u/%u", fpt_formats[fmt].name, w, h, nr[0], nr[1], h, crows);
     CHECKF(rs[0] == (UINT64)w * lumab && rs[1] == (UINT64)(w / 2) * chromab, "%s %ux%u row sizes %llu/%llu", fpt_formats[fmt].name, w, h, (unsigned long long)rs[0], (unsigned long long)rs[1]);
     CHECKF(lay[0].Footprint.RowPitch == rp0 && lay[1].Footprint.RowPitch == rp1, "%s %ux%u pitches %u/%u want %u/%u", fpt_formats[fmt].name, w, h, lay[0].Footprint.RowPitch, lay[1].Footprint.RowPitch, rp0, rp1);
     CHECK(lay[0].Offset == 0);
+    CHECK(lay[0].Footprint.RowPitch % ROWPITCH_ALIGN == 0 && lay[1].Footprint.RowPitch % ROWPITCH_ALIGN == 0);
     CHECKF(lay[1].Offset % PLACEMENT_ALIGN == 0 && lay[1].Offset >= (UINT64)rp0 * (h - 1) + rs[0], "%s %ux%u plane1 offset %llu", fpt_formats[fmt].name, w, h, (unsigned long long)lay[1].Offset);
     CHECKF(tot == lay[1].Offset + (UINT64)rp1 * (crows - 1) + rs[1], "%s %ux%u total %llu", fpt_formats[fmt].name, w, h, (unsigned long long)tot);
 }
@@ -243,7 +294,18 @@ static void planar_table(DXGI_FORMAT fmt, UINT lumab, UINT chromab)
 {
     ID3D12Device *dev = fpt_dev12(); static const UINT ws[] = { 2, 4, 8, 16, 64 }, hs[] = { 2, 4, 16, 64 }; UINT i, j;
     if (!dev) { t_skip("no D3D12 device"); return; }
-    if (plane_count(dev, fmt) != 2 || !(support1(dev, fmt, NULL) & D3D12_FORMAT_SUPPORT1_TEXTURE2D)) { t_skip("%s not a supported planar texture format", fpt_formats[fmt].name); return; }
+    if (plane_count(dev, fmt) != 2 || !(support1(dev, fmt, NULL) & D3D12_FORMAT_SUPPORT1_TEXTURE2D)) {
+        /* WARP reports two planes for P010/P016 but no texture support: creation fails and every footprint is all-ones */
+        D3D12_RESOURCE_DESC desc = mkdesc(T2, 64, 16, 1, 1, fmt); D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay[2]; UINT nr[2]; UINT64 rs[2], tot = 0;
+        if (!fpt_is_warp()) { t_skip("%s not a supported planar texture format on this adapter", fpt_formats[fmt].name); return; }
+        CHECK(plane_count(dev, fmt) == 2);
+        CHECK(!(support1(dev, fmt, NULL) & D3D12_FORMAT_SUPPORT1_TEXTURE2D));
+        memset(lay, 0, sizeof lay);
+        ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 2, 0, lay, nr, rs, &tot);
+        CHECKF(tot == ~0ull && nr[0] == ~0u && rs[0] == ~0ull && lay[0].Footprint.RowPitch == ~0u, "%s unsupported: total %llx rows %x", fpt_formats[fmt].name, (unsigned long long)tot, nr[0]);
+        { ID3D12Resource *r = NULL; HRESULT hr = create_tex(dev, T2, 64, 16, 1, 1, fmt, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r); }
+        return;
+    }
     for (i = 0; i < 5; i++) for (j = 0; j < 4; j++) planar_case(fmt, ws[i], hs[j], lumab, chromab, 1);
     { static const UINT oddw[] = { 1, 3, 5, 7, 15, 17, 31 }; for (i = 0; i < 7; i++) planar_case(fmt, oddw[i], 5, lumab, chromab, 0); }
 }
@@ -258,7 +320,7 @@ static void ds_planes(DXGI_FORMAT fmt, UINT depthb)
     if (!dev) { t_skip("no D3D12 device"); return; }
     if (plane_count(dev, fmt) != 2) { t_skip("%s: no 2 planes", fpt_formats[fmt].name); return; }
     for (wi = 0; wi < FPT_NW; wi++) {
-        UINT w = fpt_widths[wi], h = 5, rp0 = fpt_align(w * depthb, 256), rp1 = fpt_align(w, 256);
+        UINT w = fpt_widths[wi], h = 5, rp0 = fpt_align(w * depthb, plane_align()), rp1 = fpt_align(w, plane_align());
         D3D12_RESOURCE_DESC desc = mkdesc(T2, w, h, 1, 1, fmt); D3D12_PLACED_SUBRESOURCE_FOOTPRINT lay[2]; UINT nr[2]; UINT64 rs[2], tot = 0;
         memset(lay, 0, sizeof lay);
         ID3D12Device_GetCopyableFootprints(dev, &desc, 0, 2, 0, lay, nr, rs, &tot);
@@ -312,26 +374,43 @@ static HRESULT create_tex(ID3D12Device *dev, D3D12_RESOURCE_DIMENSION dim, UINT 
 }
 TEST(fpt_d3d12_limit_texture_dimensions)
 {
-    ID3D12Device *dev = fpt_dev12(); ID3D12Resource *r; HRESULT hr;
+    ID3D12Device *dev = fpt_dev12(); ID3D12Resource *r; HRESULT hr; UINT i;
     if (!dev) { t_skip("no D3D12 device"); return; }
     hr = create_tex(dev, T1, D3D12_REQ_TEXTURE1D_U_DIMENSION, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
-    hr = create_tex(dev, T1, D3D12_REQ_TEXTURE1D_U_DIMENSION + 1, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "1D over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    hr = create_tex(dev, T1, D3D12_REQ_TEXTURE1D_U_DIMENSION + 1, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
+    hr = create_tex(dev, T1, 0, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
     hr = create_tex(dev, T2, D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
     hr = create_tex(dev, T2, 1, D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
-    hr = create_tex(dev, T2, D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "2D width over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
-    hr = create_tex(dev, T2, 1, D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "2D height over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    hr = create_tex(dev, T2, 0, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
+    hr = create_tex(dev, T2, 1, 0, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
+    /* WARP (the oracle adapter) goes far beyond the 16384 that D3D12 guarantees: 1x2^23 works, one more does not. Hardware limits vary, so elsewhere only the guarantee is checked. */
+    for (i = 0; i < 2; i++) {
+        static const UINT over[] = { D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 1u << 20, 1u << 23 }, beyond[] = { (1u << 23) + 1, 1u << 24, 0x7fffffff, 0xffffffffu };
+        UINT k;
+        for (k = 0; k < 3; k++) {
+            hr = i ? create_tex(dev, T2, 1, over[k], 1, 1, DXGI_FORMAT_R8_UNORM, &r) : create_tex(dev, T2, over[k], 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r);
+            if (fpt_is_warp()) CHECKF(hr == S_OK, "WARP 2D %s %u -> %s", i ? "height" : "width", over[k], d3dh_hr_name(hr)); else t_note("2D %s %u -> %s", i ? "height" : "width", over[k], d3dh_hr_name(hr));
+            SAFE_RELEASE(r);
+        }
+        for (k = 0; k < 4; k++) {
+            hr = i ? create_tex(dev, T2, 1, beyond[k], 1, 1, DXGI_FORMAT_R8_UNORM, &r) : create_tex(dev, T2, beyond[k], 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r);
+            CHECKF(hr == E_INVALIDARG, "2D %s %u -> %s", i ? "height" : "width", beyond[k], d3dh_hr_name(hr));
+            SAFE_RELEASE(r);
+        }
+    }
     hr = create_tex(dev, T3, D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
-    hr = create_tex(dev, T3, D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "3D width over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
-    hr = create_tex(dev, T3, 1, 1, D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "3D depth over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    hr = create_tex(dev, T3, D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1, 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
+    hr = create_tex(dev, T3, 1, D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1, 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
+    hr = create_tex(dev, T3, 1, 1, D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(r);
 }
 TEST(fpt_d3d12_limit_texture_array_size)
 {
     ID3D12Device *dev = fpt_dev12(); ID3D12Resource *r; HRESULT hr;
     if (!dev) { t_skip("no D3D12 device"); return; }
     hr = create_tex(dev, T2, 1, 1, D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
-    hr = create_tex(dev, T2, 1, 1, D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION + 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "array over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    hr = create_tex(dev, T2, 1, 1, D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION + 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(hr == E_INVALIDARG, "array over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     hr = create_tex(dev, T1, 1, 1, D3D12_REQ_TEXTURE1D_ARRAY_AXIS_DIMENSION, 1, DXGI_FORMAT_R8_UNORM, &r); EXPECT_HR(hr, S_OK); SAFE_RELEASE(r);
-    hr = create_tex(dev, T1, 1, 1, D3D12_REQ_TEXTURE1D_ARRAY_AXIS_DIMENSION + 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(FAILED(hr), "1D array over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    hr = create_tex(dev, T1, 1, 1, D3D12_REQ_TEXTURE1D_ARRAY_AXIS_DIMENSION + 1, 1, DXGI_FORMAT_R8_UNORM, &r); CHECKF(hr == E_INVALIDARG, "1D array over limit: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
 }
 TEST(fpt_d3d12_limit_mip_levels)
 {
@@ -339,7 +418,11 @@ TEST(fpt_d3d12_limit_mip_levels)
     if (!dev) { t_skip("no D3D12 device"); return; }
     for (m = 1; m <= D3D12_REQ_MIP_LEVELS; m++) {
         hr = create_tex(dev, T2, 1u << (m - 1), 1, 1, m, DXGI_FORMAT_R8_UNORM, &r); CHECKF(hr == S_OK, "width %u mips %u: %s", 1u << (m - 1), m, d3dh_hr_name(hr)); SAFE_RELEASE(r);
-        hr = create_tex(dev, T2, 1u << (m - 1), 1, 1, m + 1, DXGI_FORMAT_R8_UNORM, &r); if (SUCCEEDED(hr)) t_note("width %u mips %u accepted", 1u << (m - 1), m + 1); SAFE_RELEASE(r);
+        /* asking for more levels than the chain has is not an error on Win10: the resource is created and keeps the requested count */
+        hr = create_tex(dev, T2, 1u << (m - 1), 1, 1, m + 1, DXGI_FORMAT_R8_UNORM, &r);
+        CHECKF(hr == S_OK, "width %u mips %u: %s", 1u << (m - 1), m + 1, d3dh_hr_name(hr));
+        if (r) { D3D12_RESOURCE_DESC gd; r->lpVtbl->GetDesc(r, &gd); CHECKF(gd.MipLevels == m + 1, "width %u asked %u mips, GetDesc says %u", 1u << (m - 1), m + 1, gd.MipLevels); }
+        SAFE_RELEASE(r);
     }
 }
 TEST(fpt_d3d12_resource_allocation_buffer_64k)

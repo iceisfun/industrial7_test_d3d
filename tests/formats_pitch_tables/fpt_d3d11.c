@@ -71,7 +71,9 @@ static void run_group(UINT grp, int dim)
             UINT rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h);
             UINT sup = fpt_support11(e.dev, id, NULL);
             UINT bit = dim == 1 ? D3D11_FORMAT_SUPPORT_TEXTURE1D : dim == 2 ? D3D11_FORMAT_SUPPORT_TEXTURE2D : D3D11_FORMAT_SUPPORT_TEXTURE3D;
-            int must = hard_group(grp) && (sup & bit) && !(sup & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && (w % 4 || dim == 1));
+            /* Win10 22H2 creates a staging texture exactly when the format supports the dimension and is not depth-stencil; BC needs 4-aligned
+             * dimensions and no 1D, and the 4:2:2 packed formats need an even width. Depth-stencil formats can be staging textures too. */
+            int must = (sup & bit) && !(fpt_is_bc(f) && (w % 4 || h % 4 || dim == 1)) && !((f->group == G_422 || f->group == G_VPACK) && f->bw == 2 && (w & 1));
             HRESULT hr1, hr2;
             ID3D11Resource *a, *b;
             D3D11_MAPPED_SUBRESOURCE m;
@@ -79,12 +81,13 @@ static void run_group(UINT grp, int dim)
             b = a ? mk_stage(e.dev, dim, f, w, h, d, 1, 1, &hr2) : NULL;
             if (!a || !b) {
                 if (must) CHECKF(0, "%s %s w=%u creation failed hr=%s", dimname(dim), f->name, w, d3dh_hr_name(a ? hr2 : hr1));
-                else if (wi == 0 || (sup & bit)) t_note("%s %s w=%u: staging creation fails (%s), support=0x%x", dimname(dim), f->name, w, d3dh_hr_name(a ? hr2 : hr1), sup);
+                else CHECKF((a ? hr2 : hr1) == E_INVALIDARG, "%s %s w=%u: staging creation -> %s want E_INVALIDARG (support=0x%x)", dimname(dim), f->name, w, d3dh_hr_name(a ? hr2 : hr1), sup);
                 SAFE_RELEASE(a);
                 n += snprintf(line + n, sizeof line - n, " -");
                 continue;
             }
             created_any = 1;
+            CHECKF(must, "%s %s w=%u: staging creation succeeded where Win10 refuses it (support=0x%x)", dimname(dim), f->name, w, sup);
             memset(&m, 0, sizeof m);
             hr1 = ID3D11DeviceContext_Map(e.ctx, a, 0, D3D11_MAP_READ_WRITE, 0, &m);
             EXPECT_HR(hr1, S_OK);
@@ -94,7 +97,9 @@ static void run_group(UINT grp, int dim)
                 if (dim != 1) CHECKF(rp >= rowb, "%s %s w=%u RowPitch %u < row bytes %u", dimname(dim), f->name, w, rp, rowb);
                 else CHECKF(rp == 0 || rp >= rowb, "%s %s w=%u RowPitch %u < row bytes %u", dimname(dim), f->name, w, rp, rowb);
                 if (dim == 3) CHECKF(dp >= rp * rows, "%s %s w=%u DepthPitch %u < RowPitch*rows %u", dimname(dim), f->name, w, dp, rp * rows);
-                if (dim != 1 && prev && rp < prev) t_note("%s %s RowPitch shrinks with width: %u after %u", dimname(dim), f->name, rp, prev);
+                /* WARP maps staging resources with a 4-byte aligned row pitch (any dimension) */
+                if (fpt_is_warp() && grp != G_PLANAR) CHECKF(rp == fpt_align(rowb, 4), "%s %s w=%u RowPitch %u want %u (WARP: row bytes aligned to 4)", dimname(dim), f->name, w, rp, fpt_align(rowb, 4));
+                if (dim != 1 && prev) CHECKF(rp >= prev, "%s %s RowPitch shrinks with width: %u after %u", dimname(dim), f->name, rp, prev);
                 if (dim != 1) prev = rp;
                 n += snprintf(line + n, sizeof line - n, " %u", rp);
                 if (dim == 1) { rp = rowb; dp = rowb; } else if (dim == 2) dp = rp * rows;
@@ -242,6 +247,11 @@ static void run_mips(UINT grp)
         if (f->group != grp) continue;
         sup = fpt_support11(e.dev, id, NULL);
         res = mk_stage(e.dev, 2, f, W, H, 1, MIPS, ARR, &hr);
+        if (id == DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM) {
+            /* the XR bias format cannot be mip-mapped: more than one level is refused (one level works) */
+            CHECKF(!res && hr == E_INVALIDARG, "%s mip/array staging creation -> %s want E_INVALIDARG", f->name, d3dh_hr_name(hr));
+            SAFE_RELEASE(res); continue;
+        }
         if (!res) { if (hard_group(grp) && (sup & D3D11_FORMAT_SUPPORT_TEXTURE2D) && !(sup & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL)) CHECKF(0, "%s mip/array staging creation %s", f->name, d3dh_hr_name(hr)); continue; }
         for (a = 0; a < ARR; a++) {
             UINT prev = 0xffffffffu;
@@ -252,9 +262,9 @@ static void run_mips(UINT grp)
                 EXPECT_HR(hr, S_OK);
                 if (FAILED(hr)) continue;
                 CHECKF(ms.RowPitch >= fpt_row_bytes(f, fpt_mip(W, m)), "%s a=%u m=%u RowPitch %u < %u", f->name, a, m, ms.RowPitch, fpt_row_bytes(f, fpt_mip(W, m)));
-                if (ms.RowPitch > prev) t_note("%s a=%u RowPitch grows with mip level (%u after %u)", f->name, a, ms.RowPitch, prev);
+                CHECKF(ms.RowPitch <= prev, "%s a=%u RowPitch grows with mip level (%u after %u)", f->name, a, ms.RowPitch, prev);
                 prev = ms.RowPitch;
-                if (a == 0) first[m] = ms.RowPitch; else if (ms.RowPitch != first[m]) t_note("%s m=%u slice %u pitch %u differs from slice 0 pitch %u", f->name, m, a, ms.RowPitch, first[m]);
+                if (a == 0) first[m] = ms.RowPitch; else CHECKF(ms.RowPitch == first[m], "%s m=%u slice %u pitch %u differs from slice 0 pitch %u", f->name, m, a, ms.RowPitch, first[m]);
                 ID3D11DeviceContext_Unmap(e.ctx, res, sub);
             }
         }

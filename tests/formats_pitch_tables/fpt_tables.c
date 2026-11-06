@@ -100,7 +100,7 @@ TEST(fpt_d3d11_support_by_feature_level_table)
         CHECK(ID3D11Device_GetFeatureLevel(dev) == got);
         for (k = 0; k < sizeof keyfmts / sizeof *keyfmts; k++) {
             HRESULT h2; UINT s = fpt_support11(dev, keyfmts[k], &h2);
-            t_note("FL 0x%x %-24s hr=%s bits=0x%08x", got, fpt_formats[keyfmts[k]].name, d3dh_hr_name(h2), s);
+            { char key[80]; snprintf(key, sizeof key, "fl0x%x %s", got, fpt_formats[keyfmts[k]].name); FPT_GOLDEN(key, "%s 0x%08x", d3dh_hr_name(h2), s); }
             if (keyfmts[k] == DXGI_FORMAT_R8G8B8A8_UNORM) CHECKF((s & (D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_RENDER_TARGET | D3D11_FORMAT_SUPPORT_BLENDABLE)) == (D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_RENDER_TARGET | D3D11_FORMAT_SUPPORT_BLENDABLE), "FL 0x%x RGBA8 bits 0x%x", got, s);
             if (keyfmts[k] == DXGI_FORMAT_BC1_UNORM) CHECKF((s & D3D11_FORMAT_SUPPORT_TEXTURE2D) && (s & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE), "FL 0x%x BC1 bits 0x%x", got, s);
             if (keyfmts[k] == DXGI_FORMAT_D32_FLOAT) CHECKF(s & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL, "FL 0x%x D32 bits 0x%x", got, s);

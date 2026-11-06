@@ -1,4 +1,5 @@
 #include "fpt.h"
+#include <stdarg.h>
 
 const fpt_fmt fpt_formats[FPT_NFORMATS] = {
 #define X(id, nm, grp, bpb, bw, bh) [id] = { id, #nm, grp, bpb, bw, bh },
@@ -69,4 +70,44 @@ UINT fpt_support11(ID3D11Device *dev, UINT fmt, HRESULT *hr_out)
     HRESULT hr = ID3D11Device_CheckFormatSupport(dev, (DXGI_FORMAT)fmt, &s);
     if (hr_out) *hr_out = hr;
     return FAILED(hr) ? 0 : s;
+}
+
+/* True when the D3D11/D3D12 device runs on the Microsoft Basic Render Driver (WARP: vendor 0x1414, device 0x008c), the adapter of the Win10 oracle.
+ * Several size limits and pitch rules below were measured there and only pinned for it; other adapters are recorded with t_note. */
+int fpt_is_warp(void)
+{
+    static int cached = -1;
+    if (cached < 0) {
+        ID3D11Device *dev = fpt_dev11(NULL, NULL); IDXGIDevice *dd = NULL; IDXGIAdapter *ad = NULL; DXGI_ADAPTER_DESC desc; cached = 0;
+        if (dev && SUCCEEDED(ID3D11Device_QueryInterface(dev, &IID_IDXGIDevice, (void **)&dd)) && SUCCEEDED(IDXGIDevice_GetAdapter(dd, &ad)) && SUCCEEDED(IDXGIAdapter_GetDesc(ad, &desc)))
+            cached = desc.VendorId == 0x1414 && desc.DeviceId == 0x8c;
+        SAFE_RELEASE(ad); SAFE_RELEASE(dd);
+    }
+    return cached;
+}
+
+static const struct { const char *k, *v; } k_fpt_golden[] = {
+#include "fpt_golden.inc"
+};
+void fpt_golden(const char *file, int line, const char *key, const char *fmt, ...)
+{
+    char val[200]; va_list ap; unsigned i;
+    va_start(ap, fmt); vsnprintf(val, sizeof val, fmt, ap); va_end(ap);
+    if (!fpt_is_warp()) { t_note("%s = %s", key, val); return; }
+    for (i = 0; i < sizeof k_fpt_golden / sizeof *k_fpt_golden; i++)
+        if (!strcmp(key, k_fpt_golden[i].k)) { t_check(!strcmp(val, k_fpt_golden[i].v), file, line, key, "%s = %s want %s", key, val, k_fpt_golden[i].v); return; }
+    t_check(0, file, line, key, "no golden value for %s (got %s)", key, val);
+}
+
+static const struct { const char *k, *v; } k_fpt_pins[] = {
+#include "fpt_pins.inc"
+};
+void fpt_pinf(const char *file, int line, HRESULT hr, const char *fmt, ...)
+{
+    char key[256]; va_list ap; unsigned i;
+    va_start(ap, fmt); vsnprintf(key, sizeof key, fmt, ap); va_end(ap);
+    if (!fpt_is_warp()) { t_note("%s -> %s", key, d3dh_hr_name(hr)); return; }
+    for (i = 0; i < sizeof k_fpt_pins / sizeof *k_fpt_pins; i++)
+        if (!strcmp(key, k_fpt_pins[i].k)) { t_check(!strcmp(d3dh_hr_name(hr), k_fpt_pins[i].v), file, line, key, "%s -> %s want %s", key, d3dh_hr_name(hr), k_fpt_pins[i].v); return; }
+    t_check(0, file, line, key, "no pinned HRESULT for \"%s\" (got %s)", key, d3dh_hr_name(hr));
 }

@@ -21,22 +21,24 @@ static void run10_2d(UINT grp)
         for (wi = 0; wi < FPT_NW; wi++) {
             UINT w = fpt_widths[wi], h = fpt_is_bc(f) ? 8 : 5, rowb = fpt_row_bytes(f, w), rows = fpt_rows(f, h), r, i; D3D10_TEXTURE2D_DESC d = {0};
             ID3D10Texture2D *a = NULL, *b = NULL; D3D10_MAPPED_TEXTURE2D m; HRESULT hr;
-            int must = ((f->group >= G_B8 && f->group <= G_B128) || fpt_is_bc(f)) && (sup & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(sup & D3D10_FORMAT_SUPPORT_DEPTH_STENCIL) && !(fpt_is_bc(f) && w % 4);
+            int must = (sup & D3D10_FORMAT_SUPPORT_TEXTURE2D) && !(fpt_is_bc(f) && (w % 4 || h % 4)) && !((f->group == G_422 || f->group == G_VPACK) && f->bw == 2 && (w & 1));
             d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = (DXGI_FORMAT)id; d.SampleDesc.Count = 1;
             d.Usage = D3D10_USAGE_STAGING; d.CPUAccessFlags = D3D10_CPU_ACCESS_READ | D3D10_CPU_ACCESS_WRITE;
             hr = ID3D10Device_CreateTexture2D(dev, &d, NULL, &a);
             if (SUCCEEDED(hr)) hr = ID3D10Device_CreateTexture2D(dev, &d, NULL, &b);
             if (FAILED(hr)) {
-                if (must) CHECKF(0, "d3d10 %s w=%u staging creation %s", f->name, w, d3dh_hr_name(hr)); else if (wi == 0) t_note("d3d10 %s w=%u: %s (support 0x%x)", f->name, w, d3dh_hr_name(hr), sup);
+                if (must) CHECKF(0, "d3d10 %s w=%u staging creation %s", f->name, w, d3dh_hr_name(hr)); else CHECKF(hr == E_INVALIDARG, "d3d10 %s w=%u: staging creation %s want E_INVALIDARG (support 0x%x)", f->name, w, d3dh_hr_name(hr), sup);
                 SAFE_RELEASE(a); SAFE_RELEASE(b); n += snprintf(line + n, sizeof line - n, " -"); continue;
             }
             any = 1;
+            CHECKF(must, "d3d10 %s w=%u: staging creation succeeded where Win10 refuses it (support 0x%x)", f->name, w, sup);
             memset(&m, 0, sizeof m);
             hr = ID3D10Texture2D_Map(a, 0, D3D10_MAP_READ_WRITE, 0, &m);
             EXPECT_HR(hr, S_OK);
             if (SUCCEEDED(hr)) {
                 CHECKF(m.RowPitch >= rowb, "d3d10 %s w=%u RowPitch %u < %u", f->name, w, m.RowPitch, rowb);
-                if (prev && m.RowPitch < prev) t_note("d3d10 %s pitch shrinks with width: %u after %u", f->name, m.RowPitch, prev);
+                CHECKF(!prev || m.RowPitch >= prev, "d3d10 %s pitch shrinks with width: %u after %u", f->name, m.RowPitch, prev);
+                if (fpt_is_warp()) CHECKF(m.RowPitch == fpt_align(rowb, 4), "d3d10 %s w=%u RowPitch %u want %u (WARP: row bytes aligned to 4)", f->name, w, m.RowPitch, fpt_align(rowb, 4));
                 prev = m.RowPitch;
                 n += snprintf(line + n, sizeof line - n, " %u", m.RowPitch);
                 for (r = 0; r < rows; r++) for (i = 0; i < rowb; i++) ((BYTE *)m.pData)[(size_t)r * m.RowPitch + i] = pat(id, 0, r, i);
@@ -154,7 +156,12 @@ TEST(fpt_d3d10_limits)
     t.MipLevels = 1; t.ArraySize = 1; t.Format = DXGI_FORMAT_R8_UNORM; t.SampleDesc.Count = 1; t.Usage = D3D10_USAGE_DEFAULT;
     t.Width = D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION; t.Height = 1;
     hr = ID3D10Device_CreateTexture2D(dev, &t, NULL, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
-    t.Width = D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1;
+    /* WARP does not enforce the 8192 limit of D3D10 hardware: widths up to 2^23 work, one more does not */
+    if (fpt_is_warp()) {
+        t.Width = D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1; hr = ID3D10Device_CreateTexture2D(dev, &t, NULL, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
+        t.Width = 1u << 23; hr = ID3D10Device_CreateTexture2D(dev, &t, NULL, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
+    }
+    t.Width = (1u << 23) + 1;
     hr = ID3D10Device_CreateTexture2D(dev, &t, NULL, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
     t.Width = 1; t.ArraySize = D3D10_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
     hr = ID3D10Device_CreateTexture2D(dev, &t, NULL, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
@@ -216,14 +223,15 @@ static void run9_tex(int blockclass)
         n = snprintf(line, sizeof line, "d3d9 sysmem %s (CheckDeviceFormat %s) pitch by width:", f->name, supported ? "ok" : "no");
         for (wi = 0; wi < FPT_NW; wi++) {
             UINT w = fpt_widths[wi], h = f->block == 1 ? 8 : 5, r, k; IDirect3DTexture9 *t = NULL; D3DLOCKED_RECT lr, lr2; D3DSURFACE_DESC sd; HRESULT hr;
-            int must = supported && !(f->block == 1 && (w % 4 || h % 4)) && !(f->block == 2 && (w & 1));
+            int must = supported && !(f->block == 1 && (w % 4 || h % 4));
             hr = IDirect3DDevice9_CreateTexture(dev, w, h, 1, 0, f->f, D3DPOOL_SYSTEMMEM, &t, NULL);
             if (FAILED(hr)) {
                 if (must) CHECKF(0, "d3d9 %s %ux%u sysmem creation %s", f->name, w, h, d3dh_hr_name(hr));
-                else if (wi == 0) t_note("d3d9 %s %ux%u sysmem creation: %s", f->name, w, h, d3dh_hr_name(hr));
+                else CHECKF(hr == D3DERR_INVALIDCALL, "d3d9 %s %ux%u sysmem creation: %s want D3DERR_INVALIDCALL", f->name, w, h, d3dh_hr_name(hr));
                 n += snprintf(line + n, sizeof line - n, " -"); continue;
             }
             any = 1;
+            CHECKF(must, "d3d9 %s %ux%u: sysmem creation succeeded where Win10 refuses it", f->name, w, h);
             memset(&sd, 0, sizeof sd);
             EXPECT_HR(IDirect3DTexture9_GetLevelDesc(t, 0, &sd), D3D_OK);
             CHECKF(sd.Width == w && sd.Height == h && sd.Format == f->f && sd.Pool == D3DPOOL_SYSTEMMEM, "d3d9 %s level desc %ux%u fmt %u pool %u", f->name, sd.Width, sd.Height, sd.Format, sd.Pool);
@@ -234,7 +242,8 @@ static void run9_tex(int blockclass)
             if (SUCCEEDED(hr)) {
                 CHECKF(lr.pBits != NULL, "d3d9 %s pBits NULL", f->name);
                 CHECKF((UINT)lr.Pitch >= row9(f, w), "d3d9 %s w=%u Pitch %d < %u", f->name, w, lr.Pitch, row9(f, w));
-                if (prev && (UINT)lr.Pitch < prev) t_note("d3d9 %s pitch shrinks with width: %d after %u", f->name, lr.Pitch, prev);
+                CHECKF(!prev || (UINT)lr.Pitch >= prev, "d3d9 %s pitch shrinks with width: %d after %u", f->name, lr.Pitch, prev);
+                CHECKF((UINT)lr.Pitch == fpt_align(row9(f, w), 4), "d3d9 %s w=%u Pitch %d want %u (system-memory textures align rows to 4 bytes)", f->name, w, lr.Pitch, fpt_align(row9(f, w), 4));
                 prev = lr.Pitch;
                 n += snprintf(line + n, sizeof line - n, " %d", lr.Pitch);
                 for (r = 0; r < rows9(f, h); r++) for (k = 0; k < row9(f, w); k++) ((BYTE *)lr.pBits)[(size_t)r * lr.Pitch + k] = (BYTE)(i * 11 + r * 5 + k + 1);
@@ -259,16 +268,21 @@ TEST(fpt_d3d9_texture_pitch_uncompressed) { run9_tex(0); }
 TEST(fpt_d3d9_texture_pitch_dxt) { run9_tex(1); }
 TEST(fpt_d3d9_texture_pitch_packed_yuv) { run9_tex(2); }
 
-/* DXT sizes that are not a multiple of 4: observed only. */
-TEST(fpt_d3d9_dxt_non_multiple_of_four_observed)
+/* DXT textures need dimensions that are multiples of 4 (system memory pool included). */
+TEST(fpt_d3d9_dxt_non_multiple_of_four)
 {
-    IDirect3DDevice9 *dev = dev9(); static const UINT sz[][2] = { {1,1}, {2,2}, {3,3}, {4,3}, {3,4}, {5,5}, {7,9}, {15,17} }; UINT i;
+    IDirect3DDevice9 *dev = dev9(); static const UINT sz[][2] = { {1,1}, {2,2}, {3,3}, {4,3}, {3,4}, {5,5}, {7,9}, {15,17}, {4,4}, {8,4}, {4,8}, {12,16} }; UINT i, f;
+    static const D3DFORMAT fm[] = { D3DFMT_DXT1, D3DFMT_DXT3, D3DFMT_DXT5 };
     if (!dev) return;
-    for (i = 0; i < sizeof sz / sizeof *sz; i++) {
-        IDirect3DTexture9 *t = NULL; HRESULT hr = IDirect3DDevice9_CreateTexture(dev, sz[i][0], sz[i][1], 1, 0, D3DFMT_DXT1, D3DPOOL_SYSTEMMEM, &t, NULL);
-        D3DLOCKED_RECT lr = {0};
-        if (SUCCEEDED(hr) && SUCCEEDED(IDirect3DTexture9_LockRect(t, 0, &lr, NULL, 0))) { t_note("DXT1 %ux%u sysmem: ok, pitch %d", sz[i][0], sz[i][1], lr.Pitch); IDirect3DTexture9_UnlockRect(t, 0); }
-        else t_note("DXT1 %ux%u sysmem: %s", sz[i][0], sz[i][1], d3dh_hr_name(hr));
+    for (f = 0; f < 3; f++) for (i = 0; i < sizeof sz / sizeof *sz; i++) {
+        IDirect3DTexture9 *t = NULL; HRESULT hr = IDirect3DDevice9_CreateTexture(dev, sz[i][0], sz[i][1], 1, 0, fm[f], D3DPOOL_SYSTEMMEM, &t, NULL);
+        D3DLOCKED_RECT lr = {0}; int good = !(sz[i][0] % 4) && !(sz[i][1] % 4);
+        CHECKF(hr == (good ? D3D_OK : D3DERR_INVALIDCALL), "fmt %u %ux%u sysmem: %s", fm[f], sz[i][0], sz[i][1], d3dh_hr_name(hr));
+        if (good && t && SUCCEEDED(IDirect3DTexture9_LockRect(t, 0, &lr, NULL, 0))) {
+            UINT bb = fm[f] == D3DFMT_DXT1 ? 8 : 16;
+            CHECKF((UINT)lr.Pitch == sz[i][0] / 4 * bb, "fmt %u %ux%u Pitch %d", fm[f], sz[i][0], sz[i][1], lr.Pitch);
+            IDirect3DTexture9_UnlockRect(t, 0);
+        }
         if (t) IDirect3DTexture9_Release(t);
     }
 }
@@ -370,6 +384,8 @@ TEST(fpt_d3d9_cube_texture_pitch)
         IDirect3DCubeTexture9_Release(t);
     }
 }
+static IDirect3DDevice9 *g9n;
+static void ct9_null(void *c) { IDirect3DDevice9_CreateTexture(g9n, 16, 16, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, NULL, NULL); }
 TEST(fpt_d3d9_texture_size_validation)
 {
     IDirect3DDevice9 *dev = dev9(); IDirect3DTexture9 *t = NULL; HRESULT hr;
@@ -377,5 +393,6 @@ TEST(fpt_d3d9_texture_size_validation)
     hr = IDirect3DDevice9_CreateTexture(dev, 0, 16, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &t, NULL); EXPECT_HR(hr, D3DERR_INVALIDCALL); CHECK(t == NULL);
     hr = IDirect3DDevice9_CreateTexture(dev, 16, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &t, NULL); EXPECT_HR(hr, D3DERR_INVALIDCALL); CHECK(t == NULL);
     hr = IDirect3DDevice9_CreateTexture(dev, 16, 16, 1, 0, D3DFMT_UNKNOWN, D3DPOOL_SYSTEMMEM, &t, NULL); EXPECT_HR_FAILED(hr); CHECK(t == NULL);
-    hr = IDirect3DDevice9_CreateTexture(dev, 16, 16, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, NULL, NULL); EXPECT_HR(hr, D3DERR_INVALIDCALL);
+    /* a NULL ppTexture is dereferenced without validation: access violation, not D3DERR_INVALIDCALL */
+    g9n = dev; CHECK(t_try(ct9_null, NULL) == 0xC0000005u);
 }

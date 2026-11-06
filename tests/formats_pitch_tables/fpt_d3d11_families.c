@@ -89,7 +89,7 @@ TEST(fpt_d3d11_depth_dsv_matrix)
             HRESULT hr = mk_dsv(dev, t, all_dsv[j]);
             if (all_dsv[j] == dfam[i].dsv) EXPECT_HR(hr, S_OK);
             else if (fpt_formats[all_dsv[j]].bpb != fpt_formats[dfam[i].dsv].bpb) CHECKF(FAILED(hr), "family %s: DSV format %u of a different size unexpectedly created (%s)", dfam[i].name, all_dsv[j], d3dh_hr_name(hr));
-            else t_note("family %s: same-size DSV format %u from another family -> %s", dfam[i].name, all_dsv[j], d3dh_hr_name(hr));
+            else PINF(hr, "family %s: same-size DSV format %u from another family", dfam[i].name, all_dsv[j]);
         }
         /* The SRV-only formats are not valid DSV formats. */
         for (j = 0; j < sizeof all_srv / sizeof *all_srv; j++) CHECKF(FAILED(mk_dsv(dev, t, all_srv[j])), "family %s: DSV with SRV format %u", dfam[i].name, all_srv[j]);
@@ -107,7 +107,7 @@ TEST(fpt_d3d11_depth_srv_matrix)
             HRESULT hr = mk_srv(dev, t, all_srv[j]);
             if (in_srv(&dfam[i], all_srv[j])) EXPECT_HR(hr, S_OK);
             else if (fpt_formats[all_srv[j]].bpb != fpt_formats[dfam[i].dsv].bpb) CHECKF(FAILED(hr), "family %s: SRV format %u of a different size unexpectedly created (%s)", dfam[i].name, all_srv[j], d3dh_hr_name(hr));
-            else t_note("family %s: same-size SRV format %u from another family -> %s", dfam[i].name, all_srv[j], d3dh_hr_name(hr));
+            else PINF(hr, "family %s: same-size SRV format %u from another family", dfam[i].name, all_srv[j]);
         }
         /* Typed depth formats cannot be sampled. */
         for (j = 0; j < sizeof all_dsv / sizeof *all_dsv; j++) CHECKF(FAILED(mk_srv(dev, t, all_dsv[j])), "family %s: SRV with depth format %u", dfam[i].name, all_dsv[j]);
@@ -157,6 +157,19 @@ static const color_fam cfam[] = {
 };
 #define NCF (sizeof cfam / sizeof *cfam)
 
+/* WARP raises an access violation when a BC6H_TYPELESS texture gets a BC6H_SF16 view or a BC7_TYPELESS texture a BC7_UNORM_SRGB view (the other
+ * members of both families, and BC1..BC5, work). The views are therefore created under t_try; on WARP the fault is pinned, elsewhere tolerated. */
+static struct { ID3D11Device *dev; ID3D11Texture2D *t; DXGI_FORMAT f; HRESULT hr; } g_sv;
+static void srv_thunk(void *c) { g_sv.hr = mk_srv(g_sv.dev, g_sv.t, g_sv.f); }
+static DWORD mk_srv_guarded(ID3D11Device *dev, ID3D11Texture2D *t, DXGI_FORMAT f, HRESULT *hr)
+{
+    DWORD x; g_sv.dev = dev; g_sv.t = t; g_sv.f = f; g_sv.hr = (HRESULT)0x77777777;
+    x = t_try(srv_thunk, NULL); *hr = g_sv.hr; return x;
+}
+static int warp_av_view(DXGI_FORMAT typeless, DXGI_FORMAT view)
+{
+    return (typeless == F(BC6H_TYPELESS) && view == F(BC6H_SF16)) || (typeless == F(BC7_TYPELESS) && view == F(BC7_UNORM_SRGB));
+}
 static void fam_srv(UINT i)
 {
     ID3D11Device *dev = fpt_dev11(NULL, NULL); const color_fam *c = &cfam[i]; ID3D11Texture2D *t; UINT j; HRESULT hr;
@@ -164,20 +177,37 @@ static void fam_srv(UINT i)
     hr = mk_tex2d(dev, c->typeless, 16, 16, D3D11_BIND_SHADER_RESOURCE, &t);
     if (FAILED(hr)) { t_note("typeless %u texture: %s", c->typeless, d3dh_hr_name(hr)); return; }
     for (j = 0; j < 5 && c->m[j]; j++) {
-        hr = mk_srv(dev, t, c->m[j]);
+        DWORD x = mk_srv_guarded(dev, t, c->m[j], &hr);
+        if (warp_av_view(c->typeless, c->m[j])) {
+            UINT rep, faults = 0;
+            for (rep = 0; rep < 20; rep++) { x = mk_srv_guarded(dev, t, c->m[j], &hr); faults += x == 0xC0000005u; }   /* 20 repetitions: deterministic */
+            if (fpt_is_warp()) CHECKF(faults == 20, "WARP: typeless %u -> member %u: %u/20 views faulted (expected 20)", c->typeless, c->m[j], faults);
+            else t_note("typeless %u -> member %u: %u/20 views faulted", c->typeless, c->m[j], faults);
+            continue;
+        }
+        CHECKF(x == 0, "typeless %u -> member %u raised 0x%lx", c->typeless, c->m[j], x);
         t_check(SUCCEEDED(hr), __FILE__, __LINE__, "SRV member", "typeless %u -> member %u: %s", c->typeless, c->m[j], d3dh_hr_name(hr));
     }
-    hr = mk_srv(dev, t, c->foreign);
-    t_check(FAILED(hr), __FILE__, __LINE__, "SRV foreign", "typeless %u accepted foreign view format %u", c->typeless, c->foreign);
-    hr = mk_srv(dev, t, c->typeless);
-    t_check(FAILED(hr), __FILE__, __LINE__, "SRV typeless", "typeless view format %u accepted (%s)", c->typeless, d3dh_hr_name(hr));
+    { DWORD x = mk_srv_guarded(dev, t, c->foreign, &hr);
+      CHECKF(x == 0, "foreign view raised 0x%lx", x);
+      t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "SRV foreign", "typeless %u foreign view format %u -> %s want E_INVALIDARG", c->typeless, c->foreign, d3dh_hr_name(hr));
+      x = mk_srv_guarded(dev, t, c->typeless, &hr);
+      CHECKF(x == 0, "typeless view raised 0x%lx", x);
+      t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "SRV typeless", "typeless view format %u -> %s want E_INVALIDARG", c->typeless, d3dh_hr_name(hr)); }
     SAFE_RELEASE(t);
 }
 static void fam_rtv(UINT i)
 {
     ID3D11Device *dev = fpt_dev11(NULL, NULL); const color_fam *c = &cfam[i]; ID3D11Texture2D *t; UINT j; HRESULT hr;
     if (!dev) { t_skip("no D3D11 device"); return; }
-    if (!c->rt) { t_skip("family without render target use"); return; }
+    { UINT any_rt = 0; for (j = 0; j < 5 && c->m[j]; j++) any_rt |= fpt_support11(dev, c->m[j], NULL) & D3D11_FORMAT_SUPPORT_RENDER_TARGET;
+      if (!any_rt) {
+        /* no member can be a render target: the texture itself is refused */
+        hr = mk_tex2d(dev, c->typeless, 16, 16, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE, &t);
+        CHECKF(hr == E_INVALIDARG, "typeless %u with RENDER_TARGET -> %s want E_INVALIDARG", c->typeless, d3dh_hr_name(hr));
+        SAFE_RELEASE(t);
+        return;
+      } }
     hr = mk_tex2d(dev, c->typeless, 16, 16, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE, &t);
     if (FAILED(hr)) { t_note("typeless %u RT texture: %s", c->typeless, d3dh_hr_name(hr)); return; }
     for (j = 0; j < 5 && c->m[j]; j++) {
@@ -195,8 +225,8 @@ FS(0, r32g32b32a32) FS(1, r32g32b32) FS(2, r16g16b16a16) FS(3, r32g32) FS(4, r10
 FS(6, r16g16) FS(7, r32) FS(8, r8g8) FS(9, r16) FS(10, r8) FS(11, b8g8r8a8) FS(12, b8g8r8x8)
 FS(13, bc1) FS(14, bc2) FS(15, bc3) FS(16, bc4) FS(17, bc5) FS(18, bc6h) FS(19, bc7)
 
-/* Same-bit-size cross-family casts: observed only. */
-TEST(fpt_d3d11_family_cross_cast_observed)
+/* Same-bit-size casts across families are refused. */
+TEST(fpt_d3d11_family_cross_cast_rejected)
 {
     ID3D11Device *dev = fpt_dev11(NULL, NULL); ID3D11Texture2D *t; HRESULT hr;
     static const struct { DXGI_FORMAT res, view; } c[] = {
@@ -206,7 +236,8 @@ TEST(fpt_d3d11_family_cross_cast_observed)
     if (!dev) { t_skip("no D3D11 device"); return; }
     for (i = 0; i < sizeof c / sizeof *c; i++) {
         hr = mk_tex2d(dev, c[i].res, 16, 16, D3D11_BIND_SHADER_RESOURCE, &t);
-        if (SUCCEEDED(hr)) { t_note("SRV %u on resource %u: %s", c[i].view, c[i].res, d3dh_hr_name(mk_srv(dev, t, c[i].view))); SAFE_RELEASE(t); }
+        CHECKF(SUCCEEDED(hr), "resource format %u: texture creation %s", c[i].res, d3dh_hr_name(hr));
+        if (SUCCEEDED(hr)) { CHECKF(mk_srv(dev, t, c[i].view) == E_INVALIDARG, "SRV %u on resource %u not refused", c[i].view, c[i].res); SAFE_RELEASE(t); }
     }
 }
 
@@ -218,7 +249,7 @@ TEST(fpt_d3d11_support_table_note)
     for (id = 0; id < FPT_NFORMATS; id++) {
         HRESULT hr; UINT s = fpt_support11(dev, id, &hr);
         if (fpt_formats[id].group == G_NONE) continue;
-        t_note("support %-30s hr=%s bits=0x%08x", fpt_formats[id].name, d3dh_hr_name(hr), s);
+        { char key[80]; snprintf(key, sizeof key, "d11 %s", fpt_formats[id].name); FPT_GOLDEN(key, "%s 0x%08x", d3dh_hr_name(hr), s); }
     }
 }
 TEST(fpt_d3d11_support_invariants)
@@ -227,7 +258,9 @@ TEST(fpt_d3d11_support_invariants)
     if (!dev) { t_skip("no D3D11 device"); return; }
     for (id = 0; id < FPT_NFORMATS; id++) {
         const fpt_fmt *f = &fpt_formats[id]; HRESULT hr; UINT s = fpt_support11(dev, id, &hr);
-        if (f->group == G_NONE || f->group == G_UNKNOWN) { CHECKF(FAILED(hr) || s == 0, "%s id %u: success with bits 0x%x", f->name, id, s); continue; }
+        /* ids that are not formats fail with E_FAIL; DXGI_FORMAT_UNKNOWN is answered with S_OK and BUFFER|CPU_LOCKABLE (0x20001) */
+        if (f->group == G_NONE) { CHECKF(hr == E_FAIL && s == 0, "%s id %u: %s bits 0x%x", f->name, id, d3dh_hr_name(hr), s); continue; }
+        if (f->group == G_UNKNOWN) { CHECKF(hr == S_OK && s == 0x20001, "UNKNOWN id %u: %s bits 0x%x", id, d3dh_hr_name(hr), s); continue; }
         if (FAILED(hr)) continue;
         if (s & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) CHECKF(s & D3D11_FORMAT_SUPPORT_TEXTURE2D, "%s: DEPTH_STENCIL without TEXTURE2D", f->name);
         if (s & D3D11_FORMAT_SUPPORT_BLENDABLE) CHECKF(s & D3D11_FORMAT_SUPPORT_RENDER_TARGET, "%s: BLENDABLE without RENDER_TARGET", f->name);
@@ -243,8 +276,7 @@ TEST(fpt_d3d11_support_undefined_ids)
     if (!dev) { t_skip("no D3D11 device"); return; }
     for (i = 0; i < sizeof ids / sizeof *ids; i++) {
         UINT s = 0xdeadbeef; HRESULT hr = ID3D11Device_CheckFormatSupport(dev, (DXGI_FORMAT)ids[i], &s);
-        CHECKF(FAILED(hr) || s == 0, "id 0x%x: hr=%s bits=0x%x", ids[i], d3dh_hr_name(hr), s);
-        t_note("CheckFormatSupport(0x%x) = %s bits=0x%x", ids[i], d3dh_hr_name(hr), s);
+        CHECKF(hr == E_FAIL && s == 0, "id 0x%x: hr=%s bits=0x%x", ids[i], d3dh_hr_name(hr), s);
     }
 }
 TEST(fpt_d3d11_support_depth_formats_have_ds_bit)
@@ -353,8 +385,16 @@ TEST(fpt_d3d11_limit_texture2d_dimensions)
     if (!dev) return;
     hr = mk_tex2d(dev, F(R8_UNORM), D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION, 1, 0, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
     hr = mk_tex2d(dev, F(R8_UNORM), 1, D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION, 0, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
-    hr = mk_tex2d(dev, F(R8_UNORM), D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 1, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
-    hr = mk_tex2d(dev, F(R8_UNORM), 1, D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
+    /* WARP accepts far more than the 16384 guaranteed by D3D11: 2^23 works, one more does not (the same on D3D12 and D3D10) */
+    if (fpt_is_warp()) {
+        hr = mk_tex2d(dev, F(R8_UNORM), D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 1, 0, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
+        hr = mk_tex2d(dev, F(R8_UNORM), 1, D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1, 0, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
+        hr = mk_tex2d(dev, F(R8_UNORM), 1u << 23, 1, 0, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
+        hr = mk_tex2d(dev, F(R8_UNORM), 1, 1u << 23, 0, &tex); EXPECT_HR(hr, S_OK); SAFE_RELEASE(tex);
+    }
+    hr = mk_tex2d(dev, F(R8_UNORM), (1u << 23) + 1, 1, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
+    hr = mk_tex2d(dev, F(R8_UNORM), 1, (1u << 23) + 1, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
+    hr = mk_tex2d(dev, F(R8_UNORM), 0x7fffffff, 1, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
     hr = mk_tex2d(dev, F(R8_UNORM), 0, 1, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
     hr = mk_tex2d(dev, F(R8_UNORM), 1, 0, 0, &tex); EXPECT_HR(hr, E_INVALIDARG); SAFE_RELEASE(tex);
 }
