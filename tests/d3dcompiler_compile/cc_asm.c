@@ -54,11 +54,29 @@ TEST(d3dcompiler_compile_asm_ps20_tokens)
     cc_asm_free(&r);
 }
 
+/* Win10: reading an input register that was never declared is an assembler error (vs_1_1: X5326, vs_2_0: X5702) */
+TEST(d3dcompiler_compile_asm_undeclared_input_register_rejected)
+{
+    cc_asm_r r;
+    NEED_ASM();
+    cc_asm(&r, "vs_1_1\nmov oPos, v0\n", strlen("vs_1_1\nmov oPos, v0\n"), "t.asm", NULL, NULL, 0);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    CHECKF(cc_has_error(r.err, 5326) && strstr(r.err, "Read of uninitialized components"), "%.150s", r.err);
+    CHECK(r.code == NULL);
+    cc_asm_free(&r);
+    cc_asm(&r, "vs_2_0\nmov oPos, v0\n", strlen("vs_2_0\nmov oPos, v0\n"), "t.asm", NULL, NULL, 0);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    CHECKF(cc_has_error(r.err, 5702) && strstr(r.err, "was not declared with a dcl statement"), "%.150s", r.err);
+    cc_asm_free(&r);
+    cc_asm(&r, "vs.1.1\nmov oPos, v0\n", strlen("vs.1.1\nmov oPos, v0\n"), "t.asm", NULL, NULL, 0);   /* the DX8 dotted version syntax is not accepted */
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    cc_asm_free(&r);
+}
 TEST(d3dcompiler_compile_asm_version_tokens)
 {
     static const struct { const char *src; DWORD tok; } tab[] = {
-        { "vs_1_1\nmov oPos, v0\n", 0xFFFE0101 },
-        { "vs_2_0\nmov oPos, v0\n", 0xFFFE0200 },
+        { "vs_1_1\ndcl_position v0\nmov oPos, v0\n", 0xFFFE0101 },
+        { "vs_2_0\ndcl_position v0\nmov oPos, v0\n", 0xFFFE0200 },
         { "vs_3_0\ndcl_position v0\ndcl_position o0\nmov o0, v0\n", 0xFFFE0300 },
         { "ps_1_1\nmov r0, c0\n", 0xFFFF0101 },
         { "ps_1_4\nmov r0, c0\n", 0xFFFF0104 },
@@ -142,7 +160,9 @@ TEST(d3dcompiler_compile_asm_null_source_name)
     cc_asm(&r, "ps_2_0\nbogus_op r0\n", 19, NULL, NULL, NULL, 0);
     CHECK((LONG)r.hr < 0);
     CHECK(r.errb != NULL);
-    t_note("unnamed asm error text: %.100s", r.err);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    {   char full[MAX_PATH]; cc_fullname("Shader@0x", full, sizeof full);
+        CHECKF(!strncmp(r.err, full, strlen(full)) && strstr(r.err, "(2,1-8): error X2000: syntax error : unexpected token 'bogus_op'"), "%.140s", r.err); }
     cc_asm_free(&r);
 }
 
@@ -157,7 +177,8 @@ TEST(d3dcompiler_compile_asm_unknown_instruction)
     CHECK(r.code == NULL);
     CHECK(r.errb != NULL);
     CHECK(strstr(r.err, "bad.asm(2") != NULL);
-    t_note("unknown instruction: hr=0x%08lx %.140s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    CHECKF(cc_has_error(r.err, 2000) && strstr(r.err, "unexpected token 'bogus_op'"), "%.140s", r.err);
     cc_asm_free(&r);
 }
 
@@ -193,7 +214,8 @@ TEST(d3dcompiler_compile_asm_register_out_of_range)
     cc_asm_r r;
     NEED_ASM();
     cc_asm(&r, src, strlen(src), "t.asm", NULL, NULL, 0);
-    t_note("r99 in ps_2_0: hr=0x%08lx %.120s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    CHECKF(cc_has_error(r.err, 2005) && strstr(r.err, "invalid register 'r99'"), "%.140s", r.err);
     cc_asm_free(&r);
 }
 
@@ -214,7 +236,7 @@ TEST(d3dcompiler_compile_asm_case_insensitive_mnemonics)
     cc_asm_r r, ref;
     NEED_ASM();
     cc_asm(&r, src, strlen(src), "t.asm", NULL, NULL, 0);
-    t_note("upper-case mnemonics: hr=0x%08lx", (unsigned long)r.hr);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL); /* Win10's assembler is case sensitive: upper-case version/mnemonics are rejected */
     cc_asm(&ref, "ps_2_0\ndef c0, 1, 1, 1, 1\nmov oC0, c0\n", 38, "t.asm", NULL, NULL, 0);
     if (SUCCEEDED(r.hr) && r.code && ref.code) {
         EXPECT_EQ(cc_size(r.code), cc_size(ref.code));
@@ -293,13 +315,14 @@ TEST(d3dcompiler_compile_asm_source_size_respected)
     cc_asm_free(&r);
 }
 
-TEST(d3dcompiler_compile_asm_sm4_text_note)
+TEST(d3dcompiler_compile_asm_sm4_text_unsupported)
 {
     static const char *src = "ps_4_0\ndcl_output o0.xyzw\nmov o0.xyzw, l(1,0,0,1)\nret\n";
     cc_asm_r r;
     NEED_ASM();
     cc_asm(&r, src, strlen(src), "t.asm", NULL, NULL, 0);
-    t_note("SM4 text assembly: hr=0x%08lx size=%lu", (unsigned long)r.hr, (unsigned long)cc_size(r.code));
+    EXPECT_HR(r.hr, CC_COMPILEFAIL); /* D3DAssemble only handles the DX9 token languages (ps_2_x, vs_3_0 ...), not SM4 text */
+    CHECK(r.code == NULL);
     cc_asm_free(&r);
 }
 
@@ -374,7 +397,7 @@ TEST(d3dcompiler_compile_disasm_basic)
         CHECK(strstr(txt, "dcl_output o0.xyzw") != NULL);
         CHECK(strstr(txt, "ret") != NULL);
         CHECK(strstr(txt, "dcl_constantbuffer") != NULL);
-        t_note("disasm starts: %.70s", txt);
+        CHECK(!strncmp(txt, "//", 2));
     }
     cc_free(&c);
 }
@@ -491,7 +514,7 @@ TEST(d3dcompiler_compile_disasm_garbage_input)
     CHECK(d == NULL);
     hr = CCF(D3DDisassemble)(junk, 0, 0, NULL, &d);
     EXPECT_HR_FAILED(hr);
-    t_note("garbage disassembly hr=0x%08lx", (unsigned long)hr);
+    EXPECT_HR(hr, E_INVALIDARG);
 }
 
 TEST(d3dcompiler_compile_disasm_truncated_container)
@@ -506,7 +529,7 @@ TEST(d3dcompiler_compile_disasm_truncated_container)
         EXPECT_HR_FAILED(hr);
         CHECK(d == NULL);
         hr = CCF(D3DDisassemble)(cc_ptr(c.code), cc_size(c.code) / 2, 0, NULL, &d);
-        t_note("half container: hr=0x%08lx blob=%p", (unsigned long)hr, d);
+        EXPECT_HR(hr, E_FAIL); CHECK(d == NULL);
         SAFE_RELEASE(d);
     }
     cc_free(&c);
@@ -543,7 +566,7 @@ TEST(d3dcompiler_compile_disasm_instruction_only)
         CHECK(strstr(only, "Input signature") == NULL);
         CHECK(strstr(only, "ret") != NULL);
         CHECK(strstr(only, "mad") != NULL || strstr(only, "mul") != NULL);
-        t_note("instruction-only output: %.120s", only);
+        CHECK(!strncmp(only, "ps_5_0", 6));
     }
     cc_free(&c);
 }
@@ -622,8 +645,7 @@ TEST(d3dcompiler_compile_disasm_debug_info_flag)
     if (c.code) {
         EXPECT_HR(cc_dis(&c, 0, NULL, with, sizeof with), S_OK);
         EXPECT_HR(cc_dis(&c, D3D_DISASM_DISABLE_DEBUG_INFO, NULL, without, sizeof without), S_OK);
-        t_note("debug disassembly %lu chars, without debug info %lu chars", (unsigned long)strlen(with), (unsigned long)strlen(without));
-        CHECK(strlen(without) <= strlen(with));
+        CHECKF(strlen(without) < strlen(with), "debug disassembly %lu chars, without debug info %lu chars", (unsigned long)strlen(with), (unsigned long)strlen(without));
     }
     cc_free(&c);
 }
@@ -642,7 +664,7 @@ TEST(d3dcompiler_compile_disasm_text_is_nul_terminated_blob)
             SIZE_T n = cc_size(d);
             CHECK(n > 0);
             CHECK(memchr(p, 0, n) != NULL);
-            t_note("disassembly blob size %lu, strlen %lu", (unsigned long)n, (unsigned long)strlen(p));
+            EXPECT_EQ(n, strlen(p) + 1); /* the blob includes the terminating NUL */
             EXPECT_EQ(d3dh_refcount(d), 1);
         }
         SAFE_RELEASE(d);
@@ -721,7 +743,7 @@ TEST(d3dcompiler_compile_region_full_equals_disassemble)
         EXPECT_HR(hr, S_OK);
         cc_blobstr(d, reg, sizeof reg);
         CHECK(!strcmp(full, reg));
-        t_note("finish byte offset for full region: %lu", (unsigned long)finish);
+        CHECK(finish > 0 && finish <= cc_size(c.code));
         SAFE_RELEASE(d);
         hr = CCN(D3DDisassembleRegion)(cc_ptr(c.code), cc_size(c.code), 0, NULL, 0, 0xFFFFFFFF, NULL, &d);
         EXPECT_HR(hr, S_OK);
@@ -762,11 +784,11 @@ TEST(d3dcompiler_compile_region_single_instruction)
     if (c.code) {
         cc_dis(&c, D3D_DISASM_INSTRUCTION_ONLY, NULL, full, sizeof full);
         hr = CCN(D3DDisassembleRegion)(cc_ptr(c.code), cc_size(c.code), D3D_DISASM_INSTRUCTION_ONLY, NULL, 0, 1, &fin, &d);
-        t_note("region(0,1): hr=0x%08lx finish=%lu", (unsigned long)hr, (unsigned long)fin);
+        EXPECT_EQ(fin, 0);
         EXPECT_HR(hr, S_OK);
         cc_blobstr(d, one, sizeof one);
         CHECK(strlen(one) <= strlen(full));
-        t_note("region text: %.120s", one);
+        CHECK(!strncmp(one, "ps_5_0", 6));
         SAFE_RELEASE(d);
     }
     cc_free(&c);
@@ -782,7 +804,7 @@ TEST(d3dcompiler_compile_region_zero_instructions)
     EXPECT_HR(cc_run(&c, cc_dis_src, "main", "ps_5_0", 0), S_OK);
     if (c.code) {
         hr = CCN(D3DDisassembleRegion)(cc_ptr(c.code), cc_size(c.code), 0, NULL, 0, 0, &fin, &d);
-        t_note("region with zero instructions: hr=0x%08lx", (unsigned long)hr);
+        EXPECT_HR(hr, S_OK);
         SAFE_RELEASE(d);
     }
     cc_free(&c);
@@ -824,7 +846,7 @@ TEST(d3dcompiler_compile_trace_count_only)
         CHECK(total0 > 0);
         CHECK(total1 > total0);       /* flag 1 also counts declarations */
         CHECK(total0 < 64);
-        t_note("executable instructions %lu, with declarations %lu", (unsigned long)total0, (unsigned long)total1);
+        CHECKF(total0 >= 4 && total0 <= 8 && total1 >= total0 + 4, "executable instructions %lu, with declarations %lu", (unsigned long)total0, (unsigned long)total1);
     }
     cc_free(&c);
 }
@@ -953,8 +975,7 @@ TEST(d3dcompiler_compile_trace_matches_disassembly_instruction_count)
             if (!e) break;
             p = e + 1;
         }
-        t_note("executable instructions %lu, instruction lines %d", (unsigned long)total, lines);
-        if ((SIZE_T)lines != total) t_note("instruction line count differs from trace count");
+        CHECKF((SIZE_T)lines == total, "executable instructions %lu, instruction lines %d", (unsigned long)total, lines);
     }
     cc_free(&c);
 }
@@ -980,7 +1001,7 @@ TEST(d3dcompiler_compile_trace_non_shader_input)
     NEED_DIS(); NEED_NATIVE(D3DGetTraceInstructionOffsets);
     hr = CCN(D3DGetTraceInstructionOffsets)(junk, sizeof junk, 0, 0, 0, NULL, &total);
     EXPECT_HR_FAILED(hr);
-    t_note("trace offsets for junk: hr=0x%08lx", (unsigned long)hr);
+    EXPECT_HR(hr, CC_INVALIDCALL);
 }
 
 TEST(d3dcompiler_compile_trace_shader_without_shex_part)
@@ -995,8 +1016,7 @@ TEST(d3dcompiler_compile_trace_shader_without_shex_part)
         HRESULT hr = U(D3DGetBlobPart)(cc_ptr(c.code), cc_size(c.code), D3D_BLOB_INPUT_AND_OUTPUT_SIGNATURE_BLOB, 0, &no_code);
         if (SUCCEEDED(hr) && no_code) {
             hr = CCN(D3DGetTraceInstructionOffsets)(cc_ptr(no_code), cc_size(no_code), 0, 0, 0, NULL, &total);
-            t_note("signature-only container: hr=0x%08lx", (unsigned long)hr);
-            EXPECT_HR_FAILED(hr);
+            EXPECT_HR(hr, E_FAIL);
         }
     }
     SAFE_RELEASE(no_code);
@@ -1035,7 +1055,7 @@ TEST(d3dcompiler_compile_disasm10effect_roundtrip)
         CHECK(strlen(txt) > 0);
         CHECK(strstr(txt, "vs_4_0") != NULL);
         CHECK(strstr(txt, "ps_4_0") != NULL);
-        t_note("effect disassembly starts: %.100s", txt);
+        CHECK(!strncmp(txt, "technique10 T", 13));
     }
     SAFE_RELEASE(out);
     IUnknown_Release((IUnknown *)effect);

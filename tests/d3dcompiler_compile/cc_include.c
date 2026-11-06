@@ -64,7 +64,7 @@ TEST(d3dcompiler_compile_include_name_passed_verbatim)
     EXPECT_HR(r.hr, S_OK);
     EXPECT_EQ(inc.n_open, 3);
     if (inc.n_open == 3) {
-        t_note("verbatim names: '%s' '%s' '%s'", inc.names[0], inc.names[1], inc.names[2]);
+        EXPECT_STR(inc.names[0], "dir/sub/file.hlsli"); /* names reach the handler verbatim: no case folding or slash conversion */
         EXPECT_STR(inc.names[1], "UPPER.H");
         EXPECT_STR(inc.names[2], "with space.h");
     }
@@ -90,8 +90,10 @@ TEST(d3dcompiler_compile_include_nested_open_close_pairing)
         EXPECT_STR(inc.names[0], "a.h");
         EXPECT_STR(inc.names[1], "b.h");
         EXPECT_EQ(inc.types[1], D3D_INCLUDE_LOCAL);
-        t_note("nested order: %d %d %d %d (+n open, -n close)", inc.order[0], inc.order[1], inc.order[2], inc.order[3]);
-        t_note("parent data of top level include: %p; of nested: %p (a.h data %p)", inc.parents[0], inc.parents[1], inc.datas[0]);
+        EXPECT_EQ(inc.n_order, 4);
+        CHECK(inc.order[0] == 1 && inc.order[1] == 2 && inc.order[2] == -2 && inc.order[3] == -1); /* open a, open b, close b, close a */
+        CHECK(inc.parents[0] == NULL);                 /* the top-level include has no parent data */
+        CHECK(inc.parents[1] == inc.datas[0]);         /* the nested include receives the including file's data pointer */
     }
     cc_free(&r);
 }
@@ -110,7 +112,7 @@ TEST(d3dcompiler_compile_include_nested_callback_order)
     EXPECT_EQ(inc.n_order, 4);
     if (inc.n_order == 4) {
         CHECK(inc.order[0] == 1 && inc.order[1] == 2);       /* a opened, then b */
-        t_note("close order for nested includes: %d then %d (-2 means b first)", inc.order[2], inc.order[3]);
+        CHECK(inc.order[2] == -2 && inc.order[3] == -1); /* inner include is closed first */
     }
     cc_free(&r);
 }
@@ -128,8 +130,8 @@ TEST(d3dcompiler_compile_include_siblings_sequential)
     EXPECT_HR(r.hr, S_OK);
     EXPECT_EQ(inc.n_open, 2);
     EXPECT_EQ(inc.n_close, 2);
-    if (inc.n_order == 4)
-        t_note("sibling include order: %d %d %d %d", inc.order[0], inc.order[1], inc.order[2], inc.order[3]);
+    EXPECT_EQ(inc.n_order, 4);
+    if (inc.n_order == 4) CHECK(inc.order[0] == 1 && inc.order[1] == -1 && inc.order[2] == 2 && inc.order[3] == -2); /* a opened+closed before b opens */
     cc_free(&r);
 }
 
@@ -149,7 +151,8 @@ TEST(d3dcompiler_compile_include_same_file_opened_per_directive)
     cc_free(&r);
 }
 
-TEST(d3dcompiler_compile_include_pragma_once_note)
+/* Win10: #pragma once is not implemented by the compiler; the second include is opened again and the redefinition fails the compile. */
+TEST(d3dcompiler_compile_include_pragma_once_unsupported)
 {
     static const char *src =
         "#include \"x.h\"\n#include \"x.h\"\nfloat4 main() : SV_Target { return S1(); }\n";
@@ -159,7 +162,9 @@ TEST(d3dcompiler_compile_include_pragma_once_note)
     cc_inc_init(&inc);
     cc_inc_add(&inc, "x.h", "#pragma once\nfloat4 S1() { return 1; }\n");
     cc_compile_full(&r, src, strlen(src), "t.hlsl", NULL, (ID3DInclude *)&inc, "main", "ps_5_0", 0, 0);
-    t_note("#pragma once: hr=0x%08lx opens=%d closes=%d", (unsigned long)r.hr, inc.n_open, inc.n_close);
+    EXPECT_HR(r.hr, E_FAIL);
+    EXPECT_EQ(inc.n_open, 2); EXPECT_EQ(inc.n_close, 2);
+    CHECKF(cc_has_error(r.err, 3003), "%.200s", r.err); /* redefinition of 'S1' */
     cc_free(&r);
 }
 
@@ -205,7 +210,8 @@ TEST(d3dcompiler_compile_include_open_failure_fails_compile)
     EXPECT_EQ(inc.n_open, 1);
     CHECK(strstr(r.err, "inc.h") != NULL);
     CHECK(cc_has_error(r.err, 1507));
-    t_note("open failure: hr=0x%08lx closes=%d err=%.120s", (unsigned long)r.hr, inc.n_close, r.err);
+    EXPECT_HR(r.hr, E_FAIL); EXPECT_EQ(inc.n_close, 0);   /* Close is not called for a failed Open */
+    CHECKF(strstr(r.err, "failed to open source file: 'inc.h'") != NULL, "%.200s", r.err);
     cc_free(&r);
 }
 
@@ -220,8 +226,8 @@ TEST(d3dcompiler_compile_include_open_failure_codes)
         cc_inc_init(&inc);
         inc.fail_hr = codes[i];
         cc_compile_full(&r, cc_main_src, strlen(cc_main_src), "t.hlsl", NULL, (ID3DInclude *)&inc, "main", "ps_5_0", 0, 0);
-        t_note("Open returns 0x%08lx: compile hr=0x%08lx", (unsigned long)codes[i], (unsigned long)r.hr);
-        if (FAILED(codes[i])) CHECKF((LONG)r.hr < 0, "Open failure 0x%08lx must fail compile", (unsigned long)codes[i]);
+        /* Win10 maps every Open failure to E_FAIL, whatever HRESULT the handler returned */
+        CHECKF(r.hr == E_FAIL, "Open failure 0x%08lx -> compile hr 0x%08lx", (unsigned long)codes[i], (unsigned long)r.hr);
         cc_free(&r);
     }
 }
@@ -235,7 +241,7 @@ TEST(d3dcompiler_compile_include_empty_file)
     cc_inc_init(&inc);
     cc_inc_add(&inc, "empty.h", "");
     cc_compile_full(&r, src, strlen(src), "t.hlsl", NULL, (ID3DInclude *)&inc, "main", "ps_5_0", 0, 0);
-    if (FAILED(r.hr)) t_note("empty include fails: hr=0x%08lx %.100s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, S_OK); /* an empty include is fine */
     EXPECT_EQ(inc.n_open, 1);
     cc_free(&r);
 }
@@ -252,7 +258,7 @@ TEST(d3dcompiler_compile_include_error_reports_included_file_name)
     cc_compile_full(&r, src, strlen(src), "t.hlsl", NULL, (ID3DInclude *)&inc, "main", "ps_5_0", 0, 0);
     CHECK((LONG)r.hr < 0);
     CHECK(cc_has_error(r.err, 3004));
-    t_note("error through include macro: %.160s", r.err);
+    CHECKF(strstr(r.err, "error X3004: undeclared identifier 'unknown_in_include'") != NULL, "%.200s", r.err); /* reported at the use site in t.hlsl */
     cc_free(&r);
     cc_inc_init(&inc);
     cc_inc_add(&inc, "bad.h", "float helper() { return unknown_in_include; }\n");
@@ -349,8 +355,9 @@ TEST(d3dcompiler_compile_include_recursive_is_bounded)
     inc.max_open = 40;
     cc_compile_full(&r, src, strlen(src), "t.hlsl", NULL, (ID3DInclude *)&inc, "main", "ps_5_0", 0, 0);
     CHECK((LONG)r.hr < 0);
-    t_note("recursive include stopped after %d opens: %.120s", inc.n_open, r.err);
-    t_note("opens=%d closes=%d", inc.n_open, inc.n_close);
+    EXPECT_HR(r.hr, E_FAIL);
+    EXPECT_EQ(inc.n_open, 31); EXPECT_EQ(inc.n_close, 31);     /* nesting is capped at 31 levels */
+    CHECKF(cc_has_error(r.err, 1506) && strstr(r.err, "too many nested #includes"), "%.200s", r.err);
     cc_free(&r);
 }
 
@@ -398,7 +405,6 @@ TEST(d3dcompiler_compile_include_standard_with_absolute_path)
     { char *q; for (q = inc_path; *q; q++) if (*q == '\\') *q = '/'; }
     snprintf(src, sizeof src, "#include \"%s\"\nfloat4 main() : SV_Target { return INC_VALUE; }\n", inc_path);
     cc_compile_full(&r, src, strlen(src), "t.hlsl", NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0);
-    t_note("standard include with absolute path: hr=0x%08lx %.150s", (unsigned long)r.hr, r.err);
     EXPECT_HR(r.hr, S_OK);
     DeleteFileA(inc_path);
     cc_free(&r);
@@ -454,7 +460,8 @@ TEST(d3dcompiler_compile_include_fromfile_nested_subdirectory_note)
     CHECK(cc_write_file(main_path, "#include \"sub/a.hlsli\"\nfloat4 main() : SV_Target { return INC_VALUE; }\n"));
     cc_wide(main_path, wmain, MAX_PATH);
     hr = CCF(D3DCompileFromFile)(wmain, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_5_0", 0, 0, &code, &err);
-    t_note("nested include relative to including file: hr=0x%08lx", (unsigned long)hr);
+    /* Win10: the standard handler resolves "b.hlsli" against the main file's directory, not the including file's, so it is not found */
+    EXPECT_HR(hr, E_FAIL);
     SAFE_RELEASE(code); SAFE_RELEASE(err);
     DeleteFileA(main_path); DeleteFileA(a_path); DeleteFileA(b_path); RemoveDirectoryA(dir);
 }
@@ -540,7 +547,7 @@ TEST(d3dcompiler_compile_fromfile_directory_is_not_a_file)
     hr = CCF(D3DCompileFromFile)(w, NULL, NULL, "main", "ps_5_0", 0, 0, &code, &err);
     CHECK((LONG)hr < 0);
     CHECK(code == NULL);
-    t_note("directory as source: hr=0x%08lx", (unsigned long)hr);
+    EXPECT_HR(hr, HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND));
 }
 
 TEST(d3dcompiler_compile_fromfile_compiles_file)
@@ -594,7 +601,7 @@ TEST(d3dcompiler_compile_fromfile_error_names_the_path)
     DeleteFileA(path);
 }
 
-TEST(d3dcompiler_compile_fromfile_unicode_path_reported_as_utf8)
+TEST(d3dcompiler_compile_fromfile_unicode_path_reported_in_ansi)
 {
     WIN_ONLY();
     WCHAR w[MAX_PATH], wdir[MAX_PATH];
@@ -614,7 +621,12 @@ TEST(d3dcompiler_compile_fromfile_unicode_path_reported_as_utf8)
     hr = CCF(D3DCompileFromFile)(w, NULL, NULL, "main", "ps_5_0", 0, 0, &code, &err);
     CHECK((LONG)hr < 0);
     cc_blobstr(err, text, sizeof text);
-    CHECKF(strstr(text, "caf\xC3\xA9_\xE2\x82\xAC.hlsl(") != NULL, "text: %.200s", text);
+    {   /* Win10 reports the name converted to the ANSI code page (not UTF-8) */
+        char ansi[MAX_PATH], want[MAX_PATH + 8];
+        int n = WideCharToMultiByte(CP_ACP, 0, L"caf\u00e9_\u20ac.hlsl", -1, ansi, sizeof ansi, NULL, NULL);
+        snprintf(want, sizeof want, "%s(", ansi);
+        CHECKF(n > 0 && strstr(text, want) != NULL, "ACP %u text: %.200s", GetACP(), text);
+    }
     SAFE_RELEASE(code); SAFE_RELEASE(err);
     DeleteFileW(w);
 }
@@ -668,7 +680,7 @@ TEST(d3dcompiler_compile_fromfile_empty_file_note)
     hr = CCF(D3DCompileFromFile)(w, NULL, NULL, "main", "ps_5_0", 0, 0, &code, &err);
     CHECK((LONG)hr < 0);
     CHECK(code == NULL);
-    t_note("empty file: hr=0x%08lx", (unsigned long)hr);
+    EXPECT_HR(hr, E_FAIL);
     SAFE_RELEASE(code); SAFE_RELEASE(err);
     DeleteFileA(path);
 }
@@ -789,7 +801,14 @@ TEST(d3dcompiler_compile_preprocess_output_has_line_markers)
     hr = cc_pp("int a;\n#define X 1\nint b = X;\n", NULL, NULL, out, sizeof out, errs, sizeof errs);
     EXPECT_HR(hr, S_OK);
     CHECK(cc_has_nows(out, "#line"));
-    t_note("preprocess output prefix: %.60s", out);
+    {
+        char full[MAX_PATH], esc[2 * MAX_PATH], want[2 * MAX_PATH + 16]; size_t i, o = 0;
+        cc_fullname("t.hlsl", full, sizeof full);
+        for (i = 0; full[i]; i++) { if (full[i] == '\\') esc[o++] = '\\'; esc[o++] = full[i]; }
+        esc[o] = 0;
+        snprintf(want, sizeof want, "#line 1 \"%s\"", esc);
+        CHECKF(!strncmp(out, want, strlen(want)), "preprocess output begins: %.80s", out); /* #line 1 "<fullpath with doubled backslashes>" */
+    }
 }
 
 TEST(d3dcompiler_compile_preprocess_error_directive)
@@ -802,7 +821,8 @@ TEST(d3dcompiler_compile_preprocess_error_directive)
     CHECK((LONG)hr < 0);
     CHECK(strstr(errs, "my custom failure") != NULL);
     CHECK(strstr(errs, "t.hlsl(2,") != NULL);
-    t_note("#error hr=0x%08lx text=%.120s", (unsigned long)hr, errs);
+    EXPECT_HR(hr, E_FAIL);
+    CHECKF(strstr(errs, "error: my custom failure") != NULL, "%.120s", errs); /* #error has no Xnnnn code */
 }
 
 TEST(d3dcompiler_compile_preprocess_missing_include_without_handler)
@@ -813,7 +833,8 @@ TEST(d3dcompiler_compile_preprocess_missing_include_without_handler)
     REQUIRE(CCF(D3DPreprocess));
     hr = cc_pp("#include \"nothing.h\"\nint a;\n", NULL, NULL, out, sizeof out, errs, sizeof errs);
     CHECK((LONG)hr < 0);
-    CHECK(cc_has_error(errs, 1507));
+    CHECK(cc_has_error(errs, 1505)); /* Win10: X1505 "No include handler specified" */
+    CHECK(strstr(errs, "No include handler specified, can't perform a #include") != NULL);
 }
 
 TEST(d3dcompiler_compile_preprocess_include_text_inlined)
@@ -828,8 +849,9 @@ TEST(d3dcompiler_compile_preprocess_include_text_inlined)
     hr = cc_pp("int before;\n#include \"i.h\"\nint after;\n", NULL, (ID3DInclude *)&inc, out, sizeof out, errs, sizeof errs);
     EXPECT_HR(hr, S_OK);
     {
-        const char *a = strstr(out, "int before;"), *b = strstr(out, "int from_include = 1;"), *c = strstr(out, "int after;");
-        CHECK(a && b && c);
+        /* the preprocessor re-emits tokens separated by spaces ("int a ;") */
+        const char *a = strstr(out, "int before ;"), *b = strstr(out, "int from_include = 1 ;"), *c = strstr(out, "int after ;");
+        CHECKF(a && b && c, "out: %.200s", out);
         if (a && b && c) CHECK(a < b && b < c);
     }
     CHECK(!cc_has_nows(out, "#include"));
@@ -943,8 +965,7 @@ TEST(d3dcompiler_compile_preprocess_line_directive)
     hr = cc_pp("#line 77 \"other.hlsl\"\nint a;\n", NULL, NULL, out, sizeof out, errs, sizeof errs);
     EXPECT_HR(hr, S_OK);
     CHECK(cc_has_nows(out, "int a;"));
-    CHECK(cc_has_nows(out, "77"));
-    CHECK(cc_has_nows(out, "other.hlsl"));
+    CHECKF(strstr(out, "#line 76 \"other.hlsl\"") != NULL, "out: %.100s", out); /* Win10 emits the number of the line before the directive's target */
 }
 
 TEST(d3dcompiler_compile_preprocess_pragma_passthrough)

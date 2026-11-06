@@ -44,7 +44,8 @@ static void cc_check_container(ID3DBlob *b, const char *what)
             cc_part_list(r.code, parts, sizeof parts); \
             CHECKF(cc_has_part(r.code, "ISGN") && cc_has_part(r.code, "OSGN"), "parts: %s", parts); \
             CHECKF(cc_has_part(r.code, "SHEX") || cc_has_part(r.code, "SHDR"), "parts: %s", parts); \
-            t_note(#tname " parts: %s size=%lu", parts, (unsigned long)cc_size(r.code)); \
+            /* Win10: ps_5_0 containers are RDEF ISGN OSGN SHEX STAT, plus SPDB when DEBUG is set */ \
+            CHECKF(!strcmp(parts, ((flag) & D3DCOMPILE_DEBUG) ? "RDEF ISGN OSGN SHEX STAT SPDB" : "RDEF ISGN OSGN SHEX STAT"), #tname " parts: %s", parts); \
         } \
         cc_free(&r); \
     }
@@ -65,7 +66,25 @@ FLAG_TEST(opt_level0, D3DCOMPILE_OPTIMIZATION_LEVEL0, "ps_5_0")
 FLAG_TEST(opt_level1, D3DCOMPILE_OPTIMIZATION_LEVEL1, "ps_5_0")
 FLAG_TEST(opt_level2, D3DCOMPILE_OPTIMIZATION_LEVEL2, "ps_5_0")
 FLAG_TEST(opt_level3, D3DCOMPILE_OPTIMIZATION_LEVEL3, "ps_5_0")
-FLAG_TEST(resources_may_alias, D3DCOMPILE_RESOURCES_MAY_ALIAS, "ps_5_0")
+/* Win10: RESOURCES_MAY_ALIAS is only valid for cs_5_0+ targets; everything else is D3DERR_INVALIDCALL with a D3DCompile message */
+TEST(d3dcompiler_compile_flags_resources_may_alias)
+{
+    static const char *cs = "RWByteAddressBuffer b : register(u0);\n[numthreads(4,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(id.x * 4, id.x); }\n";
+    static const char *bad[] = { "ps_5_0", "ps_5_1", "vs_5_0", "ps_4_0" };
+    unsigned i;
+    cc_r r;
+    NEED();
+    for (i = 0; i < 4; i++) {
+        cc_run(&r, cc_flag_src, "main", bad[i], D3DCOMPILE_RESOURCES_MAY_ALIAS);
+        CHECKF(r.hr == CC_INVALIDCALL, "%s: hr=0x%08lx", bad[i], (unsigned long)r.hr);
+        CHECKF(cc_has_error(r.err, 3719) && strstr(r.err, "resources_may_alias option is only valid for cs_5_0+ targets"), "%s: %.150s", bad[i], r.err);
+        CHECK(r.code == NULL);
+        cc_free(&r);
+    }
+    EXPECT_HR(cc_run(&r, cs, "main", "cs_5_0", D3DCOMPILE_RESOURCES_MAY_ALIAS), S_OK);
+    if (r.code) cc_check_container(r.code, "resources_may_alias cs_5_0");
+    cc_free(&r);
+}
 FLAG_TEST(all_resources_bound, D3DCOMPILE_ALL_RESOURCES_BOUND, "ps_5_0")
 FLAG_TEST(unbounded_tables_51, D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES, "ps_5_1")
 FLAG_TEST(debug_name_source, D3DCOMPILE_DEBUG_NAME_FOR_SOURCE, "ps_5_0")
@@ -88,7 +107,7 @@ TEST(d3dcompiler_compile_flags_unbounded_tables_50_note)
     cc_r r;
     NEED();
     cc_run(&r, cc_flag_src, "main", "ps_5_0", D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES);
-    t_note("ENABLE_UNBOUNDED_DESCRIPTOR_TABLES on ps_5_0: hr=0x%08lx", (unsigned long)r.hr);
+    EXPECT_HR(r.hr, S_OK); /* accepted below 5_1 as well */
     cc_free(&r);
 }
 
@@ -221,8 +240,7 @@ TEST(d3dcompiler_compile_flags_skip_optimization_grows_code)
     EXPECT_HR(cc_run(&a, cc_redundant_src, "main", "ps_5_0", 0), S_OK);
     EXPECT_HR(cc_run(&b, cc_redundant_src, "main", "ps_5_0", D3DCOMPILE_SKIP_OPTIMIZATION), S_OK);
     if (a.code && b.code) {
-        t_note("optimized %lu bytes, unoptimized %lu bytes", (unsigned long)cc_size(a.code), (unsigned long)cc_size(b.code));
-        if (!t_is_wine()) CHECK(cc_size(b.code) > cc_size(a.code));
+        if (!t_is_wine()) CHECKF(cc_size(b.code) > cc_size(a.code), "optimized %lu bytes, unoptimized %lu bytes", (unsigned long)cc_size(a.code), (unsigned long)cc_size(b.code));
     }
     cc_free(&a); cc_free(&b);
 }
@@ -234,8 +252,8 @@ TEST(d3dcompiler_compile_flags_opt_level0_not_smaller_than_level3)
     EXPECT_HR(cc_run(&a, cc_redundant_src, "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL0), S_OK);
     EXPECT_HR(cc_run(&b, cc_redundant_src, "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3), S_OK);
     if (a.code && b.code) {
-        t_note("level0 %lu bytes, level3 %lu bytes", (unsigned long)cc_size(a.code), (unsigned long)cc_size(b.code));
-        if (!t_is_wine()) CHECK(cc_size(a.code) >= cc_size(b.code));
+        /* Win10: for this shader level 0 and level 3 produce identical sizes */
+        if (!t_is_wine()) CHECKF(cc_size(a.code) == cc_size(b.code), "level0 %lu bytes, level3 %lu bytes", (unsigned long)cc_size(a.code), (unsigned long)cc_size(b.code));
     }
     cc_free(&a); cc_free(&b);
 }
@@ -263,9 +281,12 @@ TEST(d3dcompiler_compile_flags_pack_order_changes_bytes)
     EXPECT_HR(cc_run(&c, cc_flag_src, "main", "ps_5_0", 0), S_OK);
     if (a.code && b.code && c.code) {
         CHECK(cc_size(a.code) != cc_size(b.code) || memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)) != 0);
-        /* column-major is the default packing */
+        /* column-major is the default packing: same size and identical shader/reflection payload; only the compile-flags word in
+         * RDEF (and with it the header checksum) records which flag was passed */
         EXPECT_EQ(cc_size(b.code), cc_size(c.code));
-        if (cc_size(b.code) == cc_size(c.code)) CHECK(!memcmp(cc_ptr(b.code), cc_ptr(c.code), cc_size(b.code)));
+        CHECK(cc_part_same(b.code, c.code, "SHEX")); CHECK(cc_part_same(b.code, c.code, "ISGN")); CHECK(cc_part_same(b.code, c.code, "OSGN"));
+        CHECK(!cc_part_same(b.code, c.code, "RDEF"));
+        CHECK(!cc_part_same(a.code, b.code, "SHEX"));          /* row-major changes the shader itself */
     }
     cc_free(&a); cc_free(&b); cc_free(&c);
 }
@@ -275,7 +296,7 @@ TEST(d3dcompiler_compile_flags_pack_both_set)
     cc_r r;
     NEED();
     cc_run(&r, cc_flag_src, "main", "ps_5_0", D3DCOMPILE_PACK_MATRIX_ROW_MAJOR | D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR);
-    t_note("both pack flags: hr=0x%08lx err=%.100s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, S_OK); CHECK(r.err[0] == 0); /* contradictory pack flags are accepted silently */
     cc_free(&r);
 }
 
@@ -290,8 +311,10 @@ TEST(d3dcompiler_compile_flags_pack_pragma_overrides_flag)
     EXPECT_HR(cc_run(&a, prag, "main", "ps_5_0", D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR), S_OK);
     EXPECT_HR(cc_run(&b, prag, "main", "ps_5_0", D3DCOMPILE_PACK_MATRIX_ROW_MAJOR), S_OK);
     if (a.code && b.code) {
+        /* the pragma wins: both compiles use row-major code (identical SHEX); the RDEF flags word still differs with the flag */
         EXPECT_EQ(cc_size(a.code), cc_size(b.code));
-        if (cc_size(a.code) == cc_size(b.code)) CHECK(!memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)));
+        CHECK(cc_part_same(a.code, b.code, "SHEX")); CHECK(cc_part_same(a.code, b.code, "ISGN"));
+        CHECK(!cc_part_same(a.code, b.code, "RDEF"));
     }
     cc_free(&a); cc_free(&b);
 }
@@ -360,7 +383,7 @@ TEST(d3dcompiler_compile_flags_prefer_flow_control_branches)
     NEED(); REQUIRE(CCF(D3DDisassemble));
     EXPECT_HR(cc_run(&r, cc_flow_src, "main", "ps_5_0", D3DCOMPILE_PREFER_FLOW_CONTROL), S_OK);
     if (r.code && cc_disasm(r.code, 0, txt, sizeof txt))
-        t_note("PREFER_FLOW_CONTROL emits branch: %d", strstr(txt, "if_nz") != NULL || strstr(txt, "if_z") != NULL);
+        CHECK(strstr(txt, "if_nz") != NULL || strstr(txt, "if_z") != NULL);
     cc_free(&r);
 }
 
@@ -391,9 +414,9 @@ TEST(d3dcompiler_compile_flags_backwards_compat_allows_tex2d_in_sm4)
     NEED();
     cc_run(&a, cc_legacy_tex_src, "main", "ps_4_0", 0);
     cc_run(&b, cc_legacy_tex_src, "main", "ps_4_0", D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY);
-    t_note("tex2D in ps_4_0 without /Gec: hr=0x%08lx %.100s", (unsigned long)a.hr, a.err);
-    t_note("tex2D in ps_4_0 with /Gec: hr=0x%08lx %.100s", (unsigned long)b.hr, b.err);
-    t_note("ENABLE_BACKWARDS_COMPATIBILITY allows tex2D in ps_4_0: %d", SUCCEEDED(b.hr));
+    EXPECT_HR(a.hr, E_FAIL);
+    CHECKF(cc_has_error(a.err, 3523) && strstr(a.err, "DX9-style intrinsics are disabled when not in dx9 compatibility mode"), "%.200s", a.err);
+    EXPECT_HR(b.hr, S_OK);
     cc_free(&a); cc_free(&b);
 }
 
@@ -414,7 +437,7 @@ TEST(d3dcompiler_compile_flags_strictness_note)
     cc_run(&a, src, "main", "ps_5_0", 0);
     cc_run(&b, src, "main", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS);
     EXPECT_HR(a.hr, S_OK);
-    t_note("vector<float,4> with strictness: hr=0x%08lx", (unsigned long)b.hr);
+    EXPECT_HR(b.hr, S_OK); /* the vector<float,4> spelling is legal under strictness */
     cc_free(&a); cc_free(&b);
 }
 
@@ -426,7 +449,7 @@ TEST(d3dcompiler_compile_flags_partial_precision_note)
     EXPECT_HR(cc_run(&a, src, "main", "ps_5_0", 0), S_OK);
     EXPECT_HR(cc_run(&b, src, "main", "ps_5_0", D3DCOMPILE_PARTIAL_PRECISION), S_OK);
     if (a.code && b.code)
-        t_note("partial precision changes bytes: %d", cc_size(a.code) != cc_size(b.code) || memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)) != 0);
+        CHECK(cc_size(a.code) != cc_size(b.code) || memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)) != 0);
     cc_free(&a); cc_free(&b);
 }
 
@@ -438,7 +461,7 @@ TEST(d3dcompiler_compile_flags_ieee_strictness_compiles_precise_code)
     EXPECT_HR(cc_run(&a, src, "main", "ps_5_0", 0), S_OK);
     EXPECT_HR(cc_run(&b, src, "main", "ps_5_0", D3DCOMPILE_IEEE_STRICTNESS), S_OK);
     if (a.code && b.code)
-        t_note("IEEE strictness changes bytes: %d (mad %d vs %d)", memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code) < cc_size(b.code) ? cc_size(a.code) : cc_size(b.code)) != 0, 0, 0);
+        CHECK(cc_size(a.code) != cc_size(b.code) || memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)) != 0);
     cc_free(&a); cc_free(&b);
 }
 
@@ -500,8 +523,10 @@ TEST(d3dcompiler_compile_dxbc_base_part_order)
             sh = strstr(parts, "SHEX"); if (!sh) sh = strstr(parts, "SHDR");
             st = strstr(parts, "STAT");
             CHECKF(rd && is && os && sh && st, "%s parts '%s'", cc_cases[i].name, parts);
-            if (rd && is && os && sh && st) CHECKF(rd < is && is < os && os < sh && sh < st, "%s order '%s'", cc_cases[i].name, parts);
-            t_note("%s parts: %s", cc_cases[i].name, parts);
+            if (strstr(cc_cases[i].target, "level_9")) {
+                /* Win10: level 9 containers lead with the Aon9 payload, then the shader, STAT and only then the reflection parts */
+                CHECKF(!strcmp(parts, "Aon9 SHDR STAT RDEF ISGN OSGN"), "%s order '%s'", cc_cases[i].name, parts);
+            } else if (rd && is && os && sh && st) CHECKF(rd < is && is < os && os < sh && sh < st, "%s order '%s'", cc_cases[i].name, parts);
         }
         cc_free(&r);
     }
@@ -514,7 +539,7 @@ TEST(d3dcompiler_compile_dxbc_shader_part_kind_by_profile)
     NEED();
     EXPECT_HR(cc_run(&a, CC_PS_SRC, "main", "ps_4_0", 0), S_OK);
     EXPECT_HR(cc_run(&b, CC_PS_SRC, "main", "ps_5_0", 0), S_OK);
-    if (a.code) { CHECK(cc_has_part(a.code, "SHDR") || cc_has_part(a.code, "SHEX")); t_note("ps_4_0 uses %s", cc_has_part(a.code, "SHDR") ? "SHDR" : "SHEX"); }
+    if (a.code) { CHECK(cc_has_part(a.code, "SHDR") || cc_has_part(a.code, "SHEX")); CHECK(cc_has_part(a.code, "SHDR") && !cc_has_part(a.code, "SHEX")); /* SM4.x uses SHDR, SM5 uses SHEX */ }
     if (b.code) { CHECK(cc_has_part(b.code, "SHEX")); }
     cc_free(&a); cc_free(&b);
 }
@@ -638,7 +663,7 @@ TEST(d3dcompiler_compile_dxbc_stat_part_present_and_sized)
         const unsigned char *p = cc_part(cc_ptr(r.code), cc_size(r.code), CC_FOURCC('S', 'T', 'A', 'T'), &sz);
         CHECK(p != NULL);
         CHECK(sz >= 116 && (sz % 4) == 0);
-        t_note("STAT size %lu", (unsigned long)sz);
+        EXPECT_EQ(sz, 148); /* d3dcompiler_47 writes the 37-dword statistics block */
     }
     cc_free(&r);
 }
@@ -679,7 +704,7 @@ TEST(d3dcompiler_compile_dxbc_signature_contents)
             DWORD cnt = cc_rd32(p), nameoff = cc_rd32(p + 8);
             EXPECT_EQ(cnt, 1);
             CHECK(nameoff < sz);
-            if (nameoff < sz) { CHECK(!_stricmp((const char *)p + nameoff, "SV_Position")); t_note("ISGN name: %s", (const char *)p + nameoff); }
+            if (nameoff < sz) { EXPECT_STR((const char *)p + nameoff, "SV_Position"); }
             EXPECT_EQ(cc_rd32(p + 16), 1);    /* D3D_NAME_POSITION */
         }
         p = cc_part(cc_ptr(r.code), cc_size(r.code), CC_FOURCC('O', 'S', 'G', 'N'), &sz);
@@ -687,7 +712,7 @@ TEST(d3dcompiler_compile_dxbc_signature_contents)
         if (p) {
             DWORD cnt = cc_rd32(p), nameoff = cc_rd32(p + 8);
             EXPECT_EQ(cnt, 1);
-            if (nameoff < sz) { CHECK(!_stricmp((const char *)p + nameoff, "SV_Target")); t_note("OSGN name: %s", (const char *)p + nameoff); }
+            if (nameoff < sz) { EXPECT_STR((const char *)p + nameoff, "SV_Target"); }
         }
     }
     cc_free(&r);
@@ -719,7 +744,14 @@ TEST(d3dcompiler_compile_dxbc_flags_matrix_deterministic)
         EXPECT_HR(cc_run(&a, cc_flag_src, "main", "ps_5_0", fl[i]), S_OK);
         EXPECT_HR(cc_run(&b, cc_flag_src, "main", "ps_5_0", fl[i]), S_OK);
         if (a.code && b.code) {
-            CHECKF(cc_size(a.code) == cc_size(b.code) && !memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)), "flags 0x%x not deterministic", fl[i]);
+            if (fl[i] & D3DCOMPILE_DEBUG) {
+                /* Win10: DEBUG output embeds per-compile data (SPDB, ILDN): everything that describes the shader is still identical */
+                CHECKF(cc_size(a.code) == cc_size(b.code), "flags 0x%x sizes differ", fl[i]);
+                CHECKF(cc_part_same(a.code, b.code, "SHEX") && cc_part_same(a.code, b.code, "RDEF") && cc_part_same(a.code, b.code, "ISGN") &&
+                       cc_part_same(a.code, b.code, "OSGN") && cc_part_same(a.code, b.code, "STAT"), "flags 0x%x shader parts differ", fl[i]);
+                CHECKF(!cc_part_same(a.code, b.code, "SPDB"), "flags 0x%x: SPDB identical across compiles (probed: it is not)", fl[i]);
+            } else
+                CHECKF(cc_size(a.code) == cc_size(b.code) && !memcmp(cc_ptr(a.code), cc_ptr(b.code), cc_size(a.code)), "flags 0x%x not deterministic", fl[i]);
         }
         cc_free(&a); cc_free(&b);
     }

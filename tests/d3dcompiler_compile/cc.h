@@ -118,6 +118,14 @@ static inline const unsigned char *cc_part(const void *data, SIZE_T n, DWORD fou
     return NULL;
 }
 
+/* 1 when both containers carry the part and the two payloads are byte-identical */
+static inline int cc_part_same(ID3DBlob *a, ID3DBlob *b, const char *cc4)
+{
+    DWORD sa = 0, sb = 0, f = CC_FOURCC(cc4[0], cc4[1], cc4[2], cc4[3]);
+    const unsigned char *pa = cc_part(cc_ptr(a), cc_size(a), f, &sa), *pb = cc_part(cc_ptr(b), cc_size(b), f, &sb);
+    return pa && pb && sa == sb && !memcmp(pa, pb, sa);
+}
+
 static inline int cc_has_part(ID3DBlob *b, const char *cc4)
 {
     return cc_part(cc_ptr(b), cc_size(b), CC_FOURCC(cc4[0], cc4[1], cc4[2], cc4[3]), NULL) != NULL;
@@ -218,11 +226,22 @@ static inline int cc_has_msg(const char *text, const char *kind, int code)
 static inline int cc_has_error(const char *t, int code) { return cc_has_msg(t, "error", code); }
 static inline int cc_has_warning(const char *t, int code) { return cc_has_msg(t, "warning", code); }
 
-/* Validates one diagnostic line "name(line,col[-col]): (error|warning) Xnnnn: text". Returns 1 if conformant. */
-static inline int cc_line_format_ok(const char *ln, size_t len, const char *name)
+/* Win10 d3dcompiler_47 prefixes every diagnostic with the source name run through GetFullPathName: a relative name
+ * resolves against the current directory and '/' becomes '\\' (probed: "t.hlsl" -> "C:\\i7work\\t.hlsl"). */
+static inline void cc_fullname(const char *name, char *out, size_t cap)
 {
-    char buf[1024];
-    size_t nl = strlen(name);
+    DWORD n = GetFullPathNameA(name, (DWORD)cap, out, NULL);
+    if (!n || n >= cap) snprintf(out, cap, "%s", name);
+}
+
+/* Validates one diagnostic line "fullname(line,col[-col]): (error|warning) Xnnnn: text" where fullname is cc_fullname(name).
+ * Returns 1 if conformant. */
+static inline int cc_line_format_ok(const char *ln, size_t len, const char *rawname)
+{
+    char buf[1024], name[MAX_PATH];
+    size_t nl;
+    cc_fullname(rawname, name, sizeof name);
+    nl = strlen(name);
     const char *p;
     int line = 0, col = 0, n = 0;
     if (len >= sizeof buf) len = sizeof buf - 1;
@@ -234,6 +253,7 @@ static inline int cc_line_format_ok(const char *ln, size_t len, const char *name
     if (*p == '-') { int c2 = 0, m = 0; if (sscanf(p + 1, "%d%n", &c2, &m) < 1) return 0; p += 1 + m; }
     if (strncmp(p, "): ", 3)) return 0;
     p += 3;
+    if (!strncmp(p, "error: ", 7)) return 1;     /* #error produces a code-less "error: text" line */
     if (!strncmp(p, "error X", 7)) p += 7;
     else if (!strncmp(p, "warning X", 9)) p += 9;
     else return 0;

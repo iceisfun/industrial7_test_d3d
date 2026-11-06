@@ -99,8 +99,7 @@ TEST(d3dcompiler_compile_api_failure_hresult_is_negative)
     NEED_COMPILE();
     cc_run(&r, "float4 main() : SV_Target { return undeclared_thing; }", "main", "ps_5_0", 0);
     CHECK((LONG)r.hr < 0);
-    CHECK(r.hr == E_FAIL || r.hr == CC_COMPILEFAIL);
-    if (r.hr != E_FAIL && r.hr != CC_COMPILEFAIL) t_note("semantic error hr=0x%08lx", (unsigned long)r.hr);
+    EXPECT_HR(r.hr, E_FAIL); /* semantic errors are E_FAIL; parse-level preprocessor failures are CC_COMPILEFAIL */
     CHECK(r.code == NULL);
     CHECK(r.errb != NULL);
     CHECK(cc_size(r.errb) > 0);
@@ -186,7 +185,8 @@ TEST(d3dcompiler_compile_api_entry_empty_string)
     cc_run(&r, CC_PS_SRC, "", "ps_5_0", 0);
     CHECK((LONG)r.hr < 0);
     CHECK(r.code == NULL);
-    t_note("empty entry hr=0x%08lx err=%.80s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3501) && strstr(r.err, "entrypoint not found"), "%.100s", r.err);
     cc_free(&r);
 }
 
@@ -226,11 +226,10 @@ TEST(d3dcompiler_compile_api_target_lib_without_entry)
     cc_r r;
     NEED_COMPILE();
     cc_compile_full(&r, "export float4 f(float4 a) { return a; }", 39, "t.hlsl", NULL, NULL, NULL, "lib_5_0", 0, 0);
-    if (FAILED(r.hr)) t_note("lib_5_0 compile hr=0x%08lx err=%.120s", (unsigned long)r.hr, r.err);
     EXPECT_HR(r.hr, S_OK);
     if (r.code) {
         CHECK(cc_dxbc_ok(cc_ptr(r.code), cc_size(r.code)));
-        t_note("lib_5_0 parts: LIBH=%d LIBF=%d", cc_has_part(r.code, "LIBH"), cc_has_part(r.code, "LIBF"));
+        CHECK(cc_has_part(r.code, "LIBH") && cc_has_part(r.code, "LIBF"));
     }
     cc_free(&r);
 }
@@ -277,10 +276,9 @@ TEST(d3dcompiler_compile_api_target_unknown_names)
     for (i = 0; i < sizeof bad / sizeof *bad; i++) {
         cc_r r;
         cc_run(&r, CC_PS_SRC, "main", bad[i], 0);
-        CHECKF((LONG)r.hr < 0, "target '%s' hr=0x%08lx", bad[i], (unsigned long)r.hr);
+        CHECKF(r.hr == CC_INVALIDCALL, "target '%s' hr=0x%08lx", bad[i], (unsigned long)r.hr);
         CHECKF(r.code == NULL, "target '%s' produced code", bad[i]);
         CHECKF(r.errb != NULL, "target '%s' has no error blob", bad[i]);
-        t_note("target '%s' -> hr=0x%08lx", bad[i], (unsigned long)r.hr);
         cc_free(&r);
     }
 }
@@ -291,7 +289,8 @@ TEST(d3dcompiler_compile_api_stage_mismatch)
     NEED_COMPILE();
     /* SV_Position output is not valid in a pixel shader output; vertex input semantic as SV_Target fails to validate */
     cc_run(&r, "float4 main(float4 p : POSITION) : SV_Position { return p; }", "main", "ps_5_0", 0);
-    t_note("vs-style entry compiled as ps_5_0: hr=0x%08lx", (unsigned long)r.hr);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 4502), "%.150s", r.err);
     cc_free(&r);
 }
 
@@ -338,7 +337,9 @@ TEST(d3dcompiler_compile_api_source_bom_is_not_fatal)
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, s, "main", "ps_5_0", 0);
-    t_note("UTF-8 BOM source hr=0x%08lx err=%.100s", (unsigned long)r.hr, r.err);
+    /* Win10: a UTF-8 byte order mark in front of the source is NOT skipped */
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3000) && strstr(r.err, "Illegal character in shader file"), "%.150s", r.err);
     cc_free(&r);
 }
 
@@ -356,7 +357,8 @@ TEST(d3dcompiler_compile_api_source_unterminated_comment)
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, "float4 main() : SV_Target { return 1; } /* never closed", "main", "ps_5_0", 0);
-    t_note("unterminated comment hr=0x%08lx err=%.120s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, CC_COMPILEFAIL);
+    CHECKF(cc_has_error(r.err, 1001) && strstr(r.err, "comment continues past end of file"), "%.150s", r.err);
     cc_free(&r);
 }
 
@@ -405,12 +407,16 @@ TEST(d3dcompiler_compile_api_srcname_null_synthesised)
     NEED_COMPILE();
     cc_compile_full(&r, "float4 main() : SV_Target { return bad_symbol; }", 48, NULL, NULL, NULL, "main", "ps_5_0", 0, 0);
     CHECK((LONG)r.hr < 0);
-    CHECK(strncmp(r.err, "Shader@0x", 9) == 0);
-    {
-        const char *p = r.err + 9;
+    {   /* Win10: the synthesised name "Shader@0x<16 hex digits>" goes through GetFullPathName like any relative name */
+        char full[MAX_PATH]; size_t fl;
+        const char *p;
         int hex = 0;
+        cc_fullname("Shader@0x", full, sizeof full);
+        fl = strlen(full);
+        CHECKF(strncmp(r.err, full, fl) == 0, "err: %.80s", r.err);
+        p = r.err + fl;
         while ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f')) { p++; hex++; }
-        CHECK(hex >= 8);
+        EXPECT_EQ(hex, 16);
         CHECK(*p == '(');
     }
     cc_free(&r);
@@ -424,7 +430,7 @@ TEST(d3dcompiler_compile_api_srcname_empty)
     cc_compile_full(&r, "float4 main() : SV_Target { return bad_symbol; }", 48, "", NULL, NULL, "main", "ps_5_0", 0, 0);
     CHECK((LONG)r.hr < 0);
     CHECK(cc_has_error(r.err, 3004));
-    t_note("empty source name -> '%.60s'", r.err);
+    CHECKF(r.err[0] == '(', "empty source name keeps an empty prefix: '%.60s'", r.err); /* no GetFullPathName expansion for "" */
     cc_free(&r);
 }
 
@@ -456,11 +462,11 @@ TEST(d3dcompiler_compile_api_diagnostic_line_format)
         if (!e) break;
         s = e + 1;
     }
-    CHECK(n >= 2);
+    /* Win10 stops at the first semantic error: one diagnostic, the second undeclared identifier is never reported */
+    EXPECT_EQ(n, 1);
     CHECK(strstr(r.err, "fmt.hlsl(3,") != NULL);
-    CHECK(strstr(r.err, "fmt.hlsl(4,") != NULL);
     CHECK(strstr(r.err, "'missing_a'") != NULL);
-    CHECK(strstr(r.err, "'missing_b'") != NULL);
+    CHECK(strstr(r.err, "'missing_b'") == NULL);
     cc_free(&r);
 }
 
@@ -710,7 +716,9 @@ TEST(d3dcompiler_compile_api_builtin_macros)
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, src, "main", "ps_5_0", 0);
-    t_note("__LINE__/__FILE__ defined check hr=0x%08lx %.100s", (unsigned long)r.hr, r.err);
+    /* Win10 d3dcompiler_47 does not predefine __LINE__/__FILE__ as defined() symbols, so the #error branch is taken */
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(strstr(r.err, "error: missing builtins") != NULL, "%.150s", r.err);
     cc_free(&r);
 }
 
@@ -722,7 +730,8 @@ TEST(d3dcompiler_compile_api_hlsl_version_macro)
     cc_r r;
     NEED_COMPILE();
     cc_run(&r, src, "main", "ps_5_0", 0);
-    t_note("__HLSL_VERSION available: %d (hr=0x%08lx)", SUCCEEDED(r.hr), (unsigned long)r.hr);
+    EXPECT_HR(r.hr, E_FAIL); /* __HLSL_VERSION is a DXC-only macro */
+    CHECKF(strstr(r.err, "error: no version macro") != NULL, "%.150s", r.err);
     cc_free(&r);
 }
 
@@ -800,7 +809,7 @@ TEST(d3dcompiler_compile_c2_secondary_flags_valid_bits_not_rejected_early)
     for (f = 1; f <= 7; f++) {
         cc_r r;
         cc_c2(&r, CC_PS_SRC, "main", "ps_5_0", 0, 0, f, NULL, 0);
-        t_note("secondary flags %u without data -> hr=0x%08lx", f, (unsigned long)r.hr);
+        EXPECT_HR(r.hr, S_OK); /* every secondary flag value 1..7 is accepted when no secondary data is requested */
         cc_free(&r);
     }
 }
@@ -932,7 +941,8 @@ TEST(d3dcompiler_compile_api_compute_requires_numthreads)
     cc_run(&r, src, "main", "cs_5_0", 0);
     CHECK((LONG)r.hr < 0);
     CHECK(r.code == NULL);
-    t_note("cs without numthreads: hr=0x%08lx %.100s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3084) && strstr(r.err, "'numthreads(X,Y,Z)' attribute expected"), "%.150s", r.err);
     cc_free(&r);
 }
 

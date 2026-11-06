@@ -3,7 +3,7 @@
 
 #define NEED() do { REQUIRE(CCF(D3DCompile)); } while (0)
 
-enum { K_VS4, K_PS4, K_GS, K_HS, K_DS, K_CS, K_VS3, K_PS3, K_LIB, K_FX2, K_FX4, K_FX5, K_TX };
+enum { K_VS4, K_PS4, K_GS, K_HS, K_DS, K_CS, K_VS3, K_PS3, K_LIB, K_FX2, K_FX4, K_FX5, K_TX, K_PS9 };
 
 static const char *cc_gs_src =
     "struct GO { float4 p : SV_Position; };\n"
@@ -58,6 +58,7 @@ static const char *cc_kind_src(int k, const char **entry)
     case K_CS:  return cc_cs_src;
     case K_VS3: return CC_VS_LEGACY;
     case K_PS3: return CC_PS_LEGACY;
+    case K_PS9: return "float4 main(float4 c : COLOR0) : SV_Target { return c * 0.5f; }"; /* level 9 pixel shaders cannot read SV_Position */
     case K_LIB: *entry = NULL; return cc_lib_src;
     case K_FX2: *entry = NULL; return cc_fx2_src;
     case K_FX4: *entry = NULL; return cc_fx4_src;
@@ -67,9 +68,9 @@ static const char *cc_kind_src(int k, const char **entry)
     return "";
 }
 
-typedef struct { const char *target; int kind; } cc_tgt;
+typedef struct { const char *target; int kind; unsigned want; /* 0 = S_OK, otherwise the exact failing HRESULT */ } cc_tgt;
 
-static void cc_target_table_run(const cc_tgt *tab, unsigned n, int hard)
+static void cc_target_table_run(const cc_tgt *tab, unsigned n, int unused)
 {
     unsigned i;
     for (i = 0; i < n; i++) {
@@ -77,11 +78,12 @@ static void cc_target_table_run(const cc_tgt *tab, unsigned n, int hard)
         const char *src = cc_kind_src(tab[i].kind, &entry);
         cc_r r;
         cc_compile_full(&r, src, strlen(src), "t.hlsl", NULL, NULL, entry, tab[i].target, 0, 0);
-        if (hard) {
+        if (!tab[i].want) {
             CHECKF(r.hr == S_OK, "target %s hr=0x%08lx err=%.150s", tab[i].target, (unsigned long)r.hr, r.err);
             CHECKF(r.code != NULL && cc_size(r.code) > 0, "target %s: no code", tab[i].target);
         } else {
-            t_note("target %s hr=0x%08lx size=%lu", tab[i].target, (unsigned long)r.hr, (unsigned long)cc_size(r.code));
+            CHECKF(r.hr == (HRESULT)tab[i].want, "target %s hr=0x%08lx want 0x%08x err=%.150s", tab[i].target, (unsigned long)r.hr, tab[i].want, r.err);
+            CHECKF(r.code == NULL, "target %s: unexpected code", tab[i].target);
         }
         cc_free(&r);
     }
@@ -141,10 +143,10 @@ TEST(d3dcompiler_compile_targets_sm3_sm2)
     cc_target_table_run(t, 7, 1);
 }
 
-TEST(d3dcompiler_compile_targets_software_profiles_note)
+TEST(d3dcompiler_compile_targets_software_and_legacy_profiles)
 {
     static const cc_tgt t[] = { { "vs_2_sw", K_VS3 }, { "vs_3_sw", K_VS3 }, { "ps_2_sw", K_PS3 }, { "ps_3_sw", K_PS3 },
-                                { "vs_1_1", K_VS3 }, { "ps_1_1", K_PS3 }, { "ps_1_4", K_PS3 } };
+                                { "vs_1_1", K_VS3 }, { "ps_1_1", K_PS3, 0x80004001u }, { "ps_1_4", K_PS3, 0x80004001u } }; /* ps_1_x: E_NOTIMPL */
     NEED();
     cc_target_table_run(t, 7, 0);
 }
@@ -152,16 +154,30 @@ TEST(d3dcompiler_compile_targets_software_profiles_note)
 TEST(d3dcompiler_compile_targets_level9)
 {
     static const cc_tgt t[] = { { "vs_4_0_level_9_1", K_VS4 }, { "vs_4_0_level_9_3", K_VS4 },
-                                { "ps_4_0_level_9_1", K_PS4 }, { "ps_4_0_level_9_3", K_PS4 } };
+                                { "ps_4_0_level_9_1", K_PS9 }, { "ps_4_0_level_9_3", K_PS9 } };
     NEED();
     cc_target_table_run(t, 4, 1);
 }
 
-TEST(d3dcompiler_compile_targets_level9_0_note)
+TEST(d3dcompiler_compile_targets_level9_0)
 {
-    static const cc_tgt t[] = { { "vs_4_0_level_9_0", K_VS4 }, { "ps_4_0_level_9_0", K_PS4 } };
+    static const cc_tgt t[] = { { "vs_4_0_level_9_0", K_VS4 }, { "ps_4_0_level_9_0", K_PS9 } };
     NEED();
     cc_target_table_run(t, 2, 0);
+}
+/* Win10: a level 9 pixel shader may not read SV_Position (X4502) */
+TEST(d3dcompiler_compile_targets_level9_ps_position_input_rejected)
+{
+    static const char *tg[] = { "ps_4_0_level_9_0", "ps_4_0_level_9_1", "ps_4_0_level_9_3" };
+    unsigned i;
+    NEED();
+    for (i = 0; i < 3; i++) {
+        cc_r r;
+        cc_run(&r, CC_PS_SRC, "main", tg[i], 0);
+        EXPECT_HR(r.hr, E_FAIL);
+        CHECKF(cc_has_error(r.err, 4502) && strstr(r.err, "doesn't allow reading from position semantics"), "%s: %.160s", tg[i], r.err);
+        cc_free(&r);
+    }
 }
 
 TEST(d3dcompiler_compile_targets_level9_has_aon9_part)
@@ -207,7 +223,7 @@ TEST(d3dcompiler_compile_targets_effects)
         CHECKF(r.hr == S_OK, "target %s hr=0x%08lx err=%.150s", t[i].target, (unsigned long)r.hr, r.err);
         if (r.code) {
             CHECKF(cc_size(r.code) > 16, "target %s size", t[i].target);
-            t_note("%s first dword 0x%08lx size %lu", t[i].target, (unsigned long)cc_rd32(cc_ptr(r.code)), (unsigned long)cc_size(r.code));
+            EXPECT_EQ(cc_rd32(cc_ptr(r.code)), !strcmp(t[i].target, "fx_2_0") ? 0xfeff0901u : (!strcmp(t[i].target, "fx_5_0") ? 0xfeff2001u : CC_FOURCC('D', 'X', 'B', 'C'))); /* fx_2_0 / fx_5_0 are raw effect headers, fx_4_x are DXBC */
         }
         cc_free(&r);
     }
@@ -291,9 +307,7 @@ TEST(d3dcompiler_compile_targets_sm2_a_b_version_tokens)
         cc_free(&r);
     }
     EXPECT_EQ(tok[0], 0xFFFF0200);
-    t_note("ps_2_a token 0x%08lx, ps_2_b token 0x%08lx", (unsigned long)tok[1], (unsigned long)tok[2]);
-    CHECK((tok[1] >> 16) == 0xFFFF && (tok[1] & 0xFF00) == 0x0200);
-    CHECK((tok[2] >> 16) == 0xFFFF && (tok[2] & 0xFF00) == 0x0200);
+    EXPECT_EQ(tok[1], 0xFFFF0201); EXPECT_EQ(tok[2], 0xFFFF0201); /* Win10: ps_2_a and ps_2_b both carry minor version 1 */
 }
 
 /* ---- profile/stage and profile/feature mismatches ------------------------------- */
@@ -305,20 +319,23 @@ TEST(d3dcompiler_compile_targets_pixel_source_as_vertex_shader)
     CHECK((LONG)r.hr < 0);
     CHECK(r.code == NULL);
     CHECK(r.errb != NULL);
-    t_note("ps entry as vs_5_0: hr=0x%08lx %.120s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 4502) && strstr(r.err, "invalid vs_5_0 output semantic 'SV_Target'"), "%.200s", r.err);
     cc_free(&r);
 }
 
-TEST(d3dcompiler_compile_targets_vertex_source_as_pixel_shader_note)
+TEST(d3dcompiler_compile_targets_vertex_source_as_pixel_shader)
 {
     cc_r r;
     NEED();
     cc_run(&r, "float4 main(float4 p : POSITION) : SV_Position { return p; }", "main", "ps_5_0", 0);
-    t_note("SV_Position output as ps_5_0: hr=0x%08lx %.120s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 4502) && strstr(r.err, "invalid ps_5_0 output semantic 'SV_Position'"), "%.200s", r.err);
     cc_free(&r);
 }
 
-TEST(d3dcompiler_compile_targets_texture_objects_need_sm4)
+/* Win10 d3dcompiler_47 accepts Texture2D/SamplerState objects for the SM2/SM3 profiles (they map to samplers). */
+TEST(d3dcompiler_compile_targets_texture_objects_compile_for_sm2_sm3)
 {
     static const char *src =
         "Texture2D t : register(t0); SamplerState s : register(s0);\n"
@@ -329,8 +346,8 @@ TEST(d3dcompiler_compile_targets_texture_objects_need_sm4)
     for (i = 0; i < 2; i++) {
         cc_r r;
         cc_run(&r, src, "main", tg[i], 0);
-        CHECKF((LONG)r.hr < 0, "%s hr=0x%08lx", tg[i], (unsigned long)r.hr);
-        CHECK(r.code == NULL);
+        CHECKF(r.hr == S_OK, "%s hr=0x%08lx %.120s", tg[i], (unsigned long)r.hr, r.err);
+        CHECK(r.code != NULL && !cc_dxbc_ok(cc_ptr(r.code), cc_size(r.code)));
         cc_free(&r);
     }
 }
@@ -365,10 +382,9 @@ TEST(d3dcompiler_compile_targets_ps20_arithmetic_slot_limit)
     CHECK((LONG)a.hr < 0);
     CHECK(a.code == NULL);
     CHECK(strstr(a.err, "ps_2_0") != NULL);
-    CHECK(strstr(a.err, "error X5608") != NULL || strstr(a.err, "X5") != NULL);
-    t_note("ps_2_0 limit message: %.160s", a.err);
+    CHECKF(cc_has_error(a.err, 5608) && strstr(a.err, "Compiled shader code uses too many arithmetic instruction slots") && strstr(a.err, "Max. allowed by the target (ps_2_0) is 64"), "%.200s", a.err);
     cc_run(&b, src, "main", "ps_3_0", 0);
-    t_note("same shader on ps_3_0: hr=0x%08lx", (unsigned long)b.hr);
+    EXPECT_HR(b.hr, S_OK); /* ps_3_0 has a much larger slot budget */
     cc_free(&a); cc_free(&b);
 }
 
@@ -389,7 +405,8 @@ TEST(d3dcompiler_compile_targets_system_value_semantics_need_sm4)
     NEED();
     cc_run(&r, src, "main", "vs_3_0", 0);
     CHECK((LONG)r.hr < 0);
-    t_note("SV_VertexID in vs_3_0: hr=0x%08lx %.120s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 4502) && strstr(r.err, "invalid vs_3_0 input semantic 'SV_VertexID'"), "%.200s", r.err);
     cc_free(&r);
 }
 
@@ -401,10 +418,10 @@ TEST(d3dcompiler_compile_targets_multiple_render_targets_level9)
     EXPECT_HR(cc_run(&r, src, "main", "ps_4_0", 0), S_OK);
     cc_free(&r);
     cc_run(&r, src, "main", "ps_4_0_level_9_1", 0);
-    t_note("2 render targets on level_9_1: hr=0x%08lx %.100s", (unsigned long)r.hr, r.err);
+    EXPECT_HR(r.hr, S_OK); /* Win10 does not enforce the level 9 single-target limit at compile time */
     cc_free(&r);
     cc_run(&r, src, "main", "ps_4_0_level_9_3", 0);
-    t_note("2 render targets on level_9_3: hr=0x%08lx", (unsigned long)r.hr);
+    EXPECT_HR(r.hr, S_OK);
     cc_free(&r);
 }
 
@@ -424,15 +441,28 @@ TEST(d3dcompiler_compile_targets_cs_thread_group_limits)
     WIN_ONLY();
     cc_r r;
     NEED();
-    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(1025,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(0, id.x); }\n", "main", "cs_5_0", 0);
-    CHECK((LONG)r.hr < 0);
-    CHECK(r.code == NULL);
-    cc_free(&r);
-    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(1024,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(0, id.x); }\n", "main", "cs_5_0", 0);
-    EXPECT_HR(r.hr, S_OK);
-    cc_free(&r);
-    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(2,2,65)] void main(uint3 id : SV_DispatchThreadID) { b.Store(0, id.x); }\n", "main", "cs_5_0", 0);
-    CHECK((LONG)r.hr < 0);
+    /* stores go to per-thread addresses: a constant address from many threads is itself an error (X3694, race condition) */
+    static const char *tpl = "RWByteAddressBuffer b : register(u0);\n[numthreads(%s)] void main(uint3 id : SV_DispatchThreadID) { b.Store(id.x * 4, id.x); }\n";
+    static const struct { const char *nt; int ok; int code; const char *text; } tab[] = {
+        { "1024,1,1", 1, 0, NULL }, { "32,32,1", 1, 0, NULL }, { "1,1,64", 1, 0, NULL }, { "8,8,16", 1, 0, NULL }, { "1,1,1", 1, 0, NULL },
+        { "1025,1,1", 0, 3655, "the product of the arguments of numthreads(1025,1,1) must be less than or equal to 1024" },
+        { "32,32,2", 0, 3655, "the product of the arguments of numthreads(32,32,2) must be less than or equal to 1024" },
+        { "1024,1,2", 0, 3655, "the product of the arguments of numthreads(1024,1,2) must be less than or equal to 1024" },
+        { "1,1,65", 0, 3655, "the final dimension specified (65) for numthreads must be less than or equal to 64" },
+    };
+    unsigned i;
+    for (i = 0; i < sizeof tab / sizeof tab[0]; i++) {
+        char src[300];
+        snprintf(src, sizeof src, tpl, tab[i].nt);
+        cc_run(&r, src, "main", "cs_5_0", 0);
+        if (tab[i].ok) { CHECKF(r.hr == S_OK, "numthreads(%s): hr=0x%08lx %.150s", tab[i].nt, (unsigned long)r.hr, r.err); CHECK(r.code != NULL); }
+        else { CHECKF(r.hr == E_FAIL && r.code == NULL, "numthreads(%s): hr=0x%08lx", tab[i].nt, (unsigned long)r.hr); CHECKF(cc_has_error(r.err, tab[i].code) && strstr(r.err, tab[i].text), "numthreads(%s): %.200s", tab[i].nt, r.err); }
+        cc_free(&r);
+    }
+    /* the same constant-address store is rejected as a race once more than one thread runs */
+    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(64,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(0, id.x); }\n", "main", "cs_5_0", 0);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3694) && strstr(r.err, "race condition writing to shared resource detected"), "%.200s", r.err);
     cc_free(&r);
 }
 
@@ -440,8 +470,16 @@ TEST(d3dcompiler_compile_targets_cs_40_thread_limit_512)
 {
     cc_r r;
     NEED();
-    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(1024,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(0, id.x); }\n", "main", "cs_4_0", 0);
-    t_note("cs_4_0 1024 threads: hr=0x%08lx", (unsigned long)r.hr);
+    /* cs_4_x allows at most 768 threads per group (cs_5_0: 1024) */
+    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(1024,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(id.x * 4, id.x); }\n", "main", "cs_4_0", 0);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3655) && strstr(r.err, "must be less than or equal to 768"), "%.200s", r.err);
+    cc_free(&r);
+    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(768,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(id.x * 4, id.x); }\n", "main", "cs_4_0", 0);
+    EXPECT_HR(r.hr, S_OK);
+    cc_free(&r);
+    cc_run(&r, "RWByteAddressBuffer b : register(u0);\n[numthreads(769,1,1)] void main(uint3 id : SV_DispatchThreadID) { b.Store(id.x * 4, id.x); }\n", "main", "cs_4_0", 0);
+    EXPECT_HR(r.hr, E_FAIL);
     cc_free(&r);
 }
 
@@ -456,7 +494,8 @@ TEST(d3dcompiler_compile_targets_gs_requires_maxvertexcount)
     cc_run(&r, src, "main", "gs_5_0", 0);
     CHECK((LONG)r.hr < 0);
     CHECK(r.code == NULL);
-    t_note("gs without maxvertexcount: %.120s", r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3514) && strstr(r.err, "'main' must have a max vertex count"), "%.200s", r.err);
     cc_free(&r);
 }
 
@@ -472,7 +511,8 @@ TEST(d3dcompiler_compile_targets_hs_requires_patch_constant_function)
     cc_run(&r, src, "main", "hs_5_0", 0);
     CHECK((LONG)r.hr < 0);
     CHECK(r.code == NULL);
-    t_note("hs without patchconstantfunc: %.120s", r.err);
+    EXPECT_HR(r.hr, E_FAIL);
+    CHECKF(cc_has_error(r.err, 3084) && strstr(r.err, "'patchconstantfunc(function name)' attribute expected"), "%.200s", r.err);
     cc_free(&r);
 }
 
@@ -498,7 +538,7 @@ TEST(d3dcompiler_compile_targets_hs_domain_attribute_values)
             doms[i], i == 2 ? "line" : "triangle_cw");
         cc_run(&r, src, "main", "hs_5_0", 0);
         if (i < 2) EXPECT_HR(r.hr, S_OK);
-        if (FAILED(r.hr)) t_note("domain %s: %.200s", doms[i], r.err);
+        if (i == 2) { EXPECT_HR(r.hr, S_OK); }
         cc_free(&r);
     }
 }
