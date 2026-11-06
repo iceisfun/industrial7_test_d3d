@@ -219,3 +219,81 @@ out:
     SAFE_RELEASE(pool); SAFE_RELEASE(t);
     CLOSE2X();
 }
+
+/* ---- context behaviour per feature level (WARP, feature level requested explicitly) ------------------- */
+static void fl_row(D3D_FEATURE_LEVEL want, int so_targets)
+{
+    csf f; memset(&f, 0, sizeof f);
+    D3D_FEATURE_LEVEL got = 0;
+    HRESULT hr = d3dh_make_device11_fl(&f.dev, &f.ctx, &want, 1, &got, &f.dt, 0);
+    if (FAILED(hr)) { t_skip("feature level 0x%x not available: %s", want, d3dh_hr_name(hr)); return; }
+    if (f.dt != D3D_DRIVER_TYPE_WARP) { t_skip("measured for WARP"); csf_close(&f); return; }
+    EXPECT_EQ(got, want);
+    EXPECT_EQ(ID3D11Device_GetFeatureLevel(f.dev), want);
+    /* 16 viewports / scissor rects are accepted at every feature level */
+    D3D11_VIEWPORT vp[16]; D3D11_RECT rc[16]; UINT n = 0, m = 0;
+    for (int i = 0; i < 16; i++) { vp[i].TopLeftX = (FLOAT)i; vp[i].TopLeftY = (FLOAT)i; vp[i].Width = 10; vp[i].Height = 10; vp[i].MinDepth = 0; vp[i].MaxDepth = 1; rc[i].left = 0; rc[i].top = 0; rc[i].right = 5; rc[i].bottom = 5; }
+    ID3D11DeviceContext_RSSetViewports(f.ctx, 16, vp); ID3D11DeviceContext_RSGetViewports(f.ctx, &n, NULL);
+    ID3D11DeviceContext_RSSetScissorRects(f.ctx, 16, rc); ID3D11DeviceContext_RSGetScissorRects(f.ctx, &m, NULL);
+    EXPECT_EQ(n, 16); EXPECT_EQ(m, 16);
+    /* stream-output targets exist from 10_0 up; at 9_x SOSetTargets is silently ignored */
+    ID3D11Buffer *b[4]; ID3D11Buffer *g[4] = { 0 }; UINT off[4] = { 0 }; int bound = 0;
+    for (int i = 0; i < 4; i++) b[i] = cs_buf(&f, D3D11_BIND_STREAM_OUTPUT, 256);
+    if (b[0] && b[1] && b[2] && b[3]) {
+        ID3D11DeviceContext_SOSetTargets(f.ctx, 4, b, off);
+        ID3D11DeviceContext_SOGetTargets(f.ctx, 4, g);
+        for (int i = 0; i < 4; i++) { if (g[i] == b[i]) bound++; SAFE_RELEASE(g[i]); }
+        EXPECT_EQ(bound, so_targets);
+    } else if (so_targets) t_skip("stream output buffers not creatable at 0x%x", want);
+    /* eight render targets, one texture each, are all bound */
+    ID3D11Texture2D *t[8] = { 0 }; ID3D11RenderTargetView *rv[8] = { 0 }, *gr[8] = { 0 }; int nr = 0, ok = 1;
+    for (int i = 0; i < 8; i++) { t[i] = cs_tex(&f, 4, 4, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET); rv[i] = t[i] ? cs_rtv(&f, (ID3D11Resource *)t[i], NULL) : NULL; if (!rv[i]) ok = 0; }
+    if (ok) {
+        ID3D11DeviceContext_OMSetRenderTargets(f.ctx, 8, rv, NULL);
+        ID3D11DeviceContext_OMGetRenderTargets(f.ctx, 8, gr, NULL);
+        for (int i = 0; i < 8; i++) { if (gr[i] == rv[i]) nr++; SAFE_RELEASE(gr[i]); }
+        EXPECT_EQ(nr, 8);
+    }
+    /* a deferred context can be made at every feature level */
+    ID3D11DeviceContext *d = NULL;
+    EXPECT_HR(ID3D11Device_CreateDeferredContext(f.dev, 0, &d), S_OK);
+    /* compute shaders: a cs_5_0 blob needs 11_0 or higher */
+    ID3D11ComputeShader *cs = mk_CS(&f);
+    CHECKF((cs != NULL) == (want >= D3D_FEATURE_LEVEL_11_0), "cs_5_0 shader creation at 0x%x: %s", want, cs ? "created" : "failed");
+    D3D11_FEATURE_DATA_THREADING th; memset(&th, 0, sizeof th);
+    EXPECT_HR(ID3D11Device_CheckFeatureSupport(f.dev, D3D11_FEATURE_THREADING, &th, sizeof th), S_OK);
+    EXPECT_EQ(th.DriverConcurrentCreates, TRUE); EXPECT_EQ(th.DriverCommandLists, FALSE);   /* WARP: concurrent creates yes, driver command lists no */
+    ID3D11DeviceContext_ClearState(f.ctx);
+    for (int i = 0; i < 4; i++) SAFE_RELEASE(b[i]);
+    for (int i = 0; i < 8; i++) { SAFE_RELEASE(rv[i]); SAFE_RELEASE(t[i]); }
+    SAFE_RELEASE(d); SAFE_RELEASE(cs);
+    csf_close(&f);
+}
+TEST(d3d11_context_state_fl_matrix_11_1) { fl_row(D3D_FEATURE_LEVEL_11_1, 4); }
+TEST(d3d11_context_state_fl_matrix_11_0) { fl_row(D3D_FEATURE_LEVEL_11_0, 4); }
+TEST(d3d11_context_state_fl_matrix_10_1) { fl_row(D3D_FEATURE_LEVEL_10_1, 4); }
+TEST(d3d11_context_state_fl_matrix_10_0) { fl_row(D3D_FEATURE_LEVEL_10_0, 4); }
+TEST(d3d11_context_state_fl_matrix_9_3) { fl_row(D3D_FEATURE_LEVEL_9_3, 0); }
+TEST(d3d11_context_state_fl_matrix_9_2) { fl_row(D3D_FEATURE_LEVEL_9_2, 0); }
+TEST(d3d11_context_state_fl_matrix_9_1) { fl_row(D3D_FEATURE_LEVEL_9_1, 0); }
+
+/* The same texture bound twice (through one RTV or two) in one OMSetRenderTargets call is a write hazard. */
+TEST(d3d11_context_state_om_same_resource_in_two_rtv_slots_binds_nothing) {
+    OPEN();
+    ID3D11Texture2D *t = cs_tex(&f, 4, 4, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET);
+    ID3D11RenderTargetView *v[2] = { t ? cs_rtv(&f, (ID3D11Resource *)t, NULL) : NULL, t ? cs_rtv(&f, (ID3D11Resource *)t, NULL) : NULL }, *g[2] = { 0 };
+    if (!v[0] || !v[1]) { t_skip("rtv"); goto out; }
+    ID3D11DeviceContext_OMSetRenderTargets(f.ctx, 2, v, NULL);
+    ID3D11DeviceContext_OMGetRenderTargets(f.ctx, 2, g, NULL);
+    CHECK(g[0] == NULL && g[1] == NULL);   /* Win10: the hazardous call is dropped as a whole, nothing is bound */
+    SAFE_RELEASE(g[0]); SAFE_RELEASE(g[1]);
+    ID3D11RenderTargetView *same[2] = { v[0], v[0] };
+    ID3D11DeviceContext_OMSetRenderTargets(f.ctx, 2, same, NULL);
+    ID3D11DeviceContext_OMGetRenderTargets(f.ctx, 2, g, NULL);
+    CHECK(g[0] == NULL && g[1] == NULL);
+    SAFE_RELEASE(g[0]); SAFE_RELEASE(g[1]);
+    ID3D11DeviceContext_ClearState(f.ctx);
+out:
+    SAFE_RELEASE(v[0]); SAFE_RELEASE(v[1]); SAFE_RELEASE(t);
+    CLOSE();
+}
