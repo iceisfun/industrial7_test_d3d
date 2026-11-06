@@ -23,7 +23,7 @@ TEST(d3d9_device_resources_extra_leveldesc_chain)
         }
         D3DSURFACE_DESC sd;
         EXPECT_HR(IDirect3DTexture9_GetLevelDesc(tex, t[i].levels, &sd), D3DERR_INVALIDCALL);
-        EXPECT_HR(IDirect3DTexture9_GetLevelDesc(tex, 0, NULL), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DTexture9_GetLevelDesc(tex, 0, NULL), D9_AVHR);   /* Win10: access violation */
         IDirect3DTexture9_Release(tex);
     }
     D9_END(d);
@@ -51,7 +51,7 @@ TEST(d3d9_device_resources_extra_getdisplaymode_args)
 {
     D9_OPEN(d);
     D3DDISPLAYMODE m;
-    EXPECT_HR(IDirect3DDevice9_GetDisplayMode(d.dev, 0, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_GetDisplayMode(d.dev, 0, NULL), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(IDirect3DDevice9_GetDisplayMode(d.dev, 1, &m), D3DERR_INVALIDCALL);
     EXPECT_HR(IDirect3DDevice9_GetDisplayMode(d.dev, 0, &m), D3D_OK);
     CHECK(m.Width > 0 && m.Height > 0);
@@ -65,11 +65,11 @@ TEST(d3d9_device_resources_extra_swapchain_index_args)
     IDirect3DSwapChain9 *sc = (IDirect3DSwapChain9 *)1;
     EXPECT_HR(IDirect3DDevice9_GetSwapChain(d.dev, 1, &sc), D3DERR_INVALIDCALL);
     CHECK(sc == NULL);
-    EXPECT_HR(IDirect3DDevice9_GetSwapChain(d.dev, 0, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_GetSwapChain(d.dev, 0, NULL), D9_AVHR);   /* Win10: access violation */
     IDirect3DSurface9 *bb = NULL;
     EXPECT_HR(IDirect3DDevice9_GetBackBuffer(d.dev, 1, 0, D3DBACKBUFFER_TYPE_MONO, &bb), D3DERR_INVALIDCALL);
     EXPECT_HR(IDirect3DDevice9_GetBackBuffer(d.dev, 0, 100, D3DBACKBUFFER_TYPE_MONO, &bb), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_GetBackBuffer(d.dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_GetBackBuffer(d.dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, NULL), D9_AVHR);   /* Win10: access violation */
     D9_END(d);
 }
 
@@ -88,14 +88,14 @@ TEST(d3d9_device_resources_extra_buffer_zero_length)
 {
     D9_OPEN(d);
     IDirect3DVertexBuffer9 *vb = (IDirect3DVertexBuffer9 *)1;
-    EXPECT_HR(IDirect3DDevice9_CreateVertexBuffer(d.dev, 0, 0, 0, D3DPOOL_DEFAULT, &vb, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVertexBuffer(d.dev, 0, 0, 0, D3DPOOL_DEFAULT, &vb, NULL), D3DERR_INVALIDCALL);
     CHECK(vb == NULL);
-    EXPECT_HR(IDirect3DDevice9_CreateVertexBuffer(d.dev, 64, 0, 0, D3DPOOL_DEFAULT, NULL, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVertexBuffer(d.dev, 64, 0, 0, D3DPOOL_DEFAULT, NULL, NULL), D9_AVHR);   /* Win10: access violation */
     IDirect3DIndexBuffer9 *ib = (IDirect3DIndexBuffer9 *)1;
-    EXPECT_HR(IDirect3DDevice9_CreateIndexBuffer(d.dev, 0, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateIndexBuffer(d.dev, 0, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, NULL), D3DERR_INVALIDCALL);
     CHECK(ib == NULL);
     ib = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateIndexBuffer(d.dev, 64, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &ib, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateIndexBuffer(d.dev, 64, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &ib, NULL), D3DERR_INVALIDCALL);
     SAFE_RELEASE(ib);
     D9_END(d);
 }
@@ -113,7 +113,7 @@ TEST(d3d9_device_resources_extra_buffer_desc_roundtrip)
         EXPECT_EQ(id.Usage, D3DUSAGE_WRITEONLY);
         EXPECT_EQ(id.Pool, D3DPOOL_DEFAULT);
         EXPECT_EQ(id.Size, 96);
-        EXPECT_HR(IDirect3DIndexBuffer9_GetDesc(ib, NULL), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DIndexBuffer9_GetDesc(ib, NULL), D9_AVHR);   /* Win10: access violation */
         IDirect3DIndexBuffer9_Release(ib);
     } else t_note("INDEX32 buffer: %s", d3dh_hr_name(hr));
     IDirect3DVertexBuffer9 *vb = NULL;
@@ -126,7 +126,7 @@ TEST(d3d9_device_resources_extra_buffer_desc_roundtrip)
         EXPECT_EQ(vd.Type, D3DRTYPE_VERTEXBUFFER);
         EXPECT_EQ(vd.Pool, D3DPOOL_DEFAULT);
         CHECK(vd.Usage & D3DUSAGE_DYNAMIC);
-        EXPECT_HR(IDirect3DVertexBuffer9_GetDesc(vb, NULL), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DVertexBuffer9_GetDesc(vb, NULL), D9_AVHR);   /* Win10: access violation */
         IDirect3DVertexBuffer9_Release(vb);
     } else t_note("dynamic VB: %s", d3dh_hr_name(hr));
     D9_END(d);
@@ -138,9 +138,9 @@ TEST(d3d9_device_resources_extra_buffer_lock_range)
     IDirect3DVertexBuffer9 *vb = NULL;
     if (FAILED(IDirect3DDevice9_CreateVertexBuffer(d.dev, 128, 0, 0, D3DPOOL_MANAGED, &vb, NULL))) { t_skip("no managed VB"); D9_END(d); return; }
     void *p = (void *)1;
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 129, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 200, 4, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 128, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 129, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 200, 4, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HRN(IDirect3DVertexBuffer9_Lock(vb, 0, 128, NULL, 0), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 124, 4, &p, 0), D3D_OK);
     EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), D3D_OK);
     EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 0, &p, 0), D3D_OK);   /* size 0 = whole buffer */
@@ -159,7 +159,7 @@ TEST(d3d9_device_resources_extra_creation_params_types)
     EXPECT_EQ(cp.DeviceType, d.type);
     CHECK(cp.hFocusWindow == d.hwnd);
     CHECK(cp.BehaviorFlags & (D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_MIXED_VERTEXPROCESSING));
-    EXPECT_HR(IDirect3DDevice9_GetCreationParameters(d.dev, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_GetCreationParameters(d.dev, NULL), D9_AVHR);   /* Win10: access violation */
     D9_END(d);
 }
 

@@ -10,7 +10,7 @@ TEST(d3d9_device_resources_vb_args)
     IDirect3DVertexBuffer9 *vb = (IDirect3DVertexBuffer9 *)1;
     EXPECT_HR(MKVB(d, 0, 0, 0, D3DPOOL_MANAGED, &vb), D3DERR_INVALIDCALL);
     CHECK(vb == NULL);
-    EXPECT_HR(MKVB(d, 64, 0, 0, D3DPOOL_MANAGED, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(MKVB(d, 64, 0, 0, D3DPOOL_MANAGED, NULL), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(MKVB(d, 64, 0, 0, (D3DPOOL)4, &vb), D3DERR_INVALIDCALL);
     EXPECT_HR(MKVB(d, 64, 0, 0, (D3DPOOL)-1, &vb), D3DERR_INVALIDCALL);
     D9_END(d);
@@ -63,7 +63,7 @@ TEST(d3d9_device_resources_vb_desc_fvf)
             IDirect3DVertexBuffer9_GetDesc(vb, &vd);
             EXPECT_EQ(vd.FVF, fvfs[i]);
             EXPECT_EQ(vd.Size, 128);
-            EXPECT_HR(IDirect3DVertexBuffer9_GetDesc(vb, NULL), D3DERR_INVALIDCALL);
+            EXPECT_HRN(IDirect3DVertexBuffer9_GetDesc(vb, NULL), D9_AVHR);   /* Win10: access violation */
             IDirect3DVertexBuffer9_Release(vb);
         }
     }
@@ -89,14 +89,14 @@ TEST(d3d9_device_resources_vb_lock_args)
     IDirect3DVertexBuffer9 *vb = NULL;
     if (FAILED(MKVB(d, 64, 0, 0, D3DPOOL_MANAGED, &vb))) { t_skip("no vb"); D9_END(d); return; }
     void *p = (void *)1;
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 0, NULL, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 65, 0, &p, 0), D3DERR_INVALIDCALL);
-    CHECK(p == NULL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 65, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 32, 33, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 64, 1, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0xffffffffu, 2, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 2, 0xffffffffu, &p, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DVertexBuffer9_Lock(vb, 0, 0, NULL, 0), D9_AVHR);   /* Win10: access violation */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 65, 0, &p, 0), S_OK);   /* Win10: S_OK (the lock range is not validated) */
+    CHECK(p != NULL);
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 65, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 32, 33, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 64, 1, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0xffffffffu, 2, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 2, 0xffffffffu, &p, 0), S_OK);   /* Win10: S_OK */
     /* the failed locks must not have left the buffer locked */
     EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 64, &p, 0), D3D_OK);
     EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), D3D_OK);
@@ -110,13 +110,13 @@ TEST(d3d9_device_resources_vb_lock_unlock_state)
     IDirect3DVertexBuffer9 *vb = NULL;
     if (FAILED(MKVB(d, 64, 0, 0, D3DPOOL_MANAGED, &vb))) { t_skip("no vb"); D9_END(d); return; }
     void *p = NULL, *q = NULL;
-    EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), S_OK);   /* Win10: S_OK */
     EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 0, &p, 0), D3D_OK);
     CHECK(p != NULL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 0, &q, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 8, 8, &q, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 0, 0, &q, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DVertexBuffer9_Lock(vb, 8, 8, &q, 0), S_OK);   /* Win10: S_OK */
     EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), D3D_OK);
-    EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DVertexBuffer9_Unlock(vb), S_OK);   /* Win10: S_OK */
     IDirect3DVertexBuffer9_Release(vb);
     D9_END(d);
 }
@@ -263,17 +263,16 @@ TEST(d3d9_device_resources_vb_set_stream_source)
     EXPECT_EQ(stride, 0);
     ULONG rc0 = d3dh_refcount(vb);
     EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, 0, vb, 16, 12), D3D_OK);
-    CHECK(d3dh_refcount(vb) == rc0 + 1);
+    EXPECT_EQ(d3dh_refcount(vb), rc0);   /* Win10: binding to a stream does not change the public reference count */
     EXPECT_HR(IDirect3DDevice9_GetStreamSource(d.dev, 0, &got, &off, &stride), D3D_OK);
     CHECK(got == vb);
     EXPECT_EQ(off, 16);
     EXPECT_EQ(stride, 12);
     SAFE_RELEASE(got);
     D3DCAPS9 c; IDirect3DDevice9_GetDeviceCaps(d.dev, &c);
-    EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, c.MaxStreams, vb, 0, 12), D3DERR_INVALIDCALL);
-    t_note("SetStreamSource stride MaxStreamStride+1 (max %lu): %s", c.MaxStreamStride, d3dh_hr_name(IDirect3DDevice9_SetStreamSource(d.dev, 0, vb, 0, c.MaxStreamStride + 1)));
-    EXPECT_HR(IDirect3DDevice9_GetStreamSource(d.dev, c.MaxStreams, &got, &off, &stride), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_GetStreamSource(d.dev, 0, NULL, &off, &stride), D3DERR_INVALIDCALL);
+    /* Win10 retail d3d9 accepts stream number == MaxStreams (S_OK) and then corrupts its own heap (0xc0000374), so the out-of-range stream numbers are NOT exercised */
+    EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, 0, vb, 0, c.MaxStreamStride + 1), S_OK);   /* Win10: stride above MaxStreamStride is accepted */
+    EXPECT_HRN(IDirect3DDevice9_GetStreamSource(d.dev, 0, NULL, &off, &stride), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, 0, NULL, 0, 0), D3D_OK);
     CHECK(d3dh_refcount(vb) == rc0);
     IDirect3DVertexBuffer9_Release(vb);
@@ -287,7 +286,7 @@ TEST(d3d9_device_resources_ib_args)
     IDirect3DIndexBuffer9 *ib = (IDirect3DIndexBuffer9 *)1;
     EXPECT_HR(MKIB(d, 0, 0, D3DFMT_INDEX16, D3DPOOL_MANAGED, &ib), D3DERR_INVALIDCALL);
     CHECK(ib == NULL);
-    EXPECT_HR(MKIB(d, 32, 0, D3DFMT_INDEX16, D3DPOOL_MANAGED, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(MKIB(d, 32, 0, D3DFMT_INDEX16, D3DPOOL_MANAGED, NULL), D9_AVHR);   /* Win10: access violation */
     D3DFORMAT bad[] = { D3DFMT_UNKNOWN, D3DFMT_A8R8G8B8, D3DFMT_VERTEXDATA, D3DFMT_R16F, D3DFMT_D16 };
     for (unsigned i = 0; i < 5; i++) {
         HRESULT hr = MKIB(d, 32, 0, bad[i], D3DPOOL_MANAGED, &ib);
@@ -324,7 +323,7 @@ TEST(d3d9_device_resources_ib_pool_usage_matrix)
                 EXPECT_EQ(id.Size, 64);
                 EXPECT_EQ(id.Pool, t[i].pool);
                 EXPECT_EQ(id.Usage & ~D3DUSAGE_SOFTWAREPROCESSING, t[i].usage);
-                EXPECT_HR(IDirect3DIndexBuffer9_GetDesc(ib, NULL), D3DERR_INVALIDCALL);
+                EXPECT_HRN(IDirect3DIndexBuffer9_GetDesc(ib, NULL), D9_AVHR);   /* Win10: access violation */
             }
         }
         SAFE_RELEASE(ib);
@@ -338,16 +337,16 @@ TEST(d3d9_device_resources_ib_lock_args)
     IDirect3DIndexBuffer9 *ib = NULL;
     if (FAILED(MKIB(d, 64, 0, D3DFMT_INDEX16, D3DPOOL_MANAGED, &ib))) { t_skip("no ib"); D9_END(d); return; }
     void *p = (void *)1;
-    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 0, 0, NULL, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 65, 0, &p, 0), D3DERR_INVALIDCALL);
-    CHECK(p == NULL);
-    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 0, 65, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 60, 5, &p, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DIndexBuffer9_Unlock(ib), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DIndexBuffer9_Lock(ib, 0, 0, NULL, 0), D9_AVHR);   /* Win10: access violation */
+    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 65, 0, &p, 0), S_OK);   /* Win10: S_OK (the lock range is not validated) */
+    CHECK(p != NULL);
+    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 0, 65, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 60, 5, &p, 0), S_OK);   /* Win10: S_OK */
+    EXPECT_HR(IDirect3DIndexBuffer9_Unlock(ib), S_OK);   /* Win10: S_OK */
     EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 2, 6, &p, 0), D3D_OK);
-    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 0, 0, &p, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DIndexBuffer9_Lock(ib, 0, 0, &p, 0), S_OK);   /* Win10: S_OK */
     EXPECT_HR(IDirect3DIndexBuffer9_Unlock(ib), D3D_OK);
-    EXPECT_HR(IDirect3DIndexBuffer9_Unlock(ib), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DIndexBuffer9_Unlock(ib), S_OK);   /* Win10: S_OK */
     IDirect3DIndexBuffer9_Release(ib);
     D9_END(d);
 }
@@ -399,11 +398,11 @@ TEST(d3d9_device_resources_ib_set_indices)
     CHECK(got == NULL);
     ULONG rc0 = d3dh_refcount(ib);
     EXPECT_HR(IDirect3DDevice9_SetIndices(d.dev, ib), D3D_OK);
-    CHECK(d3dh_refcount(ib) == rc0 + 1);
+    EXPECT_EQ(d3dh_refcount(ib), rc0);   /* Win10: binding does not change the public reference count */
     EXPECT_HR(IDirect3DDevice9_GetIndices(d.dev, &got), D3D_OK);
     CHECK(got == ib);
     SAFE_RELEASE(got);
-    EXPECT_HR(IDirect3DDevice9_GetIndices(d.dev, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_GetIndices(d.dev, NULL), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(IDirect3DDevice9_SetIndices(d.dev, NULL), D3D_OK);
     CHECK(d3dh_refcount(ib) == rc0);
     IDirect3DIndexBuffer9_Release(ib);

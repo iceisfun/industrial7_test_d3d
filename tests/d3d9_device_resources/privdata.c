@@ -100,7 +100,7 @@ TEST(d3d9_device_resources_pd_buffer_protocol)
         t_note("%s NULL buffer, size 0: %s size %lu", kname[k], d3dh_hr_name(hr), sz);
         sz = 3;
         EXPECT_HR(IDirect3DResource9_GetPrivateData(r, &G2, out, &sz), D3DERR_NOTFOUND);
-        EXPECT_HR(IDirect3DResource9_GetPrivateData(r, &G1, out, NULL), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DResource9_GetPrivateData(r, &G1, out, NULL), D9_AVHR);   /* Win10: access violation */
         IDirect3DResource9_Release(r);
     }
     D9_END(d);
@@ -112,10 +112,10 @@ TEST(d3d9_device_resources_pd_invalid_args)
     IDirect3DResource9 *r = mkres(&d, K_TEX);
     if (!r) { t_skip("no texture"); D9_END(d); return; }
     BYTE b[4] = { 0 };
-    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, NULL, b, 4, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, NULL, 4, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DResource9_GetPrivateData(r, NULL, b, &(DWORD){ 4 }), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DResource9_FreePrivateData(r, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DResource9_SetPrivateData(r, NULL, b, 4, 0), D9_AVHR);   /* Win10: access violation */
+    EXPECT_HRN(IDirect3DResource9_SetPrivateData(r, &G1, NULL, 4, 0), D9_AVHR);   /* Win10: access violation */
+    EXPECT_HRN(IDirect3DResource9_GetPrivateData(r, NULL, b, &(DWORD){ 4 }), D3DERR_NOTFOUND);   /* Win10: D3DERR_NOTFOUND */
+    EXPECT_HRN(IDirect3DResource9_FreePrivateData(r, NULL), D3DERR_NOTFOUND);   /* Win10: D3DERR_NOTFOUND */
     HRESULT hr = IDirect3DResource9_SetPrivateData(r, &G1, b, 4, 0x80);
     t_note("SetPrivateData with unknown flag 0x80: %s", d3dh_hr_name(hr));
     hr = IDirect3DResource9_SetPrivateData(r, &G2, b, 0, 0);
@@ -149,7 +149,7 @@ TEST(d3d9_device_resources_pd_iunknown)
         if (!r) continue;
         Fake f; fk_init(&f);
         IUnknown *u = (IUnknown *)&f;
-        HRESULT hr = IDirect3DResource9_SetPrivateData(r, &G1, &u, sizeof u, D3DSPD_IUNKNOWN);
+        HRESULT hr = IDirect3DResource9_SetPrivateData(r, &G1, u, sizeof u, D3DSPD_IUNKNOWN);
         CHECKF(hr == D3D_OK, "%s Set got %s", kname[k], d3dh_hr_name(hr));
         CHECKF(f.ref == 2, "%s ref after set %ld", kname[k], f.ref);
         /* getting it back gives an AddRef'd pointer */
@@ -164,12 +164,12 @@ TEST(d3d9_device_resources_pd_iunknown)
         EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, b, 4, 0), D3D_OK);
         CHECKF(f.ref == 1, "%s ref after replace %ld", kname[k], f.ref);
         /* free releases it too */
-        EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, &u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
+        EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
         CHECKF(f.ref == 2, "%s ref %ld", kname[k], f.ref);
         EXPECT_HR(IDirect3DResource9_FreePrivateData(r, &G1), D3D_OK);
         CHECKF(f.ref == 1, "%s ref after free %ld", kname[k], f.ref);
         /* destroying the resource releases it */
-        EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G2, &u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
+        EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G2, u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
         CHECK(f.ref == 2);
         IDirect3DResource9_Release(r);
         CHECKF(f.ref == 1, "%s ref after resource destruction %ld", kname[k], f.ref);
@@ -186,7 +186,7 @@ TEST(d3d9_device_resources_pd_iunknown_wrong_size)
     IUnknown *u = (IUnknown *)&f;
     DWORD sizes[] = { 0, 1, 4, 16, sizeof u - 1, sizeof u + 1 };
     for (unsigned i = 0; i < sizeof sizes / sizeof *sizes; i++) {
-        HRESULT hr = IDirect3DResource9_SetPrivateData(r, &G1, &u, sizes[i], D3DSPD_IUNKNOWN);
+        HRESULT hr = IDirect3DResource9_SetPrivateData(r, &G1, u, sizes[i], D3DSPD_IUNKNOWN);
         CHECKF(hr == D3DERR_INVALIDCALL, "size %lu got %s", sizes[i], d3dh_hr_name(hr));
         CHECK(f.ref == 1);
     }
@@ -201,10 +201,10 @@ TEST(d3d9_device_resources_pd_iunknown_same_object_twice)
     if (!r) { t_skip("no texture"); D9_END(d); return; }
     Fake f; fk_init(&f);
     IUnknown *u = (IUnknown *)&f;
-    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, &u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
-    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, &u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
+    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
+    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G1, u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
     CHECKF(f.ref == 2, "ref after setting the same object twice %ld", f.ref);
-    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G2, &u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
+    EXPECT_HR(IDirect3DResource9_SetPrivateData(r, &G2, u, sizeof u, D3DSPD_IUNKNOWN), D3D_OK);
     CHECK(f.ref == 3);
     IDirect3DResource9_Release(r);
     CHECKF(f.ref == 1, "ref after destruction %ld", f.ref);
@@ -218,7 +218,7 @@ TEST(d3d9_device_resources_pd_iunknown_get_small_buffer)
     if (!r) { t_skip("no ib"); D9_END(d); return; }
     Fake f; fk_init(&f);
     IUnknown *u = (IUnknown *)&f;
-    IDirect3DResource9_SetPrivateData(r, &G1, &u, sizeof u, D3DSPD_IUNKNOWN);
+    IDirect3DResource9_SetPrivateData(r, &G1, u, sizeof u, D3DSPD_IUNKNOWN);
     IUnknown *got = NULL;
     DWORD sz = 2;
     EXPECT_HR(IDirect3DResource9_GetPrivateData(r, &G1, &got, &sz), D3DERR_MOREDATA);
@@ -264,7 +264,7 @@ TEST(d3d9_device_resources_res_gettype_all)
         EXPECT_HR(IDirect3DResource9_GetDevice(r, &dd), D3D_OK);
         CHECK(dd == d.dev);
         SAFE_RELEASE(dd);
-        EXPECT_HR(IDirect3DResource9_GetDevice(r, NULL), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DResource9_GetDevice(r, NULL), D9_AVHR);   /* Win10: access violation */
         IUnknown *u = NULL;
         EXPECT_HR(IDirect3DResource9_QueryInterface(r, &IID_IUnknown, (void **)&u), S_OK);
         SAFE_RELEASE(u);

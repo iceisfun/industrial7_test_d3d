@@ -13,10 +13,10 @@ static UINT full_levels(UINT w, UINT h)
 TEST(d3d9_device_resources_tex_null_out)
 {
     D9_OPEN(d);
-    EXPECT_HR(MKTEX(d, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(MKTEX(d, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, NULL), D9_AVHR);   /* Win10: access violation */
     IDirect3DCubeTexture9 *c = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, NULL, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, NULL, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, NULL, NULL), D9_AVHR);   /* Win10: access violation */
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, NULL, NULL), D9_AVHR);   /* Win10: access violation */
     CHECK(c == NULL);
     D9_END(d);
 }
@@ -33,11 +33,11 @@ TEST(d3d9_device_resources_tex_zero_dims)
     EXPECT_HR(MKTEX(d, 0, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &t), D3DERR_INVALIDCALL);
     EXPECT_HR(MKTEX(d, 0, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SCRATCH, &t), D3DERR_INVALIDCALL);
     IDirect3DCubeTexture9 *c = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
     IDirect3DVolumeTexture9 *v = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 0, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 0, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 0, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 0, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 0, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
     D9_END(d);
 }
 
@@ -143,7 +143,7 @@ TEST(d3d9_device_resources_tex_level_count_matrix)
             }
             D3DSURFACE_DESC dd;
             EXPECT_HR(IDirect3DTexture9_GetLevelDesc(tex, n, &dd), D3DERR_INVALIDCALL);
-            EXPECT_HR(IDirect3DTexture9_GetLevelDesc(tex, 0, NULL), D3DERR_INVALIDCALL);
+            EXPECT_HRN(IDirect3DTexture9_GetLevelDesc(tex, 0, NULL), D9_AVHR);   /* Win10: access violation */
             IDirect3DTexture9_Release(tex);
         }
     D9_END(d);
@@ -181,7 +181,7 @@ TEST(d3d9_device_resources_tex_getsurfacelevel)
     IDirect3DSurface9 *s = (IDirect3DSurface9 *)1, *s2 = NULL;
     EXPECT_HR(IDirect3DTexture9_GetSurfaceLevel(tex, 4, &s), D3DERR_INVALIDCALL);
     CHECK(s == NULL);
-    EXPECT_HR(IDirect3DTexture9_GetSurfaceLevel(tex, 0, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DTexture9_GetSurfaceLevel(tex, 0, NULL), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(IDirect3DTexture9_GetSurfaceLevel(tex, 2, &s), D3D_OK);
     EXPECT_HR(IDirect3DTexture9_GetSurfaceLevel(tex, 2, &s2), D3D_OK);
     CHECK(s == s2);
@@ -291,17 +291,18 @@ TEST(d3d9_device_resources_tex_lock_invalid)
     IDirect3DTexture9 *tex = NULL;
     if (FAILED(MKTEX(d, 16, 16, 3, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex))) { t_skip("no managed texture"); D9_END(d); return; }
     D3DLOCKED_RECT lr;
-    EXPECT_HR(IDirect3DTexture9_LockRect(tex, 3, &lr, NULL, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DTexture9_LockRect(tex, 0, NULL, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DTexture9_LockRect(tex, 3, &lr, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DTexture9_LockRect(tex, 0, NULL, NULL, 0), D9_AVHR);   /* Win10: access violation */
     RECT bad[] = { {-1, 0, 4, 4}, {0, 0, 17, 4}, {0, 0, 4, 17}, {4, 4, 4, 8}, {4, 4, 8, 4}, {8, 0, 4, 4}, {0, 8, 4, 4} };
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
         HRESULT hr = IDirect3DTexture9_LockRect(tex, 0, &lr, &bad[i], 0);
-        CHECKF(hr == D3DERR_INVALIDCALL, "rect %u got %s", i, d3dh_hr_name(hr));
+        CHECKF(hr == D3D_OK, "rect %u got %s", i, d3dh_hr_name(hr));   /* Win10 retail runtime: the lock rectangle is not validated */
         if (SUCCEEDED(hr)) IDirect3DTexture9_UnlockRect(tex, 0);
     }
     /* level 2 is 4x4 */
     RECT r = { 0, 0, 5, 4 };
-    EXPECT_HR(IDirect3DTexture9_LockRect(tex, 2, &lr, &r, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DTexture9_LockRect(tex, 2, &lr, &r, 0), S_OK);   /* Win10: S_OK */
+    IDirect3DTexture9_UnlockRect(tex, 2);
     RECT ok = { 0, 0, 4, 4 };
     EXPECT_HR(IDirect3DTexture9_LockRect(tex, 2, &lr, &ok, 0), D3D_OK);
     IDirect3DTexture9_UnlockRect(tex, 2);
@@ -315,14 +316,14 @@ TEST(d3d9_device_resources_tex_lock_double_unlock)
     IDirect3DTexture9 *tex = NULL;
     if (FAILED(MKTEX(d, 8, 8, 2, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex))) { t_skip("no managed texture"); D9_END(d); return; }
     D3DLOCKED_RECT lr, lr2;
-    EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 0), S_OK);   /* Win10: S_OK */
     EXPECT_HR(IDirect3DTexture9_LockRect(tex, 0, &lr, NULL, 0), D3D_OK);
-    EXPECT_HR(IDirect3DTexture9_LockRect(tex, 0, &lr2, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DTexture9_LockRect(tex, 0, &lr2, NULL, 0), D3DERR_INVALIDCALL);
     /* a different level is independent */
     EXPECT_HR(IDirect3DTexture9_LockRect(tex, 1, &lr2, NULL, 0), D3D_OK);
     EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 1), D3D_OK);
     EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 0), D3D_OK);
-    EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 0), S_OK);   /* Win10: S_OK */
     EXPECT_HR(IDirect3DTexture9_UnlockRect(tex, 2), D3DERR_INVALIDCALL);
     IDirect3DTexture9_Release(tex);
     D9_END(d);
@@ -335,10 +336,10 @@ TEST(d3d9_device_resources_tex_lock_default_pool)
     if (FAILED(MKTEX(d, 8, 8, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex))) { t_skip("no default texture"); D9_END(d); return; }
     D3DLOCKED_RECT lr;
     /* default pool textures that are not dynamic cannot be locked */
-    EXPECT_HR(IDirect3DTexture9_LockRect(tex, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DTexture9_LockRect(tex, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
     IDirect3DTexture9_Release(tex);
     if (SUCCEEDED(MKTEX(d, 8, 8, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex))) {
-        EXPECT_HR(IDirect3DTexture9_LockRect(tex, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DTexture9_LockRect(tex, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
         IDirect3DTexture9_Release(tex);
     }
     if (SUCCEEDED(MKTEX(d, 8, 8, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex))) {
@@ -403,7 +404,7 @@ TEST(d3d9_device_resources_tex_gettype_device)
     EXPECT_HR(IDirect3DTexture9_GetDevice(tex, &dd), D3D_OK);
     CHECK(dd == d.dev);
     SAFE_RELEASE(dd);
-    EXPECT_HR(IDirect3DTexture9_GetDevice(tex, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DTexture9_GetDevice(tex, NULL), D9_AVHR);   /* Win10: access violation */
     void *p = NULL;
     EXPECT_HR(IDirect3DTexture9_QueryInterface(tex, &IID_IDirect3DBaseTexture9, &p), S_OK);
     if (p) IDirect3DBaseTexture9_Release((IDirect3DBaseTexture9 *)p);
@@ -523,7 +524,8 @@ TEST(d3d9_device_resources_tex_autogen)
     SAFE_RELEASE(tex);
     /* only the default pool supports it */
     hr = MKTEX(d, 32, 32, 1, D3DUSAGE_AUTOGENMIPMAP, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex);
-    EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, S_OK);   /* Win10: accepted for the managed pool as well */
+    if (tex) { D3DSURFACE_DESC dd; IDirect3DTexture9_GetLevelDesc(tex, 0, &dd); t_note("managed AUTOGENMIPMAP: usage 0x%lx pool %d levels %lu", (unsigned long)dd.Usage, (int)dd.Pool, (unsigned long)IDirect3DTexture9_GetLevelCount(tex)); }
     SAFE_RELEASE(tex);
     D9_END(d);
 }
@@ -703,7 +705,7 @@ TEST(d3d9_device_resources_cube_faces)
     EXPECT_HR(IDirect3DCubeTexture9_GetCubeMapSurface(c, 6, 0, &s), D3DERR_INVALIDCALL);
     CHECK(s == NULL);
     EXPECT_HR(IDirect3DCubeTexture9_GetCubeMapSurface(c, 0, 2, &s), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DCubeTexture9_GetCubeMapSurface(c, 0, 0, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DCubeTexture9_GetCubeMapSurface(c, 0, 0, NULL), D9_AVHR);   /* Win10: access violation */
     /* faces hold independent data */
     for (int f = 0; f < 6; f++) {
         D3DLOCKED_RECT lr;
@@ -718,9 +720,9 @@ TEST(d3d9_device_resources_cube_faces)
         IDirect3DCubeTexture9_UnlockRect(c, f, 0);
     }
     D3DLOCKED_RECT lr;
-    EXPECT_HR(IDirect3DCubeTexture9_LockRect(c, 6, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DCubeTexture9_LockRect(c, 0, 2, &lr, NULL, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DCubeTexture9_UnlockRect(c, 0, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DCubeTexture9_LockRect(c, 6, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DCubeTexture9_LockRect(c, 0, 2, &lr, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HR(IDirect3DCubeTexture9_UnlockRect(c, 0, 0), S_OK);   /* Win10: S_OK */
     for (int f = 0; f < 6; f++) SAFE_RELEASE(face[f]);
     IDirect3DCubeTexture9_Release(c);
     D9_END(d);
@@ -730,11 +732,11 @@ TEST(d3d9_device_resources_cube_invalid_usage)
 {
     D9_OPEN(d);
     IDirect3DCubeTexture9 *c = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &c, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, 0, D3DFMT_A8R8G8B8, (D3DPOOL)7, &c, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &c, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, 0, D3DFMT_A8R8G8B8, (D3DPOOL)7, &c, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateCubeTexture(d.dev, 8, 1, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, &c, NULL), D3DERR_INVALIDCALL);
     CHECK(c == NULL);
     D9_END(d);
 }
@@ -750,7 +752,7 @@ TEST(d3d9_device_resources_cube_default_rt)
     EXPECT_EQ(dd.Usage & D3DUSAGE_RENDERTARGET, D3DUSAGE_RENDERTARGET);
     EXPECT_EQ(dd.Pool, D3DPOOL_DEFAULT);
     D3DLOCKED_RECT lr;
-    EXPECT_HR(IDirect3DCubeTexture9_LockRect(c, 0, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DCubeTexture9_LockRect(c, 0, 0, &lr, NULL, 0), D3DERR_INVALIDCALL);
     IDirect3DCubeTexture9_Release(c);
     D9_END(d);
 }
@@ -767,7 +769,7 @@ TEST(d3d9_device_resources_cube_lod_priority)
     EXPECT_EQ(IDirect3DCubeTexture9_SetPriority(c, 3), 0);
     EXPECT_EQ(IDirect3DCubeTexture9_GetPriority(c), 3);
     EXPECT_HR(IDirect3DCubeTexture9_AddDirtyRect(c, D3DCUBEMAP_FACE_NEGATIVE_Z, NULL), D3D_OK);
-    EXPECT_HR(IDirect3DCubeTexture9_AddDirtyRect(c, (D3DCUBEMAP_FACES)6, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DCubeTexture9_AddDirtyRect(c, (D3DCUBEMAP_FACES)6, NULL), D3DERR_INVALIDCALL);
     RECT bad = { 0, 0, 100, 100 };
     EXPECT_HR(IDirect3DCubeTexture9_AddDirtyRect(c, D3DCUBEMAP_FACE_POSITIVE_X, &bad), D3DERR_INVALIDCALL);
     IDirect3DCubeTexture9_Release(c);
@@ -840,7 +842,7 @@ TEST(d3d9_device_resources_vol_lockbox)
     CHECK(lb.RowPitch >= 8 * 4);
     CHECK(lb.SlicePitch >= lb.RowPitch * 4);
     D3DLOCKED_BOX full = lb;
-    EXPECT_HR(IDirect3DVolumeTexture9_LockBox(v, 0, &lb, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DVolumeTexture9_LockBox(v, 0, &lb, NULL, 0), D3DERR_INVALIDCALL);
     EXPECT_HR(IDirect3DVolumeTexture9_UnlockBox(v, 0), D3D_OK);
     EXPECT_HR(IDirect3DVolumeTexture9_UnlockBox(v, 0), D3DERR_INVALIDCALL);
     D3DBOX b = { 1, 1, 8, 3, 1, 3 };
@@ -855,8 +857,8 @@ TEST(d3d9_device_resources_vol_lockbox)
         CHECKF(hr == D3DERR_INVALIDCALL, "box %u got %s", i, d3dh_hr_name(hr));
         if (SUCCEEDED(hr)) IDirect3DVolumeTexture9_UnlockBox(v, 0);
     }
-    EXPECT_HR(IDirect3DVolumeTexture9_LockBox(v, 1, &lb, NULL, 0), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DVolumeTexture9_LockBox(v, 0, NULL, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DVolumeTexture9_LockBox(v, 1, &lb, NULL, 0), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DVolumeTexture9_LockBox(v, 0, NULL, NULL, 0), D9_AVHR);   /* Win10: access violation */
     IDirect3DVolumeTexture9_Release(v);
     D9_END(d);
 }
@@ -889,7 +891,7 @@ TEST(d3d9_device_resources_vol_getvolumelevel)
     IDirect3DVolume9 *lv = (IDirect3DVolume9 *)1;
     EXPECT_HR(IDirect3DVolumeTexture9_GetVolumeLevel(v, 3, &lv), D3DERR_INVALIDCALL);
     CHECK(lv == NULL);
-    EXPECT_HR(IDirect3DVolumeTexture9_GetVolumeLevel(v, 1, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DVolumeTexture9_GetVolumeLevel(v, 1, NULL), D9_AVHR);   /* Win10: access violation */
     EXPECT_HR(IDirect3DVolumeTexture9_GetVolumeLevel(v, 1, &lv), D3D_OK);
     if (lv) {
         D3DVOLUME_DESC vd;
@@ -906,7 +908,7 @@ TEST(d3d9_device_resources_vol_getvolumelevel)
         SAFE_RELEASE(dd);
         D3DLOCKED_BOX lb;
         EXPECT_HR(IDirect3DVolume9_LockBox(lv, &lb, NULL, 0), D3D_OK);
-        EXPECT_HR(IDirect3DVolume9_LockBox(lv, &lb, NULL, 0), D3DERR_INVALIDCALL);
+        EXPECT_HRN(IDirect3DVolume9_LockBox(lv, &lb, NULL, 0), D3DERR_INVALIDCALL);
         EXPECT_HR(IDirect3DVolume9_UnlockBox(lv), D3D_OK);
         EXPECT_HR(IDirect3DVolume9_UnlockBox(lv), D3DERR_INVALIDCALL);
         IDirect3DVolume9_Release(lv);
@@ -919,11 +921,11 @@ TEST(d3d9_device_resources_vol_invalid_usage)
 {
     D9_OPEN(d);
     IDirect3DVolumeTexture9 *v = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &v, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8, D3DPOOL_DEFAULT, &v, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, 0, D3DFMT_A8R8G8B8, (D3DPOOL)9, &v, NULL), D3DERR_INVALIDCALL);
-    EXPECT_HR(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24S8, D3DPOOL_DEFAULT, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, 0, D3DFMT_A8R8G8B8, (D3DPOOL)9, &v, NULL), D3DERR_INVALIDCALL);
+    EXPECT_HRN(IDirect3DDevice9_CreateVolumeTexture(d.dev, 4, 4, 4, 1, 0, D3DFMT_UNKNOWN, D3DPOOL_MANAGED, &v, NULL), D3DERR_INVALIDCALL);
     CHECK(v == NULL);
     D9_END(d);
 }

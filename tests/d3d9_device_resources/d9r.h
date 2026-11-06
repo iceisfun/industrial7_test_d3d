@@ -10,12 +10,74 @@ typedef struct {
     D3DDEVTYPE type;
 } D9;
 
-/* Open a windowed device (NULLREF, HAL, REF in that order). Returns 1 on success; otherwise skips. */
+/* Device type order for the fixture. A NULLREF device has no swap chain, back buffer or render target (Windows reports
+ * D3DERR_NOTFOUND / D3DERR_INVALIDCALL for them), so resource behaviour is only meaningful on a HAL device: HAL first,
+ * then NULLREF, then REF. I7_D9_NULLREF=1 in the environment puts NULLREF first (the old order) for comparison runs. */
+static inline void d9_type_order(D3DDEVTYPE *o)
+{
+    char e[8]; int nullfirst = GetEnvironmentVariableA("I7_D9_NULLREF", e, sizeof e) > 0 && e[0] == '1';
+    o[0] = nullfirst ? D3DDEVTYPE_NULLREF : D3DDEVTYPE_HAL; o[1] = nullfirst ? D3DDEVTYPE_HAL : D3DDEVTYPE_NULLREF; o[2] = D3DDEVTYPE_REF;
+}
+static inline void d9_fill_pp(D3DPRESENT_PARAMETERS *pp, HWND hw)
+{
+    memset(pp, 0, sizeof *pp);
+    pp->Windowed = TRUE; pp->SwapEffect = D3DSWAPEFFECT_DISCARD; pp->BackBufferFormat = D3DFMT_UNKNOWN;
+    pp->BackBufferWidth = 64; pp->BackBufferHeight = 64; pp->hDeviceWindow = hw;
+}
+static inline HRESULT d9_make(IDirect3D9 **d3d, IDirect3DDevice9 **dev, HWND *hw, D3DDEVTYPE *type)
+{
+    D3DDEVTYPE ty[3]; HRESULT hr = E_FAIL;
+    __typeof__(&Direct3DCreate9) c = d3dh_Direct3DCreate9();
+    *d3d = NULL; *dev = NULL; d9_type_order(ty);
+    *hw = d3dh_create_hidden_window();
+    *d3d = c(D3D_SDK_VERSION);
+    if (!*d3d) return D3DERR_NOTAVAILABLE;
+    for (int i = 0; i < 3; i++) {
+        D3DPRESENT_PARAMETERS pp; d9_fill_pp(&pp, *hw);
+        hr = IDirect3D9_CreateDevice(*d3d, D3DADAPTER_DEFAULT, ty[i], *hw, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &pp, dev);
+        if (SUCCEEDED(hr)) { *type = ty[i]; return hr; }
+    }
+    return hr;
+}
+static inline HRESULT d9x_make(IDirect3D9Ex **d3d, IDirect3DDevice9Ex **dev, HWND *hw, D3DDEVTYPE *type)
+{
+    D3DDEVTYPE ty[3]; HRESULT hr;
+    *d3d = NULL; *dev = NULL; d9_type_order(ty);
+    *hw = d3dh_create_hidden_window();
+    hr = d3dh_Direct3DCreate9Ex()(D3D_SDK_VERSION, d3d);
+    if (FAILED(hr)) return hr;
+    for (int i = 0; i < 3; i++) {
+        D3DPRESENT_PARAMETERS pp; d9_fill_pp(&pp, *hw);
+        hr = IDirect3D9Ex_CreateDeviceEx(*d3d, D3DADAPTER_DEFAULT, ty[i], *hw, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &pp, NULL, dev);
+        if (SUCCEEDED(hr)) { *type = ty[i]; return hr; }
+    }
+    return hr;
+}
+
+/* ---- access-violation probe -------------------------------------------------------------------------------------
+ * The d3d9 runtime does not validate every NULL out-pointer: some calls fault inside d3d9.dll instead of returning
+ * D3DERR_INVALIDCALL. D9_AV(stmt) runs stmt and evaluates to 1 if it raised an access violation (and 0 otherwise); the
+ * statement's own result must be stored by the caller into a volatile variable. */
+#include <setjmp.h>
+static jmp_buf g_d9_jb; static volatile int g_d9_guard, g_d9_veh;
+static LONG CALLBACK d9_veh(PEXCEPTION_POINTERS ep)
+{
+    if (g_d9_guard && ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) { g_d9_guard = 0; longjmp(g_d9_jb, 1); }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#define D9_AV(stmt) ({ volatile int av_ = 0; if (!g_d9_veh) { AddVectoredExceptionHandler(1, d9_veh); g_d9_veh = 1; } \
+    if (!setjmp(g_d9_jb)) { g_d9_guard = 1; stmt; g_d9_guard = 0; } else { av_ = 1; } av_; })
+
+#define D9_AVHR ((HRESULT)0x7ff9a001)   /* sentinel result: the call raised an access violation */
+#define D9_CALL(call) ({ volatile HRESULT hr_ = E_FAIL; int avc_ = D9_AV(hr_ = (HRESULT)(call)); avc_ ? D9_AVHR : hr_; })
+#define EXPECT_HRN(call, want) EXPECT_HR(D9_CALL(call), want)
+
+/* Open a windowed device (HAL, NULLREF, REF in that order). Returns 1 on success; otherwise skips. */
 static inline int d9_open(D9 *d)
 {
     memset(d, 0, sizeof *d);
     if (!d3dh_Direct3DCreate9()) { t_skip("no Direct3DCreate9"); return 0; }
-    HRESULT hr = d3dh_make_device9(&d->d3d, &d->dev, NULL, &d->hwnd, &d->type);
+    HRESULT hr = d9_make(&d->d3d, &d->dev, &d->hwnd, &d->type);
     if (FAILED(hr) || !d->dev) {
         t_skip("no D3D9 device (%s)", d3dh_hr_name(hr));
         if (d->d3d) IDirect3D9_Release(d->d3d);
@@ -45,7 +107,7 @@ static inline int d9x_open(D9X *d)
 {
     memset(d, 0, sizeof *d);
     if (!d3dh_Direct3DCreate9Ex()) { t_skip("no Direct3DCreate9Ex"); return 0; }
-    HRESULT hr = d3dh_make_device9ex(&d->d3d, &d->dev, NULL, &d->hwnd, &d->type);
+    HRESULT hr = d9x_make(&d->d3d, &d->dev, &d->hwnd, &d->type);
     if (FAILED(hr) || !d->dev) {
         t_skip("no D3D9Ex device (%s)", d3dh_hr_name(hr));
         if (d->d3d) IDirect3D9Ex_Release(d->d3d);
