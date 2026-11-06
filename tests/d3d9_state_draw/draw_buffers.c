@@ -95,11 +95,11 @@ TEST(d3d9_state_draw_dr_indexed_base_vertex_and_start_index)
     a.a = 0; a.d = 6; a.e = 1;                         /* StartIndex 6: the single triangle 0,1,2 */
     dr_clear(&r, BLACK, 1.0f, 0);
     EXPECT_HR(scene_draw(&r.d, do_dip, &a), D3D_OK);
-    if (dr_read(&r, px)) { PXEQ(px, 16, 16, WHITE); PXEQ(px, 16, 48, WHITE); PXEQ(px, 48, 48, BLACK); }
+    if (dr_read(&r, px)) { PXEQ(px, 16, 16, WHITE); PXEQ(px, 16, 40, WHITE); PXEQ(px, 48, 48, BLACK); }
     a.a = 4;
     dr_clear(&r, BLACK, 1.0f, 0);
     EXPECT_HR(scene_draw(&r.d, do_dip, &a), D3D_OK);
-    if (dr_read(&r, px)) { PXEQ(px, 16, 16, GREEN); PXEQ(px, 48, 48, BLACK); }
+    if (dr_read(&r, px)) { PXEQ(px, 16, 16, GREEN); PXEQ(px, 48, 48, BLACK); PXEQ(px, 16, 40, GREEN); }
     IDirect3DDevice9_SetStreamSource(DEV(r), 0, NULL, 0, 0);
     IDirect3DDevice9_SetIndices(DEV(r), NULL);
     SAFE_RELEASE(vb); SAFE_RELEASE(ib);
@@ -158,29 +158,47 @@ TEST(d3d9_state_draw_dr_indexed_up_16_and_32)
     DR_END(r);
 }
 
+/* Windows 10: a declaration that puts POSITIONT in stream 0 and anything in another stream is rejected (E_FAIL). */
+TEST(d3d9_state_draw_decl_positiont_multi_stream_rejected)
+{
+    SD_OPEN(d);
+    IDirect3DVertexDeclaration9 *decl = (void *)(ULONG_PTR)0x1;
+    D3DVERTEXELEMENT9 el4[3] = { { 0, 0, D3DDECLTYPE_FLOAT4, 0, D3DDECLUSAGE_POSITIONT, 0 }, { 1, 0, D3DDECLTYPE_D3DCOLOR, 0, D3DDECLUSAGE_COLOR, 0 }, D3DDECL_END() };
+    D3DVERTEXELEMENT9 el3[3] = { { 0, 0, D3DDECLTYPE_FLOAT3, 0, D3DDECLUSAGE_POSITIONT, 0 }, { 1, 0, D3DDECLTYPE_D3DCOLOR, 0, D3DDECLUSAGE_COLOR, 0 }, D3DDECL_END() };
+    D3DVERTEXELEMENT9 ok[3] = { { 0, 0, D3DDECLTYPE_FLOAT4, 0, D3DDECLUSAGE_POSITION, 0 }, { 1, 0, D3DDECLTYPE_D3DCOLOR, 0, D3DDECLUSAGE_COLOR, 0 }, D3DDECL_END() };
+    EXPECT_HR(IDirect3DDevice9_CreateVertexDeclaration(d.dev, el4, &decl), E_FAIL);
+    EXPECT_HR(IDirect3DDevice9_CreateVertexDeclaration(d.dev, el3, &decl), E_FAIL);
+    decl = NULL;
+    EXPECT_HR(IDirect3DDevice9_CreateVertexDeclaration(d.dev, ok, &decl), D3D_OK);
+    SAFE_RELEASE(decl);
+    SD_END(d);
+}
+
 TEST(d3d9_state_draw_dr_multiple_streams)
 {
     DR_OPEN(r);
-    /* stream 0: positions, stream 1: diffuse colours */
-    typedef struct { float x, y, z, rhw; } P4;
-    P4 pos[6];
+    /* stream 0: clip-space positions (identity transforms), stream 1: diffuse colours */
+    typedef struct { float x, y, z; } P3;
+    P3 pos[6];
     DWORD col[6] = { RED, RED, RED, GREEN, GREEN, GREEN };
     static const float xs[6] = { 4, 28, 4, 36, 60, 36 }, ys[6] = { 4, 4, 28, 36, 36, 60 };
-    for (int i = 0; i < 6; i++) { pos[i].x = xs[i]; pos[i].y = ys[i]; pos[i].z = 0.5f; pos[i].rhw = 1; }
-    D3DVERTEXELEMENT9 el[3] = { { 0, 0, D3DDECLTYPE_FLOAT4, 0, D3DDECLUSAGE_POSITIONT, 0 }, { 1, 0, D3DDECLTYPE_D3DCOLOR, 0, D3DDECLUSAGE_COLOR, 0 }, D3DDECL_END() };
+    for (int i = 0; i < 6; i++) { pos[i].x = xs[i] / 32.0f - 1.0f; pos[i].y = 1.0f - ys[i] / 32.0f; pos[i].z = 0.5f; }
+    D3DVERTEXELEMENT9 el[3] = { { 0, 0, D3DDECLTYPE_FLOAT3, 0, D3DDECLUSAGE_POSITION, 0 }, { 1, 0, D3DDECLTYPE_D3DCOLOR, 0, D3DDECLUSAGE_COLOR, 0 }, D3DDECL_END() };
     IDirect3DVertexDeclaration9 *decl = NULL;
     IDirect3DVertexBuffer9 *vb0 = make_vb(&r.d, pos, sizeof pos, 0), *vb1 = make_vb(&r.d, col, sizeof col, 0);
     HRESULT hr = IDirect3DDevice9_CreateVertexDeclaration(DEV(r), el, &decl);
+    EXPECT_HR(hr, D3D_OK);
     if (!vb0 || !vb1 || FAILED(hr)) { SAFE_RELEASE(vb0); SAFE_RELEASE(vb1); SAFE_RELEASE(decl); DR_NEED(r, 0, "cannot create buffers/declaration"); }
+    IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_LIGHTING, FALSE);
+    IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_CULLMODE, D3DCULL_NONE);
     IDirect3DDevice9_SetVertexDeclaration(DEV(r), decl);
-    IDirect3DDevice9_SetStreamSource(DEV(r), 0, vb0, 0, sizeof(P4));
+    IDirect3DDevice9_SetStreamSource(DEV(r), 0, vb0, 0, sizeof(P3));
     IDirect3DDevice9_SetStreamSource(DEV(r), 1, vb1, 0, sizeof(DWORD));
     DA a = { D3DPT_TRIANGLELIST, 0, 2, 0, 0, 0 };
     DWORD px[DW * DH];
     dr_clear(&r, BLACK, 1.0f, 0);
-    hr = scene_draw(&r.d, do_dp, &a);
-    t_note("two stream transformed vertex draw -> %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr) && dr_read(&r, px)) { PXEQ(px, 8, 8, RED); PXEQ(px, 40, 40, GREEN); }
+    EXPECT_HR(scene_draw(&r.d, do_dp, &a), D3D_OK);
+    if (dr_read(&r, px)) { PXEQ(px, 8, 8, RED); PXEQ(px, 40, 40, GREEN); PXEQ(px, 8, 40, BLACK); PXEQ(px, 40, 8, BLACK); }
     /* a stride of 0 repeats the first colour for every vertex */
     IDirect3DDevice9_SetStreamSource(DEV(r), 1, vb1, 0, 0);
     dr_clear(&r, BLACK, 1.0f, 0);
@@ -320,10 +338,10 @@ TEST(d3d9_state_draw_draw_null_stream_with_declaration)
     IDirect3DDevice9_SetStreamSource(d.dev, 0, NULL, 0, 0);
     IDirect3DDevice9_BeginScene(d.dev);
     IDirect3DDevice9_SetIndices(d.dev, ib);
-    EXPECT_HR(IDirect3DDevice9_DrawIndexedPrimitive(d.dev, D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2), D3D_OK);   /* nothing to draw from, but not an error */
+    /* Windows 10 (HAL/WARP): drawing with a declaration, NULL stream 0 AND an index buffer dereferences NULL (0xc0000005), so only the
+       no-index-buffer case is run; it is rejected before anything is read. */
     IDirect3DDevice9_SetIndices(d.dev, NULL);
-    hr = IDirect3DDevice9_DrawIndexedPrimitive(d.dev, D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2);
-    t_note("DrawIndexedPrimitive with a declaration but no streams and no index buffer -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(IDirect3DDevice9_DrawIndexedPrimitive(d.dev, D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2), D3DERR_INVALIDCALL);
     IDirect3DDevice9_EndScene(d.dev);
     IDirect3DDevice9_SetIndices(d.dev, NULL);
     SAFE_RELEASE(ib); SAFE_RELEASE(decl);
@@ -336,19 +354,17 @@ TEST(d3d9_state_draw_draw_outside_scene)
     struct { float x, y, z, w; DWORD c; } q[3] = { { 8, 8, 0.5f, 1, WHITE }, { 56, 8, 0.5f, 1, WHITE }, { 8, 56, 0.5f, 1, WHITE } };
     IDirect3DDevice9_SetFVF(d.dev, TLV_FVF);
     HRESULT hr = IDirect3DDevice9_DrawPrimitiveUP(d.dev, D3DPT_TRIANGLELIST, 1, q, 20);
-    t_note("DrawPrimitiveUP outside BeginScene/EndScene -> %s", d3dh_hr_name(hr));
-    CHECK(hr == D3D_OK || hr == D3DERR_INVALIDCALL);
+    EXPECT_HR(hr, D3DERR_INVALIDCALL);  /* Windows 10: drawing outside BeginScene/EndScene is rejected */
     SD_END(d);
 }
 
 TEST(d3d9_state_draw_draw_primitive_count_limits_noted)
 {
     SD_OPEN_DS(d);
-    t_note("MaxPrimitiveCount=0x%lx MaxVertexIndex=0x%lx MaxStreams=%lu MaxStreamStride=%lu", (unsigned long)d.caps.MaxPrimitiveCount,
-           (unsigned long)d.caps.MaxVertexIndex, (unsigned long)d.caps.MaxStreams, (unsigned long)d.caps.MaxStreamStride);
-    CHECK(d.caps.MaxPrimitiveCount >= 0xfffff || d.caps.MaxPrimitiveCount >= 0xffff);
-    CHECK(d.caps.MaxVertexIndex >= 0xffff);
-    CHECK(d.caps.MaxStreams >= 1);
+    EXPECT_EQ(d.caps.MaxPrimitiveCount, 0x7fffff);       /* Windows 10 Basic Render Driver */
+    EXPECT_EQ(d.caps.MaxVertexIndex, 0xffffff);
+    EXPECT_EQ(d.caps.MaxStreams, 16);
+    EXPECT_EQ(d.caps.MaxStreamStride, 255);
     SD_END(d);
 }
 
@@ -514,7 +530,7 @@ TEST(d3d9_state_draw_dr_instancing)
     DWORD px[DW * DH];
     dr_clear(&r, BLACK, 1.0f, 0);
     hr = scene_draw(&r.d, do_dip, &a);
-    t_note("instanced DrawIndexedPrimitive -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     if (SUCCEEDED(hr) && dr_read(&r, px)) {
         PXEQ(px, 16, 32, WHITE);      /* left instance: centre (-0.5, 0) */
         PXEQ(px, 48, 32, WHITE);      /* right instance */
@@ -551,7 +567,7 @@ TEST(d3d9_state_draw_process_vertices)
     IDirect3DDevice9_SetFVF(d.dev, D3DFVF_XYZ);
     IDirect3DDevice9_SetStreamSource(d.dev, 0, svb, 0, 12);
     hr = IDirect3DDevice9_ProcessVertices(d.dev, 0, 0, 2, dvb, NULL, 0);
-    t_note("ProcessVertices -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     if (SUCCEEDED(hr)) {
         void *p = NULL;
         if (SUCCEEDED(IDirect3DVertexBuffer9_Lock(dvb, 0, 0, &p, D3DLOCK_READONLY))) {
@@ -572,8 +588,9 @@ TEST(d3d9_state_draw_process_vertices)
 TEST(d3d9_state_draw_patches)
 {
     SD_OPEN_DS(d);
-    t_note("D3DDEVCAPS_RTPATCHES: %s, D3DDEVCAPS_NPATCHES: %s, D3DDEVCAPS_QUINTICRTPATCHES: %s",
-           (d.caps.DevCaps & D3DDEVCAPS_RTPATCHES) ? "yes" : "no", (d.caps.DevCaps & D3DDEVCAPS_NPATCHES) ? "yes" : "no", (d.caps.DevCaps & D3DDEVCAPS_QUINTICRTPATCHES) ? "yes" : "no");
+    CHECK(!(d.caps.DevCaps & D3DDEVCAPS_RTPATCHES));          /* Windows 10 Basic Render Driver reports none of the patch caps */
+    CHECK(!(d.caps.DevCaps & D3DDEVCAPS_NPATCHES));
+    CHECK(!(d.caps.DevCaps & D3DDEVCAPS_QUINTICRTPATCHES));
     float segs[4] = { 1, 1, 1, 1 };
     D3DRECTPATCH_INFO ri = { 0, 0, 4, 4, 4, D3DBASIS_BEZIER, D3DDEGREE_CUBIC };
     D3DTRIPATCH_INFO ti = { 0, 10, D3DBASIS_BEZIER, D3DDEGREE_CUBIC };
@@ -585,15 +602,14 @@ TEST(d3d9_state_draw_patches)
     IDirect3DDevice9_SetStreamSource(d.dev, 0, vb, 0, 12);
     IDirect3DDevice9_BeginScene(d.dev);
     HRESULT hr = IDirect3DDevice9_DrawRectPatch(d.dev, 1, segs, &ri);
-    t_note("DrawRectPatch -> %s", d3dh_hr_name(hr));
-    if (!(d.caps.DevCaps & D3DDEVCAPS_RTPATCHES)) t_note("device does not report RT patches");
+    EXPECT_HR(hr, E_FAIL);              /* patches are not supported: E_FAIL, not INVALIDCALL */
     HRESULT h2 = IDirect3DDevice9_DrawTriPatch(d.dev, 2, segs, &ti);
-    t_note("DrawTriPatch -> %s", d3dh_hr_name(h2));
+    EXPECT_HR(h2, E_FAIL);
     IDirect3DDevice9_EndScene(d.dev);
     HRESULT h3 = IDirect3DDevice9_DeletePatch(d.dev, 1);
-    t_note("DeletePatch(1) -> %s", d3dh_hr_name(h3));
+    EXPECT_HR(h3, D3DERR_INVALIDCALL);
     h3 = IDirect3DDevice9_DeletePatch(d.dev, 999);
-    t_note("DeletePatch(999) -> %s", d3dh_hr_name(h3));
+    EXPECT_HR(h3, D3DERR_INVALIDCALL);
     IDirect3DDevice9_SetStreamSource(d.dev, 0, NULL, 0, 0);
     SAFE_RELEASE(vb);
     SD_END(d);
@@ -607,7 +623,8 @@ TEST(d3d9_state_draw_npatch_mode)
     g = IDirect3DDevice9_GetNPatchMode(d.dev);
     CHECK(g == 0.0f);
     HRESULT hr = IDirect3DDevice9_SetNPatchMode(d.dev, 3.0f);
-    t_note("SetNPatchMode(3.0) -> %s, GetNPatchMode = %g", d3dh_hr_name(hr), IDirect3DDevice9_GetNPatchMode(d.dev));
+    EXPECT_HR(hr, D3D_OK);              /* accepted although NPATCHES is not reported; the value is stored */
+    CHECK(IDirect3DDevice9_GetNPatchMode(d.dev) == 3.0f);
     IDirect3DDevice9_SetNPatchMode(d.dev, 0.0f);
     SD_END(d);
 }
@@ -644,7 +661,7 @@ TEST(d3d9_state_draw_ex_present_ex)
     t_check(hr == S_OK || hr == S_PRESENT_OCCLUDED || hr == S_PRESENT_MODE_CHANGED, __FILE__, __LINE__, "PresentEx", "got %s", d3dh_hr_name(hr));
     RECT r = { 0, 0, 32, 32 };
     hr = IDirect3DDevice9Ex_PresentEx(dev, &r, &r, NULL, NULL, 0);
-    t_note("PresentEx with source/dest rects -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     hr = IDirect3DDevice9Ex_PresentEx(dev, NULL, NULL, NULL, NULL, D3DPRESENT_DONOTWAIT);
     t_check(hr == S_OK || hr == S_PRESENT_OCCLUDED || hr == D3DERR_WASSTILLDRAWING || hr == S_PRESENT_MODE_CHANGED, __FILE__, __LINE__, "PresentEx(DONOTWAIT)", "got %s", d3dh_hr_name(hr));
     hr = IDirect3DDevice9Ex_CheckDeviceState(dev, hw);
@@ -657,7 +674,7 @@ TEST(d3d9_state_draw_ex_present_ex_in_scene)
     EX_OPEN();
     EXPECT_HR(IDirect3DDevice9Ex_BeginScene(dev), D3D_OK);
     HRESULT hr = IDirect3DDevice9Ex_PresentEx(dev, NULL, NULL, NULL, NULL, 0);
-    t_note("PresentEx inside BeginScene/EndScene -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_INVALIDCALL);
     IDirect3DDevice9Ex_EndScene(dev);
     EX_END();
 }
@@ -672,7 +689,7 @@ TEST(d3d9_state_draw_ex_compose_rects_constraints)
     void *p;
     HRESULT h1 = IDirect3DDevice9Ex_CreateRenderTarget(dev, 32, 32, D3DFMT_A1, D3DMULTISAMPLE_NONE, 0, FALSE, &a, NULL);
     HRESULT h2 = IDirect3DDevice9Ex_CreateOffscreenPlainSurface(dev, 32, 32, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &argb, NULL);
-    t_note("A1 surface creation: %s (ComposeRects needs D3DFMT_A1 surfaces)", d3dh_hr_name(h1));
+    EXPECT_HR(h1, D3DERR_INVALIDCALL);   /* D3DFMT_A1 render targets cannot be created on the Basic Render Driver, so ComposeRects' A1 path is unreachable */
     HRESULT hv1 = IDirect3DDevice9Ex_CreateVertexBuffer(dev, sizeof rects, 0, 0, D3DPOOL_DEFAULT, &src, NULL);
     HRESULT hv2 = IDirect3DDevice9Ex_CreateVertexBuffer(dev, sizeof drects, 0, 0, D3DPOOL_DEFAULT, &dst, NULL);
     if (SUCCEEDED(hv1) && SUCCEEDED(IDirect3DVertexBuffer9_Lock(src, 0, 0, &p, 0))) { memcpy(p, rects, sizeof rects); IDirect3DVertexBuffer9_Unlock(src); }
@@ -680,12 +697,12 @@ TEST(d3d9_state_draw_ex_compose_rects_constraints)
     if (SUCCEEDED(h2) && SUCCEEDED(hv1) && SUCCEEDED(hv2)) {
         HRESULT hr = IDirect3DDevice9Ex_ComposeRects(dev, argb, argb, src, 2, dst, D3DCOMPOSERECTS_COPY, 0, 0);
         CHECKF(FAILED(hr), "ComposeRects with the same surface as source and destination succeeded (%s)", d3dh_hr_name(hr));
-        t_note("ComposeRects(same surface) -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, D3DERR_INVALIDCALL);
         IDirect3DSurface9 *argb2 = NULL;
         if (SUCCEEDED(IDirect3DDevice9Ex_CreateOffscreenPlainSurface(dev, 32, 32, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &argb2, NULL))) {
             hr = IDirect3DDevice9Ex_ComposeRects(dev, argb, argb2, src, 2, dst, D3DCOMPOSERECTS_COPY, 0, 0);
             CHECKF(FAILED(hr), "ComposeRects with D3DFMT_A8R8G8B8 surfaces succeeded (%s)", d3dh_hr_name(hr));
-            t_note("ComposeRects(A8R8G8B8 surfaces) -> %s", d3dh_hr_name(hr));
+            EXPECT_HR(hr, D3DERR_INVALIDCALL);
             SAFE_RELEASE(argb2);
         }
         if (SUCCEEDED(h1) && a) {

@@ -59,9 +59,8 @@ TEST(d3d9_state_draw_tss_default_texcoordindex_is_stage)
 TEST(d3d9_state_draw_tss_caps_stage_count)
 {
     SD_OPEN(d);
-    t_note("MaxTextureBlendStages=%lu MaxSimultaneousTextures=%lu", (unsigned long)d.caps.MaxTextureBlendStages, (unsigned long)d.caps.MaxSimultaneousTextures);
-    CHECK(d.caps.MaxTextureBlendStages >= 1);
-    CHECK(d.caps.MaxSimultaneousTextures >= 1);
+    EXPECT_EQ(d.caps.MaxTextureBlendStages, 8);        /* Windows 10 Basic Render Driver */
+    EXPECT_EQ(d.caps.MaxSimultaneousTextures, 8);
     SD_END(d);
 }
 
@@ -238,16 +237,16 @@ TEST(d3d9_state_draw_samp_samplers_independent)
 TEST(d3d9_state_draw_samp_caps_anisotropy)
 {
     SD_OPEN(d);
-    t_note("MaxAnisotropy=%lu MaxVolumeExtent=%lu MaxTextureWidth=%lu", (unsigned long)d.caps.MaxAnisotropy,
-           (unsigned long)d.caps.MaxVolumeExtent, (unsigned long)d.caps.MaxTextureWidth);
-    CHECK(d.caps.MaxAnisotropy >= 1);
-    CHECK(d.caps.MaxTextureWidth >= 256);
+    EXPECT_EQ(d.caps.MaxAnisotropy, 16);
+    EXPECT_EQ(d.caps.MaxVolumeExtent, 16384);
+    EXPECT_EQ(d.caps.MaxTextureWidth, 16384);
     SD_END(d);
 }
 
 /* ---- SetTexture / GetTexture ---------------------------------------------- */
 /* The public reference count while bound is runtime internal (it uses a separate use count); record it only. */
-#define RCNOTE(p, want) do { ULONG rc_ = d3dh_refcount(p); if (rc_ != (ULONG)(want)) t_note("%s refcount %lu (reference expectation %d) at line %d", #p, (unsigned long)rc_, (int)(want), __LINE__); } while (0)
+/* Windows 10: SetTexture does not change the public reference count (the runtime keeps a separate use count); GetTexture adds one. */
+#define RCNOTE(p, want) do { ULONG rc_ = d3dh_refcount(p); t_check(rc_ == (ULONG)(want), __FILE__, __LINE__, "texture public refcount", "%s refcount %lu want %d at line %d", #p, (unsigned long)rc_, (int)(want), __LINE__); } while (0)
 TEST(d3d9_state_draw_tex_default_none)
 {
     SD_OPEN(d);
@@ -268,15 +267,15 @@ TEST(d3d9_state_draw_tex_set_get_refcount)
     SD_NEED(d, SUCCEEDED(hr), "cannot create managed texture");
     RCNOTE(tex, 1);
     EXPECT_HR(IDirect3DDevice9_SetTexture(d.dev, 3, (IDirect3DBaseTexture9 *)tex), D3D_OK);
-    RCNOTE(tex, 2);
+    RCNOTE(tex, 1);
     IDirect3DBaseTexture9 *got = NULL;
     EXPECT_HR(IDirect3DDevice9_GetTexture(d.dev, 3, &got), D3D_OK);
     CHECK(got == (IDirect3DBaseTexture9 *)tex);
-    RCNOTE(tex, 3);
+    RCNOTE(tex, 2);
     SAFE_RELEASE(got);
     /* setting the same texture again does not leak a reference */
     EXPECT_HR(IDirect3DDevice9_SetTexture(d.dev, 3, (IDirect3DBaseTexture9 *)tex), D3D_OK);
-    RCNOTE(tex, 2);
+    RCNOTE(tex, 1);
     /* other stage is empty */
     EXPECT_HR(IDirect3DDevice9_GetTexture(d.dev, 2, &got), D3D_OK);
     CHECK(got == NULL);
@@ -284,7 +283,7 @@ TEST(d3d9_state_draw_tex_set_get_refcount)
     RCNOTE(tex, 1);
     EXPECT_HR(IDirect3DDevice9_GetTexture(d.dev, 3, &got), D3D_OK);
     CHECK(got == NULL);
-    { ULONG rc_ = D3DH_RELEASE_RC(tex); if (rc_) t_note("texture refcount after final release: %lu", (unsigned long)rc_); tex = NULL; }
+    { ULONG rc_ = D3DH_RELEASE_RC(tex); EXPECT_EQ(rc_, 0); tex = NULL; }
     SD_END(d);
 }
 
@@ -296,9 +295,9 @@ TEST(d3d9_state_draw_tex_same_texture_two_stages)
     SD_NEED(d, SUCCEEDED(hr), "cannot create managed texture");
     IDirect3DDevice9_SetTexture(d.dev, 0, (IDirect3DBaseTexture9 *)tex);
     IDirect3DDevice9_SetTexture(d.dev, 5, (IDirect3DBaseTexture9 *)tex);
-    RCNOTE(tex, 3);
+    RCNOTE(tex, 1);
     IDirect3DDevice9_SetTexture(d.dev, 0, NULL);
-    RCNOTE(tex, 2);
+    RCNOTE(tex, 1);
     IDirect3DDevice9_SetTexture(d.dev, 5, NULL);
     RCNOTE(tex, 1);
     SAFE_RELEASE(tex);
@@ -313,10 +312,10 @@ TEST(d3d9_state_draw_tex_replace_releases_old)
     HRESULT h2 = IDirect3DDevice9_CreateTexture(d.dev, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &b, NULL);
     if (FAILED(h1) || FAILED(h2)) { SAFE_RELEASE(a); SAFE_RELEASE(b); SD_NEED(d, 0, "cannot create managed textures"); }
     IDirect3DDevice9_SetTexture(d.dev, 1, (IDirect3DBaseTexture9 *)a);
-    RCNOTE(a, 2);
+    RCNOTE(a, 1);
     IDirect3DDevice9_SetTexture(d.dev, 1, (IDirect3DBaseTexture9 *)b);
     RCNOTE(a, 1);
-    RCNOTE(b, 2);
+    RCNOTE(b, 1);
     SAFE_RELEASE(a);
     SAFE_RELEASE(b);          /* device still holds b */
     IDirect3DBaseTexture9 *got = NULL;
@@ -336,7 +335,7 @@ TEST(d3d9_state_draw_tex_sysmem_rejected)
     hr = IDirect3DDevice9_SetTexture(d.dev, 0, (IDirect3DBaseTexture9 *)tex);
     IDirect3DBaseTexture9 *got = (IDirect3DBaseTexture9 *)(ULONG_PTR)1;
     if (d.caps.DevCaps & D3DDEVCAPS_TEXTURESYSTEMMEMORY) {
-        t_note("device allows system memory textures: SetTexture %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, D3D_OK);          /* Windows 10 Basic Render Driver reports TEXTURESYSTEMMEMORY and accepts the binding */
         IDirect3DDevice9_SetTexture(d.dev, 0, NULL);
     } else {
         EXPECT_HR(hr, D3DERR_INVALIDCALL);
@@ -374,7 +373,7 @@ TEST(d3d9_state_draw_tex_cube_and_volume_bind)
         if (g) EXPECT_EQ(IDirect3DBaseTexture9_GetType(g), D3DRTYPE_CUBETEXTURE);
         SAFE_RELEASE(g);
         IDirect3DDevice9_SetTexture(d.dev, 1, NULL);
-    } else t_note("cube texture: %s", d3dh_hr_name(h1));
+    } else EXPECT_HR(h1, D3D_OK);
     if (SUCCEEDED(h2)) {
         EXPECT_HR(IDirect3DDevice9_SetTexture(d.dev, 2, (IDirect3DBaseTexture9 *)vol), D3D_OK);
         IDirect3DBaseTexture9 *g = NULL;
@@ -383,7 +382,7 @@ TEST(d3d9_state_draw_tex_cube_and_volume_bind)
         if (g) EXPECT_EQ(IDirect3DBaseTexture9_GetType(g), D3DRTYPE_VOLUMETEXTURE);
         SAFE_RELEASE(g);
         IDirect3DDevice9_SetTexture(d.dev, 2, NULL);
-    } else t_note("volume texture: %s", d3dh_hr_name(h2));
+    } else EXPECT_HR(h2, D3D_OK);
     SAFE_RELEASE(cube);
     SAFE_RELEASE(vol);
     SD_END(d);
@@ -396,7 +395,7 @@ TEST(d3d9_state_draw_tex_vertex_texture_sampler)
     HRESULT hr = IDirect3DDevice9_CreateTexture(d.dev, 4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, NULL);
     SD_NEED(d, SUCCEEDED(hr), "cannot create managed texture");
     hr = IDirect3DDevice9_SetTexture(d.dev, D3DVERTEXTEXTURESAMPLER0, (IDirect3DBaseTexture9 *)tex);
-    t_note("SetTexture(D3DVERTEXTEXTURESAMPLER0) %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* vertex texture fetch is available (vs_3_0) */
     if (SUCCEEDED(hr)) {
         IDirect3DBaseTexture9 *g = NULL;
         EXPECT_HR(IDirect3DDevice9_GetTexture(d.dev, D3DVERTEXTEXTURESAMPLER0, &g), D3D_OK);
@@ -432,6 +431,7 @@ TEST(d3d9_state_draw_tex_current_palette_roundtrip)
     SD_OPEN(d);
     UINT p = 99;
     HRESULT hr = IDirect3DDevice9_GetCurrentTexturePalette(d.dev, &p);
-    t_note("GetCurrentTexturePalette %s palette %u", d3dh_hr_name(hr), p);
+    EXPECT_HR(hr, D3D_OK);
+    EXPECT_EQ(p, 0xffff);               /* no palette selected */
     SD_END(d);
 }

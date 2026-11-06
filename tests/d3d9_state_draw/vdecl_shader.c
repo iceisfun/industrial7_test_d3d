@@ -230,7 +230,8 @@ TEST(d3d9_state_draw_vdecl_default_is_none)
     SD_OPEN(d);
     IDirect3DVertexDeclaration9 *got = (void *)(ULONG_PTR)1;
     HRESULT hr = IDirect3DDevice9_GetVertexDeclaration(d.dev, &got);
-    t_note("default GetVertexDeclaration: %s decl %p", d3dh_hr_name(hr), (void *)got);
+    EXPECT_HR(hr, D3D_OK);
+    CHECK(got == NULL);
     if (SUCCEEDED(hr) && got && got != (void *)(ULONG_PTR)1) IDirect3DVertexDeclaration9_Release(got);
     SD_END(d);
 }
@@ -292,8 +293,7 @@ TEST(d3d9_state_draw_vdecl_all_basic_types)
         D3DVERTEXELEMENT9 el[3] = { E(0, t[i].ty, D3DDECLUSAGE_TEXCOORD, 0), E(t[i].size, t[i].ty, D3DDECLUSAGE_TEXCOORD, 1), DECL_END_ELEM };
         IDirect3DVertexDeclaration9 *decl = NULL;
         HRESULT hr = IDirect3DDevice9_CreateVertexDeclaration(d.dev, el, &decl);
-        if (t[i].ty <= D3DDECLTYPE_D3DCOLOR) t_check(SUCCEEDED(hr), __FILE__, __LINE__, "CreateVertexDeclaration(type)", "type %d got %s", (int)t[i].ty, d3dh_hr_name(hr));
-        else t_note("declaration type %d: %s", (int)t[i].ty, d3dh_hr_name(hr));
+        t_check(hr == D3D_OK, __FILE__, __LINE__, "CreateVertexDeclaration(type)", "type %d got %s", (int)t[i].ty, d3dh_hr_name(hr));   /* UBYTE4, SHORT2, SHORT4 are accepted too */
         SAFE_RELEASE(decl);
     }
     SD_END(d);
@@ -341,22 +341,42 @@ TEST(d3d9_state_draw_vdecl_recorded_in_stateblock)
 static const DWORD g_vs11[] = { 0xfffe0101, 0x02000001, 0xc00f0000, 0x90e40000, 0x0000ffff };   /* vs_1_1: mov oPos, v0 */
 static const DWORD g_ps11[] = { 0xffff0101, 0x02000001, 0x800f0000, 0x90e40000, 0x0000ffff };   /* ps_1_1: mov r0, v0 */
 
-TEST(d3d9_state_draw_shader_create_vs11)
+static const DWORD g_vs20[] = { 0xfffe0200, 0x0200001f, 0x80000000, 0x900f0000, 0x02000001, 0xc00f0000, 0x90e40000, 0x0000ffff };   /* vs_2_0: dcl_position v0; mov oPos, v0 */
+static const DWORD g_vs30[] = { 0xfffe0300, 0x0200001f, 0x80000000, 0x900f0000, 0x0200001f, 0x80000000, 0xe00f0000, 0x02000001, 0xe00f0000, 0x90e40000, 0x0000ffff };   /* vs_3_0 */
+static const DWORD g_ps20[] = { 0xffff0200, 0x02000001, 0x800f0800, 0xa0e40000, 0x0000ffff };   /* ps_2_0: mov oC0, c0 */
+static const DWORD g_ps30[] = { 0xffff0300, 0x02000001, 0x800f0800, 0xa0e40000, 0x0000ffff };   /* ps_3_0 */
+static const DWORD g_ps14[] = { 0xffff0104, 0x02000001, 0x800f0000, 0xa0e40000, 0x0000ffff };   /* ps_1_4: mov r0, c0 */
+/* Windows 10 (HAL on the Basic Render Driver): caps report vs_3_0/ps_3_0 but shader model 1.x bytecode is refused at creation. */
+TEST(d3d9_state_draw_shader_create_sm1_rejected)
 {
     SD_OPEN(d);
-    SD_NEED(d, d.caps.VertexShaderVersion >= D3DVS_VERSION(1, 1), "no vs_1_1");
     IDirect3DVertexShader9 *vs = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, g_vs11, &vs), D3D_OK);
+    IDirect3DPixelShader9 *ps = NULL;
+    EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, g_vs11, &vs), D3DERR_INVALIDCALL);
+    CHECK(vs == NULL);
+    EXPECT_HR(IDirect3DDevice9_CreatePixelShader(d.dev, g_ps11, &ps), D3DERR_INVALIDCALL);
+    CHECK(ps == NULL);
+    EXPECT_HR(IDirect3DDevice9_CreatePixelShader(d.dev, g_ps14, &ps), D3DERR_INVALIDCALL);
+    CHECK(ps == NULL);
+    SD_END(d);
+}
+
+TEST(d3d9_state_draw_shader_create_vs20)
+{
+    SD_OPEN(d);
+    SD_NEED(d, d.caps.VertexShaderVersion >= D3DVS_VERSION(2, 0), "no vs20");
+    IDirect3DVertexShader9 *vs = NULL;
+    EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, g_vs20, &vs), D3D_OK);
     if (vs) {
         UINT sz = 0;
         EXPECT_HR(IDirect3DVertexShader9_GetFunction(vs, NULL, &sz), D3D_OK);
-        EXPECT_EQ(sz, sizeof g_vs11);
-        DWORD buf[8];
+        EXPECT_EQ(sz, sizeof g_vs20);
+        DWORD buf[16];
         memset(buf, 0xcc, sizeof buf);
         sz = sizeof buf;
         EXPECT_HR(IDirect3DVertexShader9_GetFunction(vs, buf, &sz), D3D_OK);
-        EXPECT_EQ(sz, sizeof g_vs11);
-        CHECK(!memcmp(buf, g_vs11, sizeof g_vs11));
+        EXPECT_EQ(sz, sizeof g_vs20);
+        CHECK(!memcmp(buf, g_vs20, sizeof g_vs20));
         IDirect3DDevice9 *dev = NULL;
         EXPECT_HR(IDirect3DVertexShader9_GetDevice(vs, &dev), D3D_OK);
         CHECK(dev == d.dev);
@@ -366,20 +386,64 @@ TEST(d3d9_state_draw_shader_create_vs11)
     SD_END(d);
 }
 
-TEST(d3d9_state_draw_shader_create_ps11)
+TEST(d3d9_state_draw_shader_create_vs30)
 {
     SD_OPEN(d);
-    SD_NEED(d, d.caps.PixelShaderVersion >= D3DPS_VERSION(1, 1), "no ps_1_1");
+    SD_NEED(d, d.caps.VertexShaderVersion >= D3DVS_VERSION(3, 0), "no vs30");
+    IDirect3DVertexShader9 *vs = NULL;
+    EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, g_vs30, &vs), D3D_OK);
+    if (vs) {
+        UINT sz = 0;
+        EXPECT_HR(IDirect3DVertexShader9_GetFunction(vs, NULL, &sz), D3D_OK);
+        EXPECT_EQ(sz, sizeof g_vs30);
+        DWORD buf[16];
+        memset(buf, 0xcc, sizeof buf);
+        sz = sizeof buf;
+        EXPECT_HR(IDirect3DVertexShader9_GetFunction(vs, buf, &sz), D3D_OK);
+        EXPECT_EQ(sz, sizeof g_vs30);
+        CHECK(!memcmp(buf, g_vs30, sizeof g_vs30));
+        IDirect3DDevice9 *dev = NULL;
+        EXPECT_HR(IDirect3DVertexShader9_GetDevice(vs, &dev), D3D_OK);
+        CHECK(dev == d.dev);
+        SAFE_RELEASE(dev);
+    }
+    SAFE_RELEASE(vs);
+    SD_END(d);
+}
+
+TEST(d3d9_state_draw_shader_create_ps20)
+{
+    SD_OPEN(d);
+    SD_NEED(d, d.caps.PixelShaderVersion >= D3DPS_VERSION(2, 0), "no ps20");
     IDirect3DPixelShader9 *ps = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreatePixelShader(d.dev, g_ps11, &ps), D3D_OK);
+    EXPECT_HR(IDirect3DDevice9_CreatePixelShader(d.dev, g_ps20, &ps), D3D_OK);
     if (ps) {
         UINT sz = 0;
         EXPECT_HR(IDirect3DPixelShader9_GetFunction(ps, NULL, &sz), D3D_OK);
-        EXPECT_EQ(sz, sizeof g_ps11);
-        DWORD buf[8];
+        EXPECT_EQ(sz, sizeof g_ps20);
+        DWORD buf[16];
         sz = sizeof buf;
         EXPECT_HR(IDirect3DPixelShader9_GetFunction(ps, buf, &sz), D3D_OK);
-        CHECK(!memcmp(buf, g_ps11, sizeof g_ps11));
+        CHECK(!memcmp(buf, g_ps20, sizeof g_ps20));
+    }
+    SAFE_RELEASE(ps);
+    SD_END(d);
+}
+
+TEST(d3d9_state_draw_shader_create_ps30)
+{
+    SD_OPEN(d);
+    SD_NEED(d, d.caps.PixelShaderVersion >= D3DPS_VERSION(3, 0), "no ps30");
+    IDirect3DPixelShader9 *ps = NULL;
+    EXPECT_HR(IDirect3DDevice9_CreatePixelShader(d.dev, g_ps30, &ps), D3D_OK);
+    if (ps) {
+        UINT sz = 0;
+        EXPECT_HR(IDirect3DPixelShader9_GetFunction(ps, NULL, &sz), D3D_OK);
+        EXPECT_EQ(sz, sizeof g_ps30);
+        DWORD buf[16];
+        sz = sizeof buf;
+        EXPECT_HR(IDirect3DPixelShader9_GetFunction(ps, buf, &sz), D3D_OK);
+        CHECK(!memcmp(buf, g_ps30, sizeof g_ps30));
     }
     SAFE_RELEASE(ps);
     SD_END(d);
@@ -389,9 +453,9 @@ TEST(d3d9_state_draw_shader_version_tokens_validated)
 {
     SD_OPEN(d);
     /* a pixel shader token stream is not a vertex shader and vice versa */
-    DWORD vs_as_ps[5], ps_as_vs[5];
-    memcpy(vs_as_ps, g_vs11, sizeof vs_as_ps);
-    memcpy(ps_as_vs, g_ps11, sizeof ps_as_vs);
+    DWORD vs_as_ps[8], ps_as_vs[5];
+    memcpy(vs_as_ps, g_vs20, sizeof vs_as_ps);
+    memcpy(ps_as_vs, g_ps20, sizeof ps_as_vs);
     IDirect3DVertexShader9 *vs = NULL;
     IDirect3DPixelShader9 *ps = NULL;
     EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, ps_as_vs, &vs), D3DERR_INVALIDCALL);
@@ -402,8 +466,8 @@ TEST(d3d9_state_draw_shader_version_tokens_validated)
     static const DWORD bad_vs[] = { 0xfffe0400, 0xfffe0500, 0xfffe0600, 0x12345678, 0x00000000, 0xffffffff, 0xffff0200, 0xffff0300, 0xffff0400 };
     static const DWORD bad_ps[] = { 0xffff0400, 0xffff0500, 0xffff0600, 0x12345678, 0x00000000, 0xffffffff, 0xfffe0200, 0xfffe0300, 0xfffe0400 };
     for (unsigned i = 0; i < sizeof bad_vs / sizeof bad_vs[0]; i++) {
-        DWORD code[5];
-        memcpy(code, g_vs11, sizeof code);
+        DWORD code[8];
+        memcpy(code, g_vs20, sizeof code);
         code[0] = bad_vs[i];
         vs = NULL;
         HRESULT hr = IDirect3DDevice9_CreateVertexShader(d.dev, code, &vs);
@@ -412,7 +476,7 @@ TEST(d3d9_state_draw_shader_version_tokens_validated)
     }
     for (unsigned i = 0; i < sizeof bad_ps / sizeof bad_ps[0]; i++) {
         DWORD code[5];
-        memcpy(code, g_ps11, sizeof code);
+        memcpy(code, g_ps20, sizeof code);
         code[0] = bad_ps[i];
         ps = NULL;
         HRESULT hr = IDirect3DDevice9_CreatePixelShader(d.dev, code, &ps);
@@ -524,9 +588,9 @@ TEST(d3d9_state_draw_shader_default_none_and_replace)
 TEST(d3d9_state_draw_shader_set_get_refcounts)
 {
     SD_OPEN(d);
-    SD_NEED(d, d.caps.VertexShaderVersion >= D3DVS_VERSION(1, 1), "no vs_1_1");
+    SD_NEED(d, d.caps.VertexShaderVersion >= D3DVS_VERSION(2, 0), "no vs_2_0");
     IDirect3DVertexShader9 *vs = NULL, *g = NULL;
-    EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, g_vs11, &vs), D3D_OK);
+    EXPECT_HR(IDirect3DDevice9_CreateVertexShader(d.dev, g_vs20, &vs), D3D_OK);
     SD_NEED(d, vs != NULL, "CreateVertexShader failed");
     ULONG before = d3dh_refcount(vs);
     IDirect3DDevice9_SetVertexShader(d.dev, vs);
@@ -576,7 +640,7 @@ TEST(d3d9_state_draw_const_float_bit_patterns_preserved)
     DWORD in[4] = { 0x7fc00000u, 0xff800000u, 0x80000000u, 0x00000001u }, out[4] = { 0 };
     EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 0, (float *)in, 1), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetPixelShaderConstantF(d.dev, 0, (float *)out, 1), D3D_OK);
-    if (memcmp(in, out, sizeof in)) t_note("float constant bit patterns changed: %08lx %08lx %08lx %08lx", (unsigned long)out[0], (unsigned long)out[1], (unsigned long)out[2], (unsigned long)out[3]);
+    CHECKF(!memcmp(in, out, sizeof in), "float constant bit patterns changed: %08lx %08lx %08lx %08lx", (unsigned long)out[0], (unsigned long)out[1], (unsigned long)out[2], (unsigned long)out[3]);
     SD_END(d);
 }
 
@@ -610,8 +674,8 @@ TEST(d3d9_state_draw_const_bool_roundtrip)
     BOOL big[2] = { 5, -1 }, got[2] = { 0, 0 };
     EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantB(d.dev, 0, big, 2), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetPixelShaderConstantB(d.dev, 0, got, 2), D3D_OK);
-    t_note("nonzero BOOL constants read back as %ld %ld", (long)got[0], (long)got[1]);
-    CHECK(got[0] != 0 && got[1] != 0);
+    EXPECT_EQ(got[0], 5);               /* Windows 10 stores BOOL constants unmodified (no normalisation to 1) */
+    EXPECT_EQ(got[1], -1);
     SD_END(d);
 }
 
@@ -621,7 +685,7 @@ TEST(d3d9_state_draw_const_ps_float_limit)
     float buf[4 * 256];
     memset(buf, 0, sizeof buf);
     UINT limit = (d.caps.PixelShaderVersion >= D3DPS_VERSION(3, 0)) ? 224 : 32;
-    t_note("PixelShaderVersion 0x%lx -> float constant limit %u", (unsigned long)d.caps.PixelShaderVersion, limit);
+    EXPECT_EQ(d.caps.PixelShaderVersion, D3DPS_VERSION(3, 0));
     EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 0, buf, 32), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 31, buf, 1), D3D_OK);
     if (d.caps.PixelShaderVersion >= D3DPS_VERSION(3, 0)) {
@@ -629,7 +693,7 @@ TEST(d3d9_state_draw_const_ps_float_limit)
         EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 223, buf, 1), D3D_OK);
         EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 224, buf, 1), D3DERR_INVALIDCALL);
         EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 0, buf, 225), D3DERR_INVALIDCALL);
-        t_note("GetPixelShaderConstantF(224,1) -> %s", d3dh_hr_name(IDirect3DDevice9_GetPixelShaderConstantF(d.dev, 224, buf, 1)));
+        EXPECT_HR(IDirect3DDevice9_GetPixelShaderConstantF(d.dev, 224, buf, 1), D3DERR_INVALIDCALL);
     } else {
         EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 32, buf, 1), D3DERR_INVALIDCALL);
     }
@@ -644,7 +708,7 @@ TEST(d3d9_state_draw_const_vs_float_limit)
     SD_OPEN(d);
     static float buf[4 * 512];
     memset(buf, 0, sizeof buf);
-    t_note("MaxVertexShaderConst=%lu", (unsigned long)d.caps.MaxVertexShaderConst);
+    EXPECT_EQ(d.caps.MaxVertexShaderConst, 8192);
     UINT lim = d.caps.MaxVertexShaderConst ? d.caps.MaxVertexShaderConst : 256;
     if (lim > 512) lim = 512;
     EXPECT_HR(IDirect3DDevice9_SetVertexShaderConstantF(d.dev, 0, buf, lim), D3D_OK);
@@ -655,11 +719,9 @@ TEST(d3d9_state_draw_const_vs_float_limit)
     EXPECT_HR(IDirect3DDevice9_GetVertexShaderConstantF(d.dev, 0x10000, buf, 1), D3DERR_INVALIDCALL);
     /* with software vertex processing the register file is larger than the reported caps */
     HRESULT hr = IDirect3DDevice9_SetVertexShaderConstantF(d.dev, 256, buf, 1);
-    t_note("SWVP SetVertexShaderConstantF(256,1) -> %s", d3dh_hr_name(hr));
-    hr = IDirect3DDevice9_SetVertexShaderConstantF(d.dev, 8191, buf, 1);
-    t_note("SWVP SetVertexShaderConstantF(8191,1) -> %s", d3dh_hr_name(hr));
-    hr = IDirect3DDevice9_SetVertexShaderConstantF(d.dev, 8192, buf, 1);
-    t_note("SWVP SetVertexShaderConstantF(8192,1) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
+    EXPECT_HR(IDirect3DDevice9_SetVertexShaderConstantF(d.dev, 8191, buf, 1), D3D_OK);
+    EXPECT_HR(IDirect3DDevice9_SetVertexShaderConstantF(d.dev, 8192, buf, 1), D3DERR_INVALIDCALL);
     SD_END(d);
 }
 
@@ -687,9 +749,8 @@ TEST(d3d9_state_draw_const_zero_count)
     SD_OPEN(d);
     float f[4] = { 0 };
     HRESULT hr = IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 0, f, 0);
-    t_note("SetPixelShaderConstantF count 0 -> %s", d3dh_hr_name(hr));
-    hr = IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 224, f, 0);
-    t_note("SetPixelShaderConstantF(224, count 0) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* count 0 is a no-op, even with the start register one past the end */
+    EXPECT_HR(IDirect3DDevice9_SetPixelShaderConstantF(d.dev, 224, f, 0), D3D_OK);
     SD_END(d);
 }
 
@@ -714,12 +775,11 @@ TEST(d3d9_state_draw_const_stateblock_records_constants)
 TEST(d3d9_state_draw_const_caps)
 {
     SD_OPEN(d);
-    t_note("VertexShaderVersion=0x%08lx PixelShaderVersion=0x%08lx MaxVShaderInstructionsExecuted=%lu MaxPShaderInstructionsExecuted=%lu NumSimultaneousRTs=%lu",
-           (unsigned long)d.caps.VertexShaderVersion, (unsigned long)d.caps.PixelShaderVersion, (unsigned long)d.caps.MaxVShaderInstructionsExecuted,
-           (unsigned long)d.caps.MaxPShaderInstructionsExecuted, (unsigned long)d.caps.NumSimultaneousRTs);
-    CHECK((d.caps.VertexShaderVersion & 0xffff0000u) == 0xfffe0000u);
-    CHECK((d.caps.PixelShaderVersion & 0xffff0000u) == 0xffff0000u);
-    CHECK(d.caps.NumSimultaneousRTs >= 1);
+    EXPECT_EQ(d.caps.VertexShaderVersion, 0xfffe0300u);          /* Windows 10 Basic Render Driver: vs_3_0 / ps_3_0 */
+    EXPECT_EQ(d.caps.PixelShaderVersion, 0xffff0300u);
+    EXPECT_EQ(d.caps.MaxVShaderInstructionsExecuted, 0xffffffffu);
+    EXPECT_EQ(d.caps.MaxPShaderInstructionsExecuted, 0xffffffffu);
+    EXPECT_EQ(d.caps.NumSimultaneousRTs, 4);
     SD_END(d);
 }
 
@@ -786,7 +846,8 @@ TEST(d3d9_state_draw_stream_null_buffer_keeps_offset_stride)
     EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, 0, NULL, 0, 0), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetStreamSource(d.dev, 0, &got, &off, &stride), D3D_OK);
     CHECK(got == NULL);
-    t_note("after SetStreamSource(NULL,0,0): offset %u stride %u", off, stride);
+    EXPECT_EQ(off, 4);                  /* Windows 10: SetStreamSource(NULL, 0, 0) keeps the previous offset and stride */
+    EXPECT_EQ(stride, 32);
     EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, 0, vb, 0, 0), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetStreamSource(d.dev, 0, &got, &off, &stride), D3D_OK);
     CHECK(got == vb); EXPECT_EQ(off, 0); EXPECT_EQ(stride, 0);
@@ -804,8 +865,7 @@ TEST(d3d9_state_draw_stream_offset_alignment)
     SD_NEED(d, SUCCEEDED(hr), "cannot create vertex buffer");
     for (UINT off = 0; off < 8; off++) {
         hr = IDirect3DDevice9_SetStreamSource(d.dev, 0, vb, off, 32);
-        if (off % 4 == 0) EXPECT_HR(hr, D3D_OK);
-        else t_note("SetStreamSource offset %u -> %s", off, d3dh_hr_name(hr));
+        EXPECT_HR(hr, D3D_OK);          /* Windows 10 does not require 4-byte aligned stream offsets */
     }
     IDirect3DDevice9_SetStreamSource(d.dev, 0, NULL, 0, 0);
     SAFE_RELEASE(vb);
@@ -819,10 +879,9 @@ TEST(d3d9_state_draw_stream_out_of_range_index)
     HRESULT hr = IDirect3DDevice9_CreateVertexBuffer(d.dev, 128, 0, 0, D3DPOOL_DEFAULT, &vb, NULL);
     SD_NEED(d, SUCCEEDED(hr), "cannot create vertex buffer");
     t_note("MaxStreams=%lu MaxStreamStride=%lu", (unsigned long)d.caps.MaxStreams, (unsigned long)d.caps.MaxStreamStride);
-    hr = IDirect3DDevice9_SetStreamSource(d.dev, 16, vb, 0, 16);
-    t_note("SetStreamSource(stream 16) -> %s", d3dh_hr_name(hr));
-    IDirect3DDevice9_SetStreamSource(d.dev, 16, NULL, 0, 0);
-    IDirect3DDevice9_SetStreamSource(d.dev, 15, NULL, 0, 0);
+    /* Windows 10: SetStreamSource(stream == MaxStreams) is not validated and corrupts the heap (0xc0000374), so only the last valid stream is exercised. */
+    EXPECT_HR(IDirect3DDevice9_SetStreamSource(d.dev, d.caps.MaxStreams - 1, vb, 0, 16), D3D_OK);
+    IDirect3DDevice9_SetStreamSource(d.dev, d.caps.MaxStreams - 1, NULL, 0, 0);
     SAFE_RELEASE(vb);
     SD_END(d);
 }
@@ -876,9 +935,9 @@ TEST(d3d9_state_draw_stream_freq_index_clamped)
     UINT f = 0;
     EXPECT_HR(IDirect3DDevice9_SetStreamSourceFreq(d.dev, 16, 7), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetStreamSourceFreq(d.dev, 15, &f), D3D_OK);
-    t_note("frequency of stream 15 after SetStreamSourceFreq(16,7): %u", f);
+    EXPECT_EQ(f, 7);                    /* Windows 10 clamps the stream index to the last stream */
     EXPECT_HR(IDirect3DDevice9_GetStreamSourceFreq(d.dev, 100, &f), D3D_OK);
-    t_note("GetStreamSourceFreq(100) = %u", f);
+    EXPECT_EQ(f, 7);
     IDirect3DDevice9_SetStreamSourceFreq(d.dev, 15, 1);
     SD_END(d);
 }
@@ -928,7 +987,7 @@ TEST(d3d9_state_draw_indices_set_get)
         EXPECT_HR(IDirect3DDevice9_GetIndices(d.dev, &got), D3D_OK);
         CHECK(got == ib2);
         SAFE_RELEASE(got);
-    } else t_note("32-bit index buffer: %s (MaxVertexIndex 0x%lx)", d3dh_hr_name(h2), (unsigned long)d.caps.MaxVertexIndex);
+    } else EXPECT_HR(h2, D3D_OK);       /* 32-bit index buffers exist (MaxVertexIndex 0xffffff) */
     EXPECT_HR(IDirect3DDevice9_SetIndices(d.dev, NULL), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetIndices(d.dev, &got), D3D_OK);
     CHECK(got == NULL);

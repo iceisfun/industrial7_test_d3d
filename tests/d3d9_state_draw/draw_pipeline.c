@@ -290,7 +290,7 @@ TEST(d3d9_state_draw_dr_texture_addressing)
         { D3DTADDRESS_BORDER, D3DPTADDRESSCAPS_BORDER, 0xff808080u, 0xff808080u },
     };
     for (unsigned i = 0; i < 4; i++) {
-        if (!(r.d.caps.TextureAddressCaps & t[i].cap)) { t_note("address mode %d unsupported", (int)t[i].mode); continue; }
+        if (!(r.d.caps.TextureAddressCaps & t[i].cap)) { CHECKF(0, "address mode %d not reported in TextureAddressCaps (Win10 reports all)", (int)t[i].mode); continue; }
         IDirect3DDevice9_SetSamplerState(DEV(r), 0, D3DSAMP_ADDRESSU, t[i].mode);
         IDirect3DDevice9_SetSamplerState(DEV(r), 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
         dr_clear(&r, BLACK, 1.0f, 0);
@@ -434,8 +434,7 @@ TEST(d3d9_state_draw_dr_vertex_fog_specular_alpha)
     if (dr_read(&r, px)) {
         DWORD c = SD_PX(px, DW, 32, 32);
         int rr = (c >> 16) & 0xff, gg = (c >> 8) & 0xff;
-        t_note("vertex fog from specular alpha 0x80: pixel 0x%08lx", (unsigned long)c);
-        CHECKF(gg == 255 && rr > 90 && rr < 170, "fog factor from specular alpha not applied (0x%08lx)", (unsigned long)c);
+        CHECKF(c == 0xff80ff80u || (gg == 255 && rr > 120 && rr < 136),   /* Windows 10 Basic Render Driver: exactly 0xff80ff80 */ "fog factor from specular alpha not applied (0x%08lx)", (unsigned long)c);
     }
     v[0].s = v[1].s = v[2].s = v[3].s = v[4].s = v[5].s = 0xff000000u;
     dr_clear(&r, BLACK, 1.0f, 0);
@@ -542,8 +541,8 @@ TEST(d3d9_state_draw_dr_ff_viewport_mapping)
     DWORD px[DW * DH];
     D3DVIEWPORT9 vp = { 16, 8, 32, 40, 0.0f, 1.0f };
     v3c_rect(v, -1.0f, -1.0f, 1.0f, 1.0f, 0.5f, WHITE);
+    dr_clear(&r, BLACK, 1.0f, 0);          /* Clear is limited to the viewport */
     IDirect3DDevice9_SetViewport(DEV(r), &vp);
-    dr_clear(&r, BLACK, 1.0f, 0);
     EXPECT_HR(dr_draw_up(&r, D3DPT_TRIANGLELIST, 2, v, sizeof(V3C)), D3D_OK);
     if (dr_read(&r, px)) {
         int n = sd_count_is(px, DW, 0, 0, DW, DH, WHITE);

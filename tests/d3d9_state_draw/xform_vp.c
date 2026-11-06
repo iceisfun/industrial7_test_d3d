@@ -166,9 +166,9 @@ TEST(d3d9_state_draw_xf_set_out_of_range_type)
     SD_OPEN(d);
     D3DMATRIX m = mk_mat(2);
     HRESULT hr = IDirect3DDevice9_SetTransform(d.dev, (D3DTRANSFORMSTATETYPE)1000, &m);
-    t_note("SetTransform(1000) returned %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* Windows 10 accepts unknown transform types */
     hr = IDirect3DDevice9_SetTransform(d.dev, (D3DTRANSFORMSTATETYPE)0, &m);
-    t_note("SetTransform(0) returned %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     SD_END(d);
 }
 
@@ -188,8 +188,8 @@ TEST(d3d9_state_draw_vp_roundtrip_inside)
 {
     SD_OPEN(d);
     static const D3DVIEWPORT9 t[] = {
-        { 0, 0, 64, 64, 0.0f, 1.0f }, { 8, 4, 32, 40, 0.25f, 0.75f }, { 63, 63, 1, 1, 0.0f, 1.0f }, { 0, 0, 1, 1, 0.5f, 0.5f },
-        { 10, 20, 54, 44, 0.0f, 0.5f }, { 32, 0, 32, 64, 1.0f, 1.0f },
+        { 0, 0, 64, 64, 0.0f, 1.0f }, { 8, 4, 32, 40, 0.25f, 0.75f }, { 63, 63, 1, 1, 0.0f, 1.0f }, { 0, 0, 1, 1, 0.5f, 0.75f },
+        { 10, 20, 54, 44, 0.0f, 0.5f }, { 32, 0, 32, 64, 0.5f, 1.0f }, { 0, 0, 8, 8, -1.0f, 0.5f }, { 0, 0, 8, 8, 2.0f, 3.0f }, { 0, 0, 8, 8, 0.0f, 1.0f },
     };
     for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++) {
         D3DVIEWPORT9 g;
@@ -217,14 +217,17 @@ TEST(d3d9_state_draw_vp_set_outside_target_succeeds)
     SD_END(d);
 }
 
-TEST(d3d9_state_draw_vp_clear_outside_target_fails)
+/* Windows 10 HAL (WARP): a viewport larger than the target is accepted by Clear (clipped to the target). */
+TEST(d3d9_state_draw_vp_clear_outside_target_clipped)
 {
     SD_OPEN(d);
     D3DVIEWPORT9 big = { 0, 0, 128, 128, 0.0f, 1.0f };
     EXPECT_HR(IDirect3DDevice9_SetViewport(d.dev, &big), D3D_OK);
     HRESULT hr = IDirect3DDevice9_Clear(d.dev, 0, NULL, D3DCLEAR_TARGET, 0xff000000, 1.0f, 0);
-    if (d.type == D3DDEVTYPE_NULLREF) t_note("NULLREF: Clear with oversized viewport -> %s", d3dh_hr_name(hr));
-    else EXPECT_HR(hr, D3DERR_INVALIDCALL);
+    EXPECT_HR(hr, D3D_OK);
+    D3DVIEWPORT9 off = { 60, 60, 16, 16, 0.0f, 1.0f };
+    EXPECT_HR(IDirect3DDevice9_SetViewport(d.dev, &off), D3D_OK);
+    EXPECT_HR(IDirect3DDevice9_Clear(d.dev, 0, NULL, D3DCLEAR_TARGET, 0xff000000, 1.0f, 0), D3D_OK);
     D3DVIEWPORT9 ok = { 0, 0, 64, 64, 0.0f, 1.0f };
     EXPECT_HR(IDirect3DDevice9_SetViewport(d.dev, &ok), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_Clear(d.dev, 0, NULL, D3DCLEAR_TARGET, 0xff000000, 1.0f, 0), D3D_OK);
@@ -242,7 +245,7 @@ TEST(d3d9_state_draw_vp_draw_outside_target_fails)
     IDirect3DDevice9_BeginScene(d.dev);
     HRESULT hr = IDirect3DDevice9_DrawPrimitiveUP(d.dev, D3DPT_TRIANGLELIST, 1, v, sizeof(TLV));
     IDirect3DDevice9_EndScene(d.dev);
-    if (hr != D3DERR_INVALIDCALL) t_note("draw with a viewport outside the target returned %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* Windows 10 HAL clips instead of failing */
     SD_END(d);
 }
 
@@ -348,7 +351,7 @@ TEST(d3d9_state_draw_scissor_independent_of_enable_state)
 TEST(d3d9_state_draw_scissor_caps_bit)
 {
     SD_OPEN(d);
-    t_note("D3DPRASTERCAPS_SCISSORTEST: %s", (d.caps.RasterCaps & D3DPRASTERCAPS_SCISSORTEST) ? "yes" : "no");
+    CHECK(d.caps.RasterCaps & D3DPRASTERCAPS_SCISSORTEST);
     SD_END(d);
 }
 
@@ -356,11 +359,11 @@ TEST(d3d9_state_draw_scissor_caps_bit)
 TEST(d3d9_state_draw_clip_caps_and_default)
 {
     SD_OPEN(d);
-    t_note("MaxUserClipPlanes=%lu", (unsigned long)d.caps.MaxUserClipPlanes);
+    EXPECT_EQ(d.caps.MaxUserClipPlanes, 6);
     for (DWORD i = 0; i < d.caps.MaxUserClipPlanes && i < 6; i++) {
         float p[4] = { 9, 9, 9, 9 };
         EXPECT_HR(IDirect3DDevice9_GetClipPlane(d.dev, i, p), D3D_OK);
-        if (p[0] != 0 || p[1] != 0 || p[2] != 0 || p[3] != 0) t_note("clip plane %lu default (%g %g %g %g)", (unsigned long)i, p[0], p[1], p[2], p[3]);
+        CHECKF(p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0, "clip plane %lu default (%g %g %g %g)", (unsigned long)i, p[0], p[1], p[2], p[3]);
     }
     SD_END(d);
 }
@@ -434,9 +437,7 @@ TEST(d3d9_state_draw_material_default_recorded)
     D3DMATERIAL9 m;
     memset(&m, 0xcc, sizeof m);
     EXPECT_HR(IDirect3DDevice9_GetMaterial(d.dev, &m), D3D_OK);
-    t_note("default material: diffuse %g %g %g %g ambient %g %g %g %g specular %g %g %g %g emissive %g %g %g %g power %g",
-           m.Diffuse.r, m.Diffuse.g, m.Diffuse.b, m.Diffuse.a, m.Ambient.r, m.Ambient.g, m.Ambient.b, m.Ambient.a,
-           m.Specular.r, m.Specular.g, m.Specular.b, m.Specular.a, m.Emissive.r, m.Emissive.g, m.Emissive.b, m.Emissive.a, m.Power);
+    { static const D3DMATERIAL9 zero; CHECK(!memcmp(&m, &zero, sizeof m)); }       /* Windows 10: all-zero default material */
     SD_END(d);
 }
 
@@ -556,7 +557,7 @@ TEST(d3d9_state_draw_light_set_does_not_enable)
     EXPECT_HR(IDirect3DDevice9_LightEnable(d.dev, 2, TRUE), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetLightEnable(d.dev, 2, &en), D3D_OK);
     CHECK(en != 0);
-    t_note("GetLightEnable raw value for an enabled light: 0x%lx", (unsigned long)en);
+    EXPECT_EQ(en, 0x80);                /* Windows 10 reports an enabled light as 0x80, not 1 */
     EXPECT_HR(IDirect3DDevice9_LightEnable(d.dev, 2, FALSE), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetLightEnable(d.dev, 2, &en), D3D_OK);
     EXPECT_EQ(en, 0);
@@ -599,7 +600,7 @@ TEST(d3d9_state_draw_light_enable_beyond_max_active)
 {
     SD_OPEN(d);
     DWORD maxa = d.caps.MaxActiveLights;
-    t_note("MaxActiveLights=%lu", (unsigned long)maxa);
+    EXPECT_EQ(maxa, 255);
     if (maxa == 0 || maxa > 64) maxa = 8;
     for (DWORD i = 0; i < maxa + 3; i++) {
         BOOL en = 0;
@@ -619,7 +620,7 @@ TEST(d3d9_state_draw_light_invalid_type_recorded)
     for (unsigned i = 0; i < sizeof types / sizeof types[0]; i++) {
         l.Type = (D3DLIGHTTYPE)types[i];
         HRESULT hr = IDirect3DDevice9_SetLight(d.dev, 20 + i, &l);
-        t_note("SetLight with Type=%d returned %s", types[i], d3dh_hr_name(hr));
+        t_check(hr == D3D_OK, __FILE__, __LINE__, "SetLight with an undefined light type", "Type=%d got %s (Win10: accepted)", types[i], d3dh_hr_name(hr));
     }
     SD_END(d);
 }
@@ -640,5 +641,25 @@ TEST(d3d9_state_draw_light_stateblock_records_light)
     EXPECT_HR(IDirect3DDevice9_GetLightEnable(d.dev, 1, &en), D3D_OK);
     CHECK(en != 0);
     SAFE_RELEASE(sb);
+    SD_END(d);
+}
+
+/* Windows 10: SetViewport silently enforces a minimum depth range of 0.001.  If MaxZ - MinZ < 0.001 then, when MaxZ >= 0.5, MinZ is
+   lowered to MaxZ - 0.001, otherwise MaxZ is raised to MinZ + 0.001 (this also repairs MinZ > MaxZ).  Values outside 0..1 are kept. */
+TEST(d3d9_state_draw_vp_z_range_minimum_gap)
+{
+    SD_OPEN(d);
+    static const struct { float in0, in1, out0, out1; } t[] = {
+        { 0.5f, 0.5f, 0.499f, 0.5f }, { 0.0f, 0.0f, 0.0f, 0.001f }, { 1.0f, 1.0f, 0.999f, 1.0f }, { 0.4f, 0.4f, 0.4f, 0.401f },
+        { 0.6f, 0.6f, 0.599f, 0.6f }, { 0.25f, 0.25f, 0.25f, 0.251f }, { 0.9f, 0.9f, 0.899f, 0.9f }, { 0.7f, 0.3f, 0.7f, 0.701f },
+        { 0.5f, 0.5001f, 0.4991f, 0.5001f }, { 0.5f, 0.5005f, 0.4995f, 0.5005f }, { 0.5f, 0.502f, 0.5f, 0.502f }, { 0.25f, 0.75f, 0.25f, 0.75f },
+    };
+    for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++) {
+        D3DVIEWPORT9 v = { 0, 0, 8, 8, t[i].in0, t[i].in1 }, g;
+        EXPECT_HR(IDirect3DDevice9_SetViewport(d.dev, &v), D3D_OK);
+        EXPECT_HR(IDirect3DDevice9_GetViewport(d.dev, &g), D3D_OK);
+        float e0 = g.MinZ - t[i].out0, e1 = g.MaxZ - t[i].out1;
+        CHECKF(e0 > -2e-6f && e0 < 2e-6f && e1 > -2e-6f && e1 < 2e-6f, "z %g..%g -> got %.9g..%.9g want %g..%g", t[i].in0, t[i].in1, g.MinZ, g.MaxZ, t[i].out0, t[i].out1);
+    }
     SD_END(d);
 }

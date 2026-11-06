@@ -88,7 +88,7 @@ TEST(d3d9_state_draw_rs_default_adaptive_tess)
     for (int i = 0; i < 4; i++) {
         DWORD v = 1;
         EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, a[i], &v), D3D_OK);
-        t_note("ADAPTIVETESS_%c default bits 0x%08lx (%g)", "XYZW"[i], (unsigned long)v, d2f(v));
+        t_check(v == (i == 2 ? 0x3f800000u : 0u), __FILE__, __LINE__, "adaptive tessellation default", "ADAPTIVETESS_%c bits 0x%08lx (X, Y, W = 0.0, Z = 1.0)", "XYZW"[i], (unsigned long)v);
     }
     SD_END(d);
 }
@@ -98,11 +98,12 @@ TEST(d3d9_state_draw_rs_default_pointsize_extremes)
     SD_OPEN(d);
     DWORD mn = 0, mx = 0, ps = 0;
     EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_POINTSIZE, &ps), D3D_OK);
-    t_note("D3DRS_POINTSIZE default %g (documented as driver dependent)", d2f(ps));
+    CHECKF(ps == 0x3f800000u, "D3DRS_POINTSIZE default 0x%08lx (Win10: 1.0)", (unsigned long)ps);
     EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_POINTSIZE_MIN, &mn), D3D_OK);
     EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_POINTSIZE_MAX, &mx), D3D_OK);
-    t_note("POINTSIZE_MIN=%g POINTSIZE_MAX=%g caps.MaxPointSize=%g", d2f(mn), d2f(mx), d.caps.MaxPointSize);
-    CHECK(d2f(mn) >= 0.0f);
+    CHECKF(d2f(mn) == 1.0f, "POINTSIZE_MIN default %g (Win10: 1.0)", d2f(mn));
+    CHECKF(d2f(mx) == d.caps.MaxPointSize, "POINTSIZE_MAX default %g equals caps.MaxPointSize %g", d2f(mx), d.caps.MaxPointSize);
+    CHECKF(d.caps.MaxPointSize == 8192.0f, "caps.MaxPointSize %g (Win10 Basic Render Driver: 8192)", d.caps.MaxPointSize);
     SD_END(d);
 }
 
@@ -111,7 +112,8 @@ TEST(d3d9_state_draw_rs_default_debugmonitor)
     SD_OPEN(d);
     DWORD v = 0xdeadc0de;
     HRESULT hr = IDirect3DDevice9_GetRenderState(d.dev, D3DRS_DEBUGMONITORTOKEN, &v);
-    t_note("D3DRS_DEBUGMONITORTOKEN: %s value %lu", d3dh_hr_name(hr), (unsigned long)v);
+    EXPECT_HR(hr, D3D_OK);
+    EXPECT_EQ(v, 3131951870u);          /* 0xbaadcafe, a fixed magic value on Windows 10 */
     SD_END(d);
 }
 
@@ -317,7 +319,7 @@ TEST(d3d9_state_draw_rs_set_out_of_range_not_fatal)
 {
     SD_OPEN(d);
     HRESULT hr = IDirect3DDevice9_SetRenderState(d.dev, (D3DRENDERSTATETYPE)300, 5);
-    t_note("SetRenderState(300) returned %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* out-of-range state ids are accepted and ignored on Windows 10 */
     /* the call must not damage the documented states */
     DWORD v = 0;
     EXPECT_HR(IDirect3DDevice9_GetRenderState(d.dev, D3DRS_CULLMODE, &v), D3D_OK);

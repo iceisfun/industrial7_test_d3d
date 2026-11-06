@@ -179,13 +179,13 @@ TEST(d3d9_state_draw_clear_rects_clipped_and_empty)
     D3DRECT offscreen = { 100, 100, 120, 120 };
     EXPECT_HR(IDirect3DDevice9_Clear(d.dev, 1, &inside, D3DCLEAR_TARGET, 0, 1.0f, 0), D3D_OK);
     HRESULT hr = IDirect3DDevice9_Clear(d.dev, 1, &outside, D3DCLEAR_TARGET, 0, 1.0f, 0);
-    t_note("Clear with a rectangle larger than the target -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* Windows 10: every rectangle form is accepted (clipped, empty or ignored) */
     hr = IDirect3DDevice9_Clear(d.dev, 1, &empty, D3DCLEAR_TARGET, 0, 1.0f, 0);
-    t_note("Clear with an empty rectangle -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     hr = IDirect3DDevice9_Clear(d.dev, 1, &inverted, D3DCLEAR_TARGET, 0, 1.0f, 0);
-    t_note("Clear with an inverted rectangle -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     hr = IDirect3DDevice9_Clear(d.dev, 1, &offscreen, D3DCLEAR_TARGET, 0, 1.0f, 0);
-    t_note("Clear with an off-target rectangle -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     SD_END(d);
 }
 
@@ -195,7 +195,8 @@ TEST(d3d9_state_draw_clear_count_rect_pointer_pairing)
     D3DRECT r = { 0, 0, 8, 8 };
     HRESULT h1 = IDirect3DDevice9_Clear(d.dev, 0, &r, D3DCLEAR_TARGET, 0, 1.0f, 0);
     HRESULT h2 = IDirect3DDevice9_Clear(d.dev, 1, NULL, D3DCLEAR_TARGET, 0, 1.0f, 0);
-    t_note("Clear(Count=0, pRects!=NULL) -> %s; Clear(Count=1, pRects=NULL) -> %s", d3dh_hr_name(h1), d3dh_hr_name(h2));
+    EXPECT_HR(h1, D3D_OK);              /* Count 0 ignores pRects */
+    EXPECT_HR(h2, D3D_OK);              /* Count 1 with a NULL array is treated as a full clear on Windows 10 */
     SD_END(d);
 }
 
@@ -331,7 +332,9 @@ TEST(d3d9_state_draw_rt_index_rules)
         CHECKF(cur == NULL, "unbound slot %lu returned a surface", (unsigned long)i);
         EXPECT_HR(IDirect3DDevice9_SetRenderTarget(d.dev, i, NULL), D3D_OK);
     }
-    EXPECT_HR(IDirect3DDevice9_GetRenderTarget(d.dev, n, &cur), D3DERR_INVALIDCALL);
+    /* Windows 10: GetRenderTarget(NumSimultaneousRTs) reports NOTFOUND; larger indices are not validated (garbage or access violation) and are not exercised */
+    cur = rt;
+    EXPECT_HR(IDirect3DDevice9_GetRenderTarget(d.dev, n, &cur), D3DERR_NOTFOUND);
     SAFE_RELEASE(rt);
     SD_END(d);
 }
@@ -501,7 +504,15 @@ TEST(d3d9_state_draw_sb_create_types)
         }
         SAFE_RELEASE(sb);
     }
-    static const int bad[] = { 0, 4, 5, 100, 0x7fffffff };
+    /* Windows 10: type 0 is accepted (S_OK) even though the enumeration starts at D3DSBT_ALL == 1 */
+    {
+        IDirect3DStateBlock9 *sb0 = NULL;
+        HRESULT h0 = IDirect3DDevice9_CreateStateBlock(d.dev, (D3DSTATEBLOCKTYPE)0, &sb0);
+        EXPECT_HR(h0, S_OK);
+        CHECK(sb0 != NULL);
+        SAFE_RELEASE(sb0);
+    }
+    static const int bad[] = { 4, 5, 100, 0x7fffffff };
     for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
         IDirect3DStateBlock9 *sb = (void *)(ULONG_PTR)0xdeadbeef;
         HRESULT hr = IDirect3DDevice9_CreateStateBlock(d.dev, (D3DSTATEBLOCKTYPE)bad[i], &sb);
@@ -524,7 +535,7 @@ TEST(d3d9_state_draw_sb_all_capture_and_apply)
     IDirect3DDevice9_SetRenderState(d.dev, D3DRS_LIGHTING, FALSE);
     IDirect3DDevice9_SetTransform(d.dev, D3DTS_VIEW, &m);
     IDirect3DDevice9_SetViewport(d.dev, &vp);
-    IDirect3DDevice9_SetTextureStageState(d.dev, 2, D3DTSS_CONSTANT, 0xabcdef01);
+    IDirect3DDevice9_SetTextureStageState(d.dev, 2, D3DTSS_BUMPENVLSCALE, 0x3f000000);
     IDirect3DDevice9_SetSamplerState(d.dev, 3, D3DSAMP_BORDERCOLOR, 0x01020304);
     EXPECT_HR(IDirect3DDevice9_CreateStateBlock(d.dev, D3DSBT_ALL, &sb), D3D_OK);
     SD_NEED(d, sb != NULL, "no state block");
@@ -534,7 +545,7 @@ TEST(d3d9_state_draw_sb_all_capture_and_apply)
     IDirect3DDevice9_SetTransform(d.dev, D3DTS_VIEW, &g_id);
     D3DVIEWPORT9 vp2 = { 0, 0, 10, 10, 0.0f, 1.0f };
     IDirect3DDevice9_SetViewport(d.dev, &vp2);
-    IDirect3DDevice9_SetTextureStageState(d.dev, 2, D3DTSS_CONSTANT, 0);
+    IDirect3DDevice9_SetTextureStageState(d.dev, 2, D3DTSS_BUMPENVLSCALE, 0);
     IDirect3DDevice9_SetSamplerState(d.dev, 3, D3DSAMP_BORDERCOLOR, 0);
     EXPECT_HR(IDirect3DStateBlock9_Apply(sb), D3D_OK);
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_CULLMODE, &v);      EXPECT_EQ(v, D3DCULL_NONE);
@@ -542,7 +553,7 @@ TEST(d3d9_state_draw_sb_all_capture_and_apply)
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_LIGHTING, &v);      EXPECT_EQ(v, FALSE);
     IDirect3DDevice9_GetTransform(d.dev, D3DTS_VIEW, &g);            CHECK(!memcmp(&g, &m, sizeof g));
     IDirect3DDevice9_GetViewport(d.dev, &gv);                        EXPECT_EQ(gv.X, 1); EXPECT_EQ(gv.Height, 40);
-    IDirect3DDevice9_GetTextureStageState(d.dev, 2, D3DTSS_CONSTANT, &v); EXPECT_EQ(v, 0xabcdef01);
+    IDirect3DDevice9_GetTextureStageState(d.dev, 2, D3DTSS_BUMPENVLSCALE, &v); EXPECT_EQ(v, 0x3f000000);
     IDirect3DDevice9_GetSamplerState(d.dev, 3, D3DSAMP_BORDERCOLOR, &v);  EXPECT_EQ(v, 0x01020304);
     SAFE_RELEASE(sb);
     SD_END(d);
@@ -566,7 +577,7 @@ TEST(d3d9_state_draw_sb_pixel_state_scope)
     EXPECT_HR(IDirect3DStateBlock9_Apply(sb), D3D_OK);
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_ALPHAREF, &v);       EXPECT_EQ(v, 0x40);
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_TEXTUREFACTOR, &v);  EXPECT_EQ(v, 0x55555555);
-    IDirect3DDevice9_GetRenderState(d.dev, D3DRS_CULLMODE, &v);       t_note("pixel block: CULLMODE after apply=%lu (docs: vertex state)", (unsigned long)v);
+    IDirect3DDevice9_GetRenderState(d.dev, D3DRS_CULLMODE, &v);       EXPECT_EQ(v, D3DCULL_CW);   /* a pixel-state block does not record CULLMODE */
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_AMBIENT, &v);        EXPECT_EQ(v, 0x12345678);
     SAFE_RELEASE(sb);
     SD_END(d);
@@ -594,7 +605,7 @@ TEST(d3d9_state_draw_sb_vertex_state_scope)
     IDirect3DDevice9_SetStreamSourceFreq(d.dev, 1, 8);
     EXPECT_HR(IDirect3DStateBlock9_Apply(sb), D3D_OK);
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_LIGHTING, &v);  EXPECT_EQ(v, FALSE);
-    IDirect3DDevice9_GetRenderState(d.dev, D3DRS_CULLMODE, &v);  t_note("vertex block: CULLMODE after apply=%lu (docs: vertex state)", (unsigned long)v);
+    IDirect3DDevice9_GetRenderState(d.dev, D3DRS_CULLMODE, &v);  EXPECT_EQ(v, D3DCULL_CW);   /* a vertex-state block records CULLMODE */
     IDirect3DDevice9_GetRenderState(d.dev, D3DRS_ALPHAREF, &v);  EXPECT_EQ(v, 0x77);
     IDirect3DDevice9_GetVertexShaderConstantF(d.dev, 20, g, 1);  CHECK(!memcmp(g, c1, sizeof g));
     IDirect3DDevice9_GetPixelShaderConstantF(d.dev, 20, g, 1);   CHECK(!memcmp(g, c2, sizeof g));
@@ -789,7 +800,11 @@ TEST(d3d9_state_draw_query_support_probe_consistent)
         t_check(probe == D3D_OK || probe == D3DERR_NOTAVAILABLE, __FILE__, __LINE__, "CreateQuery(NULL) probe", "type %d got %s", (int)g_qtypes[i], d3dh_hr_name(probe));
         t_check(real == D3D_OK || real == D3DERR_NOTAVAILABLE, __FILE__, __LINE__, "CreateQuery", "type %d got %s", (int)g_qtypes[i], d3dh_hr_name(real));
         t_check((probe == D3D_OK) == (q != NULL), __FILE__, __LINE__, "probe agrees with creation", "type %d probe %s query %p", (int)g_qtypes[i], d3dh_hr_name(probe), (void *)q);
-        t_note("query type %d: %s", (int)g_qtypes[i], probe == D3D_OK ? "supported" : "not available");
+        {
+            int ty = (int)g_qtypes[i];
+            int want = (ty >= D3DQUERYTYPE_EVENT && ty <= D3DQUERYTYPE_TIMESTAMPFREQ);   /* EVENT, OCCLUSION, TIMESTAMP, TIMESTAMPDISJOINT, TIMESTAMPFREQ */
+            t_check((probe == D3D_OK) == want, __FILE__, __LINE__, "query type availability", "type %d: %s (Win10 supports only 8..12)", ty, probe == D3D_OK ? "supported" : "not available");
+        }
         SAFE_RELEASE(q);
     }
     SD_END(d);
@@ -808,9 +823,9 @@ TEST(d3d9_state_draw_query_invalid_types)
     }
     IDirect3DQuery9 *q = NULL;
     HRESULT hr = IDirect3DDevice9_CreateQuery(d.dev, (D3DQUERYTYPE)0x16, NULL);
-    t_note("undocumented query type 0x16 probe: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_NOTAVAILABLE);
     hr = IDirect3DDevice9_CreateQuery(d.dev, (D3DQUERYTYPE)0x16, &q);
-    t_note("undocumented query type 0x16 create: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_NOTAVAILABLE);
     SAFE_RELEASE(q);
     SD_END(d);
 }
@@ -845,7 +860,7 @@ TEST(d3d9_state_draw_query_type_and_size)
     for (unsigned i = 0; i < sizeof g_qtypes / sizeof g_qtypes[0]; i++) {
         IDirect3DQuery9 *q = mkq(&d, g_qtypes[i]);
         if (!q) continue;
-        t_note("query type %d: GetType %d GetDataSize %lu", (int)g_qtypes[i], (int)IDirect3DQuery9_GetType(q), (unsigned long)IDirect3DQuery9_GetDataSize(q));
+
         EXPECT_EQ(IDirect3DQuery9_GetType(q), g_qtypes[i]);
         IDirect3DQuery9_Release(q);
     }
@@ -892,6 +907,7 @@ TEST(d3d9_state_draw_query_event_never_issued)
     BOOL b = 77;
     HRESULT hr = IDirect3DQuery9_GetData(q, &b, sizeof b, D3DGETDATA_FLUSH);
     t_note("GetData on never issued event query -> %s value %ld", d3dh_hr_name(hr), (long)b);
+    EXPECT_HR(hr, S_OK);                /* a never issued event query reports signalled (S_OK); the runtime writes 0xdddddddd into the BOOL (not pinned) */
     IDirect3DQuery9_Release(q);
     SD_END(d);
 }
@@ -902,13 +918,13 @@ TEST(d3d9_state_draw_query_issue_flags)
     IDirect3DQuery9 *q = mkq(&d, D3DQUERYTYPE_EVENT);
     SD_NEED(d, q != NULL, "no event query");
     HRESULT hr = IDirect3DQuery9_Issue(q, D3DISSUE_BEGIN);
-    t_note("Issue(BEGIN) on an event query -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);              /* Windows 10 accepts every flag combination on an event query */
     hr = IDirect3DQuery9_Issue(q, 0);
-    t_note("Issue(0) on an event query -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     hr = IDirect3DQuery9_Issue(q, 4);
-    t_note("Issue(4) on an event query -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     hr = IDirect3DQuery9_Issue(q, D3DISSUE_BEGIN | D3DISSUE_END);
-    t_note("Issue(BEGIN|END) on an event query -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3D_OK);
     IDirect3DQuery9_Release(q);
     SD_END(d);
 }
@@ -1011,7 +1027,7 @@ TEST(d3d9_state_draw_query_timestamp_frequency)
     UINT64 freq = 0;
     IDirect3DQuery9_Issue(q, D3DISSUE_END);
     EXPECT_HR(wait_query(q, &freq, sizeof freq), S_OK);
-    t_note("D3DQUERYTYPE_TIMESTAMPFREQ = %llu", (unsigned long long)freq);
+    EXPECT_EQ(freq, 10000000ull);       /* 10 MHz on the Basic Render Driver */
     CHECK(freq != 0);
     IDirect3DQuery9_Release(q);
     SD_END(d);
@@ -1029,7 +1045,7 @@ TEST(d3d9_state_draw_query_timestamp_disjoint_flow)
     EXPECT_HR(IDirect3DQuery9_Issue(tq, D3DISSUE_END), D3D_OK);
     EXPECT_HR(IDirect3DQuery9_Issue(dq, D3DISSUE_END), D3D_OK);
     EXPECT_HR(wait_query(dq, &disjoint, sizeof disjoint), S_OK);
-    t_note("timestamp disjoint = %ld", (long)disjoint);
+    EXPECT_EQ(disjoint, FALSE);
     CHECK(disjoint == TRUE || disjoint == FALSE);
     EXPECT_HR(wait_query(tq, &ts, sizeof ts), S_OK);
     IDirect3DQuery9_Release(dq);
@@ -1045,6 +1061,29 @@ TEST(d3d9_state_draw_query_many_create_release)
         if (!q) break;
         IDirect3DQuery9_Issue(q, D3DISSUE_END);
         IDirect3DQuery9_Release(q);
+    }
+    SD_END(d);
+}
+
+/* Windows 10: D3DTSS_CONSTANT (stage 32) is NOT recorded by any state block type, unlike every other texture stage state. */
+TEST(d3d9_state_draw_sb_tss_constant_not_recorded)
+{
+    SD_OPEN(d);
+    static const int types[] = { D3DSBT_ALL, D3DSBT_PIXELSTATE, D3DSBT_VERTEXSTATE };
+    for (unsigned t = 0; t < 3; t++) {
+        IDirect3DStateBlock9 *sb = NULL;
+        DWORD v = 0;
+        IDirect3DDevice9_SetTextureStageState(d.dev, 1, D3DTSS_CONSTANT, 0xabcdef01);
+        IDirect3DDevice9_SetTextureStageState(d.dev, 1, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        EXPECT_HR(IDirect3DDevice9_CreateStateBlock(d.dev, (D3DSTATEBLOCKTYPE)types[t], &sb), D3D_OK);
+        IDirect3DDevice9_SetTextureStageState(d.dev, 1, D3DTSS_CONSTANT, 0x11111111);
+        IDirect3DDevice9_SetTextureStageState(d.dev, 1, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+        if (sb) EXPECT_HR(IDirect3DStateBlock9_Apply(sb), D3D_OK);
+        IDirect3DDevice9_GetTextureStageState(d.dev, 1, D3DTSS_CONSTANT, &v);
+        t_check(v == 0x11111111, __FILE__, __LINE__, "CONSTANT keeps the live value", "type %d got 0x%08lx", types[t], (unsigned long)v);
+        IDirect3DDevice9_GetTextureStageState(d.dev, 1, D3DTSS_ALPHAARG2, &v);
+        t_check(v == (types[t] == D3DSBT_VERTEXSTATE ? D3DTA_CURRENT : D3DTA_TFACTOR), __FILE__, __LINE__, "ALPHAARG2 recorded by ALL and PIXELSTATE only", "type %d got 0x%08lx", types[t], (unsigned long)v);
+        SAFE_RELEASE(sb);
     }
     SD_END(d);
 }

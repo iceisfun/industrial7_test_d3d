@@ -31,16 +31,17 @@ static inline void sd_close(SD *d)
  *  SD_RENDER:   HAL, REF only (NULLREF cannot render); automatic depth/stencil. */
 static inline int sd_open(SD *d, int mode)
 {
-    static const D3DDEVTYPE all[3] = { D3DDEVTYPE_NULLREF, D3DDEVTYPE_HAL, D3DDEVTYPE_REF };
+    static const D3DDEVTYPE all[3] = { D3DDEVTYPE_HAL, D3DDEVTYPE_REF, D3DDEVTYPE_NULLREF };
     static const D3DFORMAT dsf[2] = { D3DFMT_D24S8, D3DFMT_D16 };
-    int first = (mode == SD_RENDER) ? 1 : 0;
+    int first = 0;  /* HAL first: Windows NULLREF has no render targets (viewport 0x0, GetRenderTarget NOTFOUND); see nullref tests */
+    int last = (mode == SD_RENDER) ? 2 : 3;
     HRESULT hr = D3DERR_NOTAVAILABLE;
     memset(d, 0, sizeof *d);
     if (!d3dh_Direct3DCreate9()) { t_skip("no Direct3DCreate9"); return 0; }
     d->d3d = d3dh_Direct3DCreate9()(D3D_SDK_VERSION);
     if (!d->d3d) { t_skip("Direct3DCreate9 failed"); return 0; }
     d->hwnd = d3dh_create_hidden_window();
-    for (int i = first; i < 3 && !d->dev; i++) {
+    for (int i = first; i < last && !d->dev; i++) {
         int nds = (mode == SD_STATE) ? 1 : 2;
         for (int k = 0; k < nds && !d->dev; k++) {
             D3DPRESENT_PARAMETERS pp;
@@ -62,6 +63,7 @@ static inline int sd_open(SD *d, int mode)
         sd_close(d);
         return 0;
     }
+    t_note("device type %d", (int)d->type);
     memset(&d->caps, 0, sizeof d->caps);
     IDirect3DDevice9_GetDeviceCaps(d->dev, &d->caps);
     return 1;

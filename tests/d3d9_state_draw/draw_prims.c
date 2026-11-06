@@ -347,7 +347,7 @@ TEST(d3d9_state_draw_dr_blend_factors_and_ops)
     IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_DESTBLEND, D3DBLEND_ONE);
     dr_clear(&r, 0xff0a141eu, 1.0f, 0);
     dr_full(&r, 0.5f, 0xff646464u);
-    if (dr_read(&r, px)) PXNEAR(px, 32, 32, 0xff6e787eu, 1);
+    if (dr_read(&r, px)) PXNEAR(px, 32, 32, 0xff6e7882u, 1);   /* 0x0a+0x64, 0x14+0x64, 0x1e+0x64 */
     /* saturation */
     dr_clear(&r, 0xffc8c8c8u, 1.0f, 0);
     dr_full(&r, 0.5f, 0xff646464u);
@@ -419,7 +419,7 @@ TEST(d3d9_state_draw_dr_alpha_test_functions)
     IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_ALPHATESTENABLE, TRUE);
     IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_ALPHAREF, 0x80);
     for (unsigned i = 0; i < 8; i++) {
-        if (!(r.d.caps.AlphaCmpCaps & g_cmp[i].cap)) { t_note("alpha compare function %d not supported", (int)g_cmp[i].f); continue; }
+        if (!(r.d.caps.AlphaCmpCaps & g_cmp[i].cap)) { CHECKF(0, "alpha compare function %d not reported in AlphaCmpCaps (Win10 reports all)", (int)g_cmp[i].f); continue; }
         IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_ALPHAFUNC, g_cmp[i].f);
         for (int a = 0; a < 3; a++) {
             dr_clear(&r, 0xff000000u, 1.0f, 0);
@@ -452,7 +452,7 @@ TEST(d3d9_state_draw_dr_depth_functions)
     static const float zs[] = { 0.25f, 0.5f, 0.75f };         /* incoming depth against stored 0.5 */
     IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_ZENABLE, D3DZB_TRUE);
     for (unsigned i = 0; i < 8; i++) {
-        if (!(r.d.caps.ZCmpCaps & g_cmp[i].cap)) { t_note("depth compare function %d not supported", (int)g_cmp[i].f); continue; }
+        if (!(r.d.caps.ZCmpCaps & g_cmp[i].cap)) { CHECKF(0, "depth compare function %d not reported in ZCmpCaps (Win10 reports all)", (int)g_cmp[i].f); continue; }
         for (int k = 0; k < 3; k++) {
             IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_ZFUNC, D3DCMP_ALWAYS);
             dr_clear(&r, BLACK, 0.5f, 0);
@@ -522,8 +522,8 @@ TEST(d3d9_state_draw_dr_viewport_limits_drawing)
     DR_OPEN(r);
     DWORD px[DW * DH];
     D3DVIEWPORT9 vp = { 16, 8, 32, 40, 0.0f, 1.0f };
+    dr_clear(&r, BLACK, 1.0f, 0);          /* Clear is itself limited to the viewport: clear the whole target first */
     IDirect3DDevice9_SetViewport(DEV(r), &vp);
-    dr_clear(&r, BLACK, 1.0f, 0);
     /* pretransformed coordinates are viewport relative only for the clip; the quad is clipped to the viewport rectangle */
     EXPECT_HR(dr_full(&r, 0.5f, WHITE), D3D_OK);
     if (dr_read(&r, px)) {
@@ -540,9 +540,9 @@ TEST(d3d9_state_draw_dr_scissor_limits_drawing)
     DR_NEED(r, r.d.caps.RasterCaps & D3DPRASTERCAPS_SCISSORTEST, "no scissor test");
     DWORD px[DW * DH];
     RECT sc = { 10, 12, 30, 40 };
+    dr_clear(&r, BLACK, 1.0f, 0);          /* Clear honours the scissor test: clear before enabling it */
     IDirect3DDevice9_SetScissorRect(DEV(r), &sc);
     IDirect3DDevice9_SetRenderState(DEV(r), D3DRS_SCISSORTESTENABLE, TRUE);
-    dr_clear(&r, BLACK, 1.0f, 0);
     dr_full(&r, 0.5f, WHITE);
     if (dr_read(&r, px)) {
         PXEQ(px, 20, 25, WHITE); PXEQ(px, 5, 25, BLACK); PXEQ(px, 35, 25, BLACK); PXEQ(px, 20, 5, BLACK); PXEQ(px, 20, 45, BLACK);
