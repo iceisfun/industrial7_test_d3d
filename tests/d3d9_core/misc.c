@@ -46,7 +46,7 @@ TEST(d3d9_core_exports_ordinal_out_of_range) {
     SET_ERR(0);
     FARPROC p = GetProcAddress(m, (LPCSTR)(ULONG_PTR)0x7000);
     CHECK(p == NULL);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);   /* Win10 22H2: 182, not ERROR_PROC_NOT_FOUND (127), for a missing ordinal */
 }
 TEST(d3d9_core_exports_module_filename) {
     HMODULE m = t_module("d3d9.dll"); REQUIRE(m);

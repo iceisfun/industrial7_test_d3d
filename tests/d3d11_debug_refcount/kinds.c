@@ -304,7 +304,7 @@ static void k_privif(int K)
     EXPECT_EQ(sz, sizeof(void *));
     CHECK(got == &b->iface);
     LONG extra = rc_obj_refs(b) - 2;
-    t_note("kind %d: GetPrivateData of an interface changes its refcount by %ld", K, (long)extra);
+    EXPECT_EQ(extra, 1);                               /* Win10: GetPrivateData of an interface AddRefs it */
     while (extra-- > 0) b->iface.lpVtbl->Release(&b->iface);
     /* overwrite the interface by plain data: the interface is released */
     DWORD dw = 7;
@@ -313,6 +313,13 @@ static void k_privif(int K)
     /* delete via NULL interface */
     EXPECT_HR(obj->lpVtbl->SetPrivateDataInterface(obj, &RC_GUID_B, NULL), S_OK);
     EXPECT_EQ(rc_obj_refs(a), 1);
+    /* Win10: SetPrivateDataInterface(guid, NULL) does not delete the entry: it stays as an 8-byte NULL pointer */
+    sz = sizeof(got); got = (IUnknown *)(ULONG_PTR)1;
+    EXPECT_HR(obj->lpVtbl->GetPrivateData(obj, &RC_GUID_B, &sz, &got), S_OK);
+    EXPECT_EQ(sz, sizeof(void *));
+    CHECK(got == NULL);
+    /* only SetPrivateData(guid, 0, NULL) removes it */
+    EXPECT_HR(obj->lpVtbl->SetPrivateData(obj, &RC_GUID_B, 0, NULL), S_OK);
     sz = sizeof(got);
     EXPECT_HR(obj->lpVtbl->GetPrivateData(obj, &RC_GUID_B, &sz, &got), HR_NOT_FOUND);
     /* destroying the owner releases whatever it still holds */
@@ -321,12 +328,20 @@ static void k_privif(int K)
     EXPECT_EQ(rc_obj_refs(a), 2); EXPECT_EQ(rc_obj_refs(b), 2);
     EXPECT_EQ(RC_RELEASE(obj), 0);
     obj = NULL;
+    if (rc_kind_is_state(K) && K != K_SAMP) {
+        /* Win10 22H2: blend/rasterizer/depth-stencil state objects stay in the device's state cache after the last external
+           reference is released, so their private-data interfaces are only released when the device goes away. */
+        EXPECT_EQ(rc_obj_refs(a), 2);
+        EXPECT_EQ(rc_obj_refs(b), 2);
+        RC_DEVICE_END(dev, ctx);
+    } else {
+        RC_DEVICE_END(dev, ctx);
+    }
     EXPECT_EQ(rc_obj_refs(a), 1);
     EXPECT_EQ(rc_obj_refs(b), 1);
     a->iface.lpVtbl->Release(&a->iface); b->iface.lpVtbl->Release(&b->iface);
     CHECK(a->destroyed && b->destroyed);
     rc_obj_delete(a); rc_obj_delete(b);
-    RC_DEVICE_END(dev, ctx);
 }
 
 static void k_privif_dev_gone(int K)

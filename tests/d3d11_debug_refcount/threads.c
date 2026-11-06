@@ -371,7 +371,7 @@ TEST(d3d11_debug_refcount_multithread_map_two_resources_protected)
     RC_DEVICE_END(dev, ctx);
 }
 
-TEST(d3d11_debug_refcount_multithread_staging_double_map_fails)
+TEST(d3d11_debug_refcount_multithread_staging_double_map_succeeds)
 {
     RC_DEVICE(dev, ctx, 0);
     D3D11_BUFFER_DESC bd = {64, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE, 0, 0};
@@ -381,8 +381,8 @@ TEST(d3d11_debug_refcount_multithread_staging_double_map_fails)
         D3D11_MAPPED_SUBRESOURCE m1, m2;
         EXPECT_HR(ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)buf, 0, D3D11_MAP_READ_WRITE, 0, &m1), S_OK);
         HRESULT hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)buf, 0, D3D11_MAP_READ_WRITE, 0, &m2);
-        CHECK(FAILED(hr));
-        t_note("second Map of a mapped subresource -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);   /* Win10 22H2: the runtime does not refuse a second Map of a mapped staging subresource (no debug layer) */
+        CHECK(m1.pData == m2.pData);
         ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)buf, 0);
         EXPECT_HR(ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)buf, 0, D3D11_MAP_READ_WRITE, 0, &m1), S_OK);
         ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)buf, 0);

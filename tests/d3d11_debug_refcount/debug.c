@@ -16,6 +16,9 @@ static int dbg_open(dbg_fix *f, int want_iq)
         hr = RC_QI(f->dev, IID_ID3D11InfoQueue, &f->iq);
         if (FAILED(hr)) { t_skip("debug device without ID3D11InfoQueue (%s)", d3dh_hr_name(hr)); SAFE_RELEASE(f->dbg); SAFE_RELEASE(f->ctx); SAFE_RELEASE(f->dev); return 0; }
         ID3D11InfoQueue_SetMuteDebugOutput(f->iq, TRUE);
+        /* Win10: the default storage filter (stack size 1) denies INFO severity, so AddApplicationMessage(INFO) returns S_FALSE and
+           stores nothing. Mode 2 clears it so mechanics tests can use any severity; mode 1 keeps the default filter. */
+        if (want_iq == 2) ID3D11InfoQueue_ClearStorageFilter(f->iq);
         ID3D11InfoQueue_ClearStoredMessages(f->iq);
     }
     return 1;
@@ -26,6 +29,7 @@ static void dbg_close(dbg_fix *f)
     SAFE_RELEASE(f->iq); SAFE_RELEASE(f->dbg); SAFE_RELEASE(f->ctx); SAFE_RELEASE(f->dev);
 }
 #define DBG(f, iq) dbg_fix f; if (!dbg_open(&f, iq)) return
+#define DBGQ(f) dbg_fix f; if (!dbg_open(&f, 2)) return
 #define IQ (f.iq)
 
 /* ---- device creation with the debug flag --------------------------------------------- */
@@ -79,7 +83,9 @@ TEST(d3d11_debug_refcount_debug_device_interfaces_present)
     DBG(f, 1);
     ID3D11SwitchToRef *sw = NULL;
     HRESULT hr = RC_QI(f.dev, IID_ID3D11SwitchToRef, &sw);
-    t_note("ID3D11SwitchToRef on debug device -> %s", d3dh_hr_name(hr));
+    /* Win10 22H2, WARP + Graphics Tools: the debug device does not expose ID3D11SwitchToRef (needs the reference rasteriser). */
+    EXPECT_HR(hr, E_NOINTERFACE);
+    CHECK(sw == NULL);
     if (SUCCEEDED(hr)) SAFE_RELEASE(sw);
     EXPECT_EQ(ID3D11Device_GetCreationFlags(f.dev) & D3D11_CREATE_DEVICE_DEBUG, D3D11_CREATE_DEVICE_DEBUG);
     dbg_close(&f);
@@ -166,7 +172,7 @@ TEST(d3d11_debug_refcount_debug_feature_mask_roundtrip)
 {
     DBG(f, 0);
     UINT orig = ID3D11Debug_GetFeatureMask(f.dbg);
-    t_note("initial feature mask 0x%x", orig);
+    EXPECT_EQ(orig, 0);
     static const UINT masks[] = { 0, D3D11_DEBUG_FEATURE_FLUSH_PER_RENDER_OP, D3D11_DEBUG_FEATURE_FINISH_PER_RENDER_OP,
         D3D11_DEBUG_FEATURE_FLUSH_PER_RENDER_OP | D3D11_DEBUG_FEATURE_FINISH_PER_RENDER_OP };
     for (size_t i = 0; i < sizeof(masks) / sizeof(masks[0]); i++) {
@@ -186,8 +192,11 @@ TEST(d3d11_debug_refcount_debug_feature_mask_other_bits_note)
     static const UINT bits[] = { D3D11_DEBUG_FEATURE_ALWAYS_DISCARD_OFFERED_RESOURCE, D3D11_DEBUG_FEATURE_NEVER_DISCARD_OFFERED_RESOURCE,
         D3D11_DEBUG_FEATURE_AVOID_BEHAVIOR_CHANGING_DEBUG_AIDS, D3D11_DEBUG_FEATURE_DISABLE_TILED_RESOURCE_MAPPING_TRACKING_AND_VALIDATION, 0x20, 0x100, 0x80000000 };
     for (size_t i = 0; i < sizeof(bits) / sizeof(bits[0]); i++) {
+        /* Win10: the defined bits (0x8, 0x10, 0x40, 0x80) are accepted; undefined bits are E_INVALIDARG and leave the mask unchanged */
+        UINT before = ID3D11Debug_GetFeatureMask(f.dbg);
         HRESULT hr = ID3D11Debug_SetFeatureMask(f.dbg, bits[i]);
-        t_note("SetFeatureMask(0x%x) -> %s, GetFeatureMask -> 0x%x", bits[i], d3dh_hr_name(hr), ID3D11Debug_GetFeatureMask(f.dbg));
+        if (i < 4) { EXPECT_HR(hr, S_OK); EXPECT_EQ(ID3D11Debug_GetFeatureMask(f.dbg), bits[i]); }
+        else { EXPECT_HR(hr, E_INVALIDARG); EXPECT_EQ(ID3D11Debug_GetFeatureMask(f.dbg), before); }
     }
     ID3D11Debug_SetFeatureMask(f.dbg, orig);
     dbg_close(&f);
@@ -198,7 +207,11 @@ TEST(d3d11_debug_refcount_debug_present_delay_note)
     DBG(f, 0);
     UINT orig = ID3D11Debug_GetPresentPerRenderOpDelay(f.dbg);
     HRESULT hr = ID3D11Debug_SetPresentPerRenderOpDelay(f.dbg, 0);
-    t_note("initial delay %u, SetPresentPerRenderOpDelay(0) -> %s, Get -> %u", orig, d3dh_hr_name(hr), ID3D11Debug_GetPresentPerRenderOpDelay(f.dbg));
+    EXPECT_EQ(orig, 10);                                   /* Win10 default */
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(ID3D11Debug_GetPresentPerRenderOpDelay(f.dbg), 0);
+    EXPECT_HR(ID3D11Debug_SetPresentPerRenderOpDelay(f.dbg, 250), S_OK);
+    EXPECT_EQ(ID3D11Debug_GetPresentPerRenderOpDelay(f.dbg), 250);
     ID3D11Debug_SetPresentPerRenderOpDelay(f.dbg, orig);
     dbg_close(&f);
 }
@@ -229,11 +242,12 @@ TEST(d3d11_debug_refcount_debug_swapchain_roundtrip_refcount)
         t_note("CreateSwapChain failed: %s", d3dh_hr_name(hr));
     } else {
         ULONG base = d3dh_refcount(sc);
-        EXPECT_HR(ID3D11Debug_SetSwapChain(f.dbg, sc), S_OK);
-        t_note("swap chain refcount %lu -> %lu after SetSwapChain", base, d3dh_refcount(sc));
-        IDXGISwapChain *got = NULL;
+        /* Win10 22H2: SetSwapChain is not implemented by the debug layer (E_NOTIMPL) and does not retain the swap chain */
+        EXPECT_HR(ID3D11Debug_SetSwapChain(f.dbg, sc), E_NOTIMPL);
+        EXPECT_EQ(d3dh_refcount(sc), base);
+        IDXGISwapChain *got = (IDXGISwapChain *)(ULONG_PTR)1;
         EXPECT_HR(ID3D11Debug_GetSwapChain(f.dbg, &got), S_OK);
-        CHECK(got == sc);
+        CHECK(got == NULL);
         SAFE_RELEASE(got);
         EXPECT_HR(ID3D11Debug_SetSwapChain(f.dbg, NULL), S_OK);
         EXPECT_EQ(d3dh_refcount(sc), base);
@@ -266,9 +280,9 @@ TEST(d3d11_debug_refcount_debug_report_live_zero_flags_note)
 {
     DBG(f, 1);
     HRESULT hr = ID3D11Debug_ReportLiveDeviceObjects(f.dbg, (D3D11_RLDO_FLAGS)0);
-    t_note("ReportLiveDeviceObjects(0) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     hr = ID3D11Debug_ReportLiveDeviceObjects(f.dbg, (D3D11_RLDO_FLAGS)0x80);
-    t_note("ReportLiveDeviceObjects(0x80) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     dbg_close(&f);
 }
 
@@ -283,30 +297,35 @@ TEST(d3d11_debug_refcount_debug_report_live_after_objects_released)
     dbg_close(&f);
 }
 
-TEST(d3d11_debug_refcount_debug_validate_context_note)
+/* Win10 22H2 (20/20 fresh devices): an empty pipeline fails ValidateContext (no shaders) but passes the dispatch validation */
+TEST(d3d11_debug_refcount_debug_validate_context_empty_pipeline)
 {
     DBG(f, 1);
-    HRESULT hr = ID3D11Debug_ValidateContext(f.dbg, f.ctx);
-    t_note("ValidateContext(immediate, empty pipeline) -> %s", d3dh_hr_name(hr));
-    hr = ID3D11Debug_ValidateContextForDispatch(f.dbg, f.ctx);
-    t_note("ValidateContextForDispatch(immediate, empty pipeline) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(ID3D11Debug_ValidateContext(f.dbg, f.ctx), E_FAIL);
+    EXPECT_HR(ID3D11Debug_ValidateContextForDispatch(f.dbg, f.ctx), S_OK);
     ID3D11DeviceContext *dc = NULL;
-    if (SUCCEEDED(ID3D11Device_CreateDeferredContext(f.dev, 0, &dc))) {
-        hr = ID3D11Debug_ValidateContext(f.dbg, dc);
-        t_note("ValidateContext(deferred) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(ID3D11Device_CreateDeferredContext(f.dev, 0, &dc), S_OK);
+    if (dc) {
+        EXPECT_HR(ID3D11Debug_ValidateContext(f.dbg, dc), E_FAIL);
+        EXPECT_HR(ID3D11Debug_ValidateContextForDispatch(f.dbg, dc), S_OK);
         SAFE_RELEASE(dc);
     }
     ID3D11InfoQueue_ClearStoredMessages(f.iq);
     dbg_close(&f);
 }
 
-TEST(d3d11_debug_refcount_debug_validate_context_foreign_device_note)
+typedef struct { ID3D11Debug *dbg; ID3D11DeviceContext *ctx; HRESULT hr; } vc_args;
+static void vc_call(void *p) { vc_args *a = p; a->hr = ID3D11Debug_ValidateContext(a->dbg, a->ctx); }
+/* Win10 22H2: no argument validation: a context of another device and a NULL context raise an access violation (20/20) */
+TEST(d3d11_debug_refcount_debug_validate_context_foreign_device_faults)
 {
     DBG(f, 1);
     ID3D11Device *d2 = NULL; ID3D11DeviceContext *c2 = NULL;
     if (FAILED(d3dh_make_device11(&d2, &c2, NULL, NULL, 0))) { dbg_close(&f); t_skip("second device unavailable"); return; }
-    HRESULT hr = ID3D11Debug_ValidateContext(f.dbg, c2);
-    t_note("ValidateContext(context of another device) -> %s", d3dh_hr_name(hr));
+    vc_args a = { f.dbg, c2, S_OK };
+    EXPECT_EQ(t_try(vc_call, &a), 0xC0000005u);
+    a.ctx = NULL;
+    EXPECT_EQ(t_try(vc_call, &a), 0xC0000005u);
     SAFE_RELEASE(c2); SAFE_RELEASE(d2);
     ID3D11InfoQueue_ClearStoredMessages(f.iq);
     dbg_close(&f);
@@ -318,7 +337,7 @@ TEST(d3d11_debug_refcount_switch_to_ref_set_false)
     DBG(f, 0);
     ID3D11SwitchToRef *sw = NULL;
     HRESULT hr = RC_QI(f.dev, IID_ID3D11SwitchToRef, &sw);
-    if (FAILED(hr)) { dbg_close(&f); t_skip("ID3D11SwitchToRef not exposed (%s)", d3dh_hr_name(hr)); return; }
+    if (FAILED(hr)) { dbg_close(&f); t_skip("ID3D11SwitchToRef not exposed (%s); Win10 22H2 WARP debug device: E_NOINTERFACE", d3dh_hr_name(hr)); return; }
     BOOL cur = ID3D11SwitchToRef_GetUseRef(sw);
     t_note("initial GetUseRef = %d", (int)cur);
     BOOL prev = ID3D11SwitchToRef_SetUseRef(sw, FALSE);
@@ -335,7 +354,7 @@ TEST(d3d11_debug_refcount_switch_to_ref_toggle_note)
     DBG(f, 0);
     ID3D11SwitchToRef *sw = NULL;
     HRESULT hr = RC_QI(f.dev, IID_ID3D11SwitchToRef, &sw);
-    if (FAILED(hr)) { dbg_close(&f); t_skip("ID3D11SwitchToRef not exposed (%s)", d3dh_hr_name(hr)); return; }
+    if (FAILED(hr)) { dbg_close(&f); t_skip("ID3D11SwitchToRef not exposed (%s); Win10 22H2 WARP debug device: E_NOINTERFACE", d3dh_hr_name(hr)); return; }
     BOOL p1 = ID3D11SwitchToRef_SetUseRef(sw, TRUE);
     BOOL now = ID3D11SwitchToRef_GetUseRef(sw);
     t_note("SetUseRef(TRUE): previous %d, now %d (the reference rasteriser may be absent)", (int)p1, (int)now);
@@ -364,9 +383,9 @@ TEST(d3d11_debug_refcount_infoqueue_initial_state)
     DBG(f, 1);
     EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 0);
     EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessagesAllowedByRetrievalFilter(IQ), 0);
-    t_note("message count limit %llu, storage stack %u, retrieval stack %u",
-           (unsigned long long)ID3D11InfoQueue_GetMessageCountLimit(IQ), ID3D11InfoQueue_GetStorageFilterStackSize(IQ), ID3D11InfoQueue_GetRetrievalFilterStackSize(IQ));
-    CHECK(ID3D11InfoQueue_GetMessageCountLimit(IQ) > 0);
+    EXPECT_EQ(ID3D11InfoQueue_GetMessageCountLimit(IQ), 1024);          /* Win10 default */
+    EXPECT_EQ(ID3D11InfoQueue_GetStorageFilterStackSize(IQ), 1);        /* the default filter */
+    EXPECT_EQ(ID3D11InfoQueue_GetRetrievalFilterStackSize(IQ), 0);
     dbg_close(&f);
 }
 
@@ -382,7 +401,7 @@ TEST(d3d11_debug_refcount_infoqueue_mute_roundtrip)
 
 TEST(d3d11_debug_refcount_infoqueue_application_message_stored)
 {
-    DBG(f, 1);
+    DBGQ(f);
     static const char text[] = "hello from the refcount test";
     EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, text), S_OK);
     EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);
@@ -393,10 +412,9 @@ TEST(d3d11_debug_refcount_infoqueue_application_message_stored)
         EXPECT_EQ(m->Category, D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED);
         EXPECT_EQ(m->Severity, D3D11_MESSAGE_SEVERITY_INFO);
         EXPECT_EQ(m->ID, D3D11_MESSAGE_ID_STRING_FROM_APPLICATION);
-        CHECK(m->DescriptionByteLength >= strlen(text));
-        CHECK(m->pDescription && !strncmp(m->pDescription, text, strlen(text)));
-        CHECK(len >= sizeof(D3D11_MESSAGE) + strlen(text));
-        t_note("DescriptionByteLength %llu, GetMessage length %llu, sizeof(D3D11_MESSAGE) %u", (unsigned long long)m->DescriptionByteLength, (unsigned long long)len, (unsigned)sizeof(D3D11_MESSAGE));
+        EXPECT_EQ(m->DescriptionByteLength, strlen(text) + 1);                 /* Win10: includes the terminating NUL */
+        CHECK(m->pDescription && !strcmp(m->pDescription, text));
+        EXPECT_EQ(len, sizeof(D3D11_MESSAGE) + strlen(text) + 1);              /* header + description, nothing else */
         free(m);
     }
     dbg_close(&f);
@@ -404,7 +422,7 @@ TEST(d3d11_debug_refcount_infoqueue_application_message_stored)
 
 TEST(d3d11_debug_refcount_infoqueue_add_message_fields_roundtrip)
 {
-    DBG(f, 1);
+    DBGQ(f);
     static const struct { D3D11_MESSAGE_CATEGORY c; D3D11_MESSAGE_SEVERITY s; D3D11_MESSAGE_ID id; } t[] = {
         { D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED, D3D11_MESSAGE_SEVERITY_MESSAGE, D3D11_MESSAGE_ID_STRING_FROM_APPLICATION },
         { D3D11_MESSAGE_CATEGORY_MISCELLANEOUS, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_ID_STRING_FROM_APPLICATION },
@@ -414,25 +432,24 @@ TEST(d3d11_debug_refcount_infoqueue_add_message_fields_roundtrip)
     };
     for (size_t i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
         char desc[32]; sprintf(desc, "entry %u", (unsigned)i);
-        HRESULT hr = ID3D11InfoQueue_AddMessage(IQ, t[i].c, t[i].s, t[i].id, desc);
-        t_note("AddMessage(cat %d, sev %d, id %d) -> %s", t[i].c, t[i].s, t[i].id, d3dh_hr_name(hr));
+        EXPECT_HR(ID3D11InfoQueue_AddMessage(IQ, t[i].c, t[i].s, t[i].id, desc), S_OK);   /* no filter: every severity/category/id is stored */
     }
-    UINT64 n = ID3D11InfoQueue_GetNumStoredMessages(IQ);
-    t_note("%llu of %u messages stored", (unsigned long long)n, (unsigned)(sizeof(t) / sizeof(t[0])));
-    CHECK(n >= 1);
-    /* the first message is the first one added and keeps its fields */
-    D3D11_MESSAGE *m = get_msg(IQ, 0, NULL);
-    if (m) {
-        EXPECT_EQ(m->Category, t[0].c); EXPECT_EQ(m->Severity, t[0].s); EXPECT_EQ(m->ID, t[0].id);
-        CHECK(m->pDescription && !strcmp(m->pDescription, "entry 0"));
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), sizeof(t) / sizeof(t[0]));
+    for (size_t i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
+        D3D11_MESSAGE *m = get_msg(IQ, i, NULL);
+        CHECKF(m != NULL, "message %u", (unsigned)i);
+        if (!m) continue;
+        char desc[32]; sprintf(desc, "entry %u", (unsigned)i);
+        EXPECT_EQ(m->Category, t[i].c); EXPECT_EQ(m->Severity, t[i].s); EXPECT_EQ(m->ID, t[i].id);
+        CHECK(m->pDescription && !strcmp(m->pDescription, desc));
         free(m);
-    } else CHECK(m != NULL);
+    }
     dbg_close(&f);
 }
 
 TEST(d3d11_debug_refcount_infoqueue_messages_in_insertion_order)
 {
-    DBG(f, 1);
+    DBGQ(f);
     char d[32];
     for (int i = 0; i < 5; i++) { sprintf(d, "msg-%d", i); EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_MESSAGE, d), S_OK); }
     EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 5);
@@ -449,55 +466,53 @@ TEST(d3d11_debug_refcount_infoqueue_messages_in_insertion_order)
 
 TEST(d3d11_debug_refcount_infoqueue_get_message_size_protocol)
 {
-    DBG(f, 1);
+    DBGQ(f);
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "size protocol");
     SIZE_T len = 0;
     HRESULT hr = ID3D11InfoQueue_GetMessage(IQ, 0, NULL, &len);
-    EXPECT_HR(hr, S_OK);
-    CHECK(len > sizeof(D3D11_MESSAGE));
+    EXPECT_HR(hr, S_FALSE);                                   /* Win10: size query with a NULL buffer returns S_FALSE */
+    EXPECT_EQ(len, sizeof(D3D11_MESSAGE) + sizeof("size protocol"));
     /* a buffer that is one byte too small must not be accepted */
     D3D11_MESSAGE *m = malloc(len + 16);
     memset(m, 0xcc, len + 16);
     SIZE_T small = len - 1;
     hr = ID3D11InfoQueue_GetMessage(IQ, 0, m, &small);
-    t_note("GetMessage with length-1 buffer -> %s, length now %llu", d3dh_hr_name(hr), (unsigned long long)small);
-    CHECK(hr != S_OK);
+    EXPECT_HR(hr, E_INVALIDARG);
+    EXPECT_EQ(small, len - 1);                                 /* length is left untouched on failure */
     small = 0;
     hr = ID3D11InfoQueue_GetMessage(IQ, 0, m, &small);
-    t_note("GetMessage with length 0 buffer -> %s", d3dh_hr_name(hr));
-    CHECK(hr != S_OK);
+    EXPECT_HR(hr, E_INVALIDARG);
+    EXPECT_EQ(small, 0);
     /* exact size and larger size succeed and report the real length */
     SIZE_T exact = len;
     EXPECT_HR(ID3D11InfoQueue_GetMessage(IQ, 0, m, &exact), S_OK);
     EXPECT_EQ(exact, len);
     SIZE_T big = len + 16;
     EXPECT_HR(ID3D11InfoQueue_GetMessage(IQ, 0, m, &big), S_OK);
-    EXPECT_EQ(big, len);
+    EXPECT_EQ(big, len + 16);                                  /* Win10: the length is an input only, it is not rewritten on success */
     free(m);
     dbg_close(&f);
 }
 
 TEST(d3d11_debug_refcount_infoqueue_get_message_out_of_range)
 {
-    DBG(f, 1);
+    DBGQ(f);
     SIZE_T len = 0;
     HRESULT hr = ID3D11InfoQueue_GetMessage(IQ, 0, NULL, &len);
-    t_note("GetMessage(0) on an empty queue -> %s", d3dh_hr_name(hr));
-    CHECK(hr != S_OK);
+    EXPECT_HR(hr, E_INVALIDARG);
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "one");
     len = 0;
     hr = ID3D11InfoQueue_GetMessage(IQ, 1, NULL, &len);
-    t_note("GetMessage(1) with one stored -> %s", d3dh_hr_name(hr));
-    CHECK(hr != S_OK);
+    EXPECT_HR(hr, E_INVALIDARG);
     len = 0;
     hr = ID3D11InfoQueue_GetMessage(IQ, (UINT64)-1, NULL, &len);
-    CHECK(hr != S_OK);
+    EXPECT_HR(hr, E_INVALIDARG);
     dbg_close(&f);
 }
 
 TEST(d3d11_debug_refcount_infoqueue_clear_stored_messages)
 {
-    DBG(f, 1);
+    DBGQ(f);
     for (int i = 0; i < 4; i++) ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "x");
     EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 4);
     ID3D11InfoQueue_ClearStoredMessages(IQ);
@@ -510,7 +525,7 @@ TEST(d3d11_debug_refcount_infoqueue_clear_stored_messages)
 
 TEST(d3d11_debug_refcount_infoqueue_message_count_limit)
 {
-    DBG(f, 1);
+    DBGQ(f);
     UINT64 orig = ID3D11InfoQueue_GetMessageCountLimit(IQ);
     EXPECT_HR(ID3D11InfoQueue_SetMessageCountLimit(IQ, 5), S_OK);
     EXPECT_EQ(ID3D11InfoQueue_GetMessageCountLimit(IQ), 5);
@@ -525,7 +540,7 @@ TEST(d3d11_debug_refcount_infoqueue_message_count_limit)
 
 TEST(d3d11_debug_refcount_infoqueue_message_count_limit_unlimited)
 {
-    DBG(f, 1);
+    DBGQ(f);
     UINT64 orig = ID3D11InfoQueue_GetMessageCountLimit(IQ);
     HRESULT hr = ID3D11InfoQueue_SetMessageCountLimit(IQ, (UINT64)-1);
     EXPECT_HR(hr, S_OK);
@@ -539,11 +554,14 @@ TEST(d3d11_debug_refcount_infoqueue_message_count_limit_unlimited)
 
 TEST(d3d11_debug_refcount_infoqueue_limit_smaller_than_stored)
 {
-    DBG(f, 1);
+    DBGQ(f);
     UINT64 orig = ID3D11InfoQueue_GetMessageCountLimit(IQ);
     for (int i = 0; i < 6; i++) ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "p");
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 6);
     HRESULT hr = ID3D11InfoQueue_SetMessageCountLimit(IQ, 2);
-    t_note("shrinking the limit below the stored count -> %s, stored now %llu", d3dh_hr_name(hr), (unsigned long long)ID3D11InfoQueue_GetNumStoredMessages(IQ));
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 2);                       /* Win10: oldest messages are dropped to fit */
+    EXPECT_EQ(ID3D11InfoQueue_GetNumMessagesDiscardedByMessageCountLimit(IQ), 4);
     ID3D11InfoQueue_SetMessageCountLimit(IQ, orig);
     dbg_close(&f);
 }
@@ -596,7 +614,7 @@ TEST(d3d11_debug_refcount_infoqueue_retrieval_filter_stack_depth)
 
 TEST(d3d11_debug_refcount_infoqueue_storage_filter_denies_severity)
 {
-    DBG(f, 1);
+    DBGQ(f);
     D3D11_MESSAGE_SEVERITY sev = D3D11_MESSAGE_SEVERITY_INFO;
     D3D11_INFO_QUEUE_FILTER fl = make_deny_severity(&sev);
     UINT64 allowed0 = ID3D11InfoQueue_GetNumMessagesAllowedByStorageFilter(IQ);
@@ -616,7 +634,7 @@ TEST(d3d11_debug_refcount_infoqueue_storage_filter_denies_severity)
 
 TEST(d3d11_debug_refcount_infoqueue_storage_filter_allow_list)
 {
-    DBG(f, 1);
+    DBGQ(f);
     D3D11_MESSAGE_SEVERITY sev = D3D11_MESSAGE_SEVERITY_WARNING;
     D3D11_INFO_QUEUE_FILTER fl; memset(&fl, 0, sizeof(fl));
     fl.AllowList.NumSeverities = 1; fl.AllowList.pSeverityList = &sev;
@@ -633,7 +651,7 @@ TEST(d3d11_debug_refcount_infoqueue_storage_filter_allow_list)
 
 TEST(d3d11_debug_refcount_infoqueue_storage_filter_deny_id)
 {
-    DBG(f, 1);
+    DBGQ(f);
     D3D11_MESSAGE_ID id = D3D11_MESSAGE_ID_STRING_FROM_APPLICATION;
     D3D11_INFO_QUEUE_FILTER fl; memset(&fl, 0, sizeof(fl));
     fl.DenyList.NumIDs = 1; fl.DenyList.pIDList = &id;
@@ -648,7 +666,7 @@ TEST(d3d11_debug_refcount_infoqueue_storage_filter_deny_id)
 
 TEST(d3d11_debug_refcount_infoqueue_storage_filter_deny_category)
 {
-    DBG(f, 1);
+    DBGQ(f);
     D3D11_MESSAGE_CATEGORY cat = D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED;
     D3D11_INFO_QUEUE_FILTER fl; memset(&fl, 0, sizeof(fl));
     fl.DenyList.NumCategories = 1; fl.DenyList.pCategoryList = &cat;
@@ -661,12 +679,12 @@ TEST(d3d11_debug_refcount_infoqueue_storage_filter_deny_category)
 
 TEST(d3d11_debug_refcount_infoqueue_empty_storage_filter_allows_all)
 {
-    DBG(f, 1);
+    DBGQ(f);
     EXPECT_HR(ID3D11InfoQueue_PushEmptyStorageFilter(IQ), S_OK);
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "i");
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_WARNING, "w");
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_MESSAGE, "m");
-    t_note("empty storage filter stored %llu of 3 messages", (unsigned long long)ID3D11InfoQueue_GetNumStoredMessages(IQ));
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 3);
     CHECK(ID3D11InfoQueue_GetNumStoredMessages(IQ) == 3);
     ID3D11InfoQueue_PopStorageFilter(IQ);
     dbg_close(&f);
@@ -674,15 +692,15 @@ TEST(d3d11_debug_refcount_infoqueue_empty_storage_filter_allows_all)
 
 TEST(d3d11_debug_refcount_infoqueue_get_storage_filter_size_protocol)
 {
-    DBG(f, 1);
+    DBGQ(f);
     D3D11_MESSAGE_SEVERITY sevs[2] = { D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_MESSAGE };
     D3D11_INFO_QUEUE_FILTER fl; memset(&fl, 0, sizeof(fl));
     fl.DenyList.NumSeverities = 2; fl.DenyList.pSeverityList = sevs;
     EXPECT_HR(ID3D11InfoQueue_PushStorageFilter(IQ, &fl), S_OK);
     SIZE_T len = 0;
     HRESULT hr = ID3D11InfoQueue_GetStorageFilter(IQ, NULL, &len);
-    EXPECT_HR(hr, S_OK);
-    CHECK(len >= sizeof(D3D11_INFO_QUEUE_FILTER) + 2 * sizeof(D3D11_MESSAGE_SEVERITY));
+    EXPECT_HR(hr, S_FALSE);                                    /* size query */
+    EXPECT_EQ(len, sizeof(D3D11_INFO_QUEUE_FILTER) + 2 * sizeof(D3D11_MESSAGE_SEVERITY));
     D3D11_INFO_QUEUE_FILTER *got = malloc(len);
     SIZE_T l2 = len;
     EXPECT_HR(ID3D11InfoQueue_GetStorageFilter(IQ, got, &l2), S_OK);
@@ -700,7 +718,7 @@ TEST(d3d11_debug_refcount_infoqueue_get_storage_filter_size_protocol)
 
 TEST(d3d11_debug_refcount_infoqueue_add_storage_filter_entries)
 {
-    DBG(f, 1);
+    DBGQ(f);
     ID3D11InfoQueue_PushEmptyStorageFilter(IQ);
     D3D11_MESSAGE_SEVERITY sev = D3D11_MESSAGE_SEVERITY_INFO;
     D3D11_INFO_QUEUE_FILTER fl = make_deny_severity(&sev);
@@ -718,7 +736,7 @@ TEST(d3d11_debug_refcount_infoqueue_add_storage_filter_entries)
 
 TEST(d3d11_debug_refcount_infoqueue_pushed_filter_is_copied)
 {
-    DBG(f, 1);
+    DBGQ(f);
     D3D11_MESSAGE_SEVERITY sev = D3D11_MESSAGE_SEVERITY_INFO;
     D3D11_INFO_QUEUE_FILTER fl = make_deny_severity(&sev);
     EXPECT_HR(ID3D11InfoQueue_PushStorageFilter(IQ, &fl), S_OK);
@@ -732,7 +750,7 @@ TEST(d3d11_debug_refcount_infoqueue_pushed_filter_is_copied)
 
 TEST(d3d11_debug_refcount_infoqueue_retrieval_filter_hides_messages)
 {
-    DBG(f, 1);
+    DBGQ(f);
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "info");
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_WARNING, "warning");
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "info2");
@@ -751,12 +769,12 @@ TEST(d3d11_debug_refcount_infoqueue_retrieval_filter_hides_messages)
 
 TEST(d3d11_debug_refcount_infoqueue_break_on_severity_roundtrip)
 {
-    DBG(f, 1);
+    DBGQ(f);
     static const D3D11_MESSAGE_SEVERITY s[] = { D3D11_MESSAGE_SEVERITY_CORRUPTION, D3D11_MESSAGE_SEVERITY_ERROR, D3D11_MESSAGE_SEVERITY_WARNING,
         D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_MESSAGE };
     for (size_t i = 0; i < sizeof(s) / sizeof(s[0]); i++) {
         BOOL orig = ID3D11InfoQueue_GetBreakOnSeverity(IQ, s[i]);
-        t_note("default break-on-severity %d = %d", s[i], (int)orig);
+        EXPECT_EQ(orig, FALSE);                    /* Win10: no break-on-* is armed by default */
         EXPECT_HR(ID3D11InfoQueue_SetBreakOnSeverity(IQ, s[i], TRUE), S_OK);
         EXPECT_EQ(ID3D11InfoQueue_GetBreakOnSeverity(IQ, s[i]), TRUE);
         EXPECT_HR(ID3D11InfoQueue_SetBreakOnSeverity(IQ, s[i], FALSE), S_OK);
@@ -768,7 +786,7 @@ TEST(d3d11_debug_refcount_infoqueue_break_on_severity_roundtrip)
 
 TEST(d3d11_debug_refcount_infoqueue_break_on_category_roundtrip)
 {
-    DBG(f, 1);
+    DBGQ(f);
     for (int c = D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED; c <= D3D11_MESSAGE_CATEGORY_SHADER; c++) {
         BOOL orig = ID3D11InfoQueue_GetBreakOnCategory(IQ, (D3D11_MESSAGE_CATEGORY)c);
         EXPECT_HR(ID3D11InfoQueue_SetBreakOnCategory(IQ, (D3D11_MESSAGE_CATEGORY)c, TRUE), S_OK);
@@ -782,7 +800,7 @@ TEST(d3d11_debug_refcount_infoqueue_break_on_category_roundtrip)
 
 TEST(d3d11_debug_refcount_infoqueue_break_on_id_roundtrip)
 {
-    DBG(f, 1);
+    DBGQ(f);
     static const D3D11_MESSAGE_ID ids[] = { D3D11_MESSAGE_ID_STRING_FROM_APPLICATION, D3D11_MESSAGE_ID_CREATEBUFFER_UNRECOGNIZEDFORMAT,
         D3D11_MESSAGE_ID_DEVICE_DRAW_VERTEX_BUFFER_NOT_SET };
     for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
@@ -805,16 +823,17 @@ TEST(d3d11_debug_refcount_infoqueue_invalid_call_logs_error)
     HRESULT hr = ID3D11Device_CreateBuffer(f.dev, &bd, NULL, &b);
     EXPECT_HR(hr, E_INVALIDARG);
     CHECK(b == NULL);
-    UINT64 n = ID3D11InfoQueue_GetNumStoredMessages(IQ);
-    CHECK(n >= 1);
-    for (UINT64 i = 0; i < n && i < 8; i++) {
+    /* Win10 22H2: exactly two ERROR messages, both STATE_CREATION: the specific cause, then the E_INVALIDARG return report */
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 2);
+    static const D3D11_MESSAGE_ID want[2] = { D3D11_MESSAGE_ID_CREATEBUFFER_INVALIDINITIALDATA, D3D11_MESSAGE_ID_CREATEBUFFER_INVALIDARG_RETURN };
+    for (UINT64 i = 0; i < 2; i++) {
         D3D11_MESSAGE *m = get_msg(IQ, i, NULL);
+        CHECKF(m != NULL, "message %u", (unsigned)i);
         if (!m) continue;
-        t_note("message %llu: cat %d sev %d id %d: %s", (unsigned long long)i, m->Category, m->Severity, m->ID, m->pDescription ? m->pDescription : "");
-        if (i == 0) {
-            EXPECT_EQ(m->Severity, D3D11_MESSAGE_SEVERITY_ERROR);
-            t_note("first message category %d", m->Category);
-        }
+        EXPECT_EQ(m->Severity, D3D11_MESSAGE_SEVERITY_ERROR);
+        EXPECT_EQ(m->Category, D3D11_MESSAGE_CATEGORY_STATE_CREATION);
+        EXPECT_EQ(m->ID, want[i]);
+        CHECK(m->pDescription && strstr(m->pDescription, "CreateBuffer"));
         free(m);
     }
     dbg_close(&f);
@@ -839,31 +858,36 @@ TEST(d3d11_debug_refcount_infoqueue_valid_calls_add_no_error_messages)
 
 TEST(d3d11_debug_refcount_infoqueue_add_message_invalid_args_note)
 {
-    DBG(f, 1);
+    DBGQ(f);
     HRESULT hr = ID3D11InfoQueue_AddMessage(IQ, D3D11_MESSAGE_CATEGORY_APPLICATION_DEFINED, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_ID_STRING_FROM_APPLICATION, NULL);
-    t_note("AddMessage(NULL description) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     hr = ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, NULL);
-    t_note("AddApplicationMessage(NULL) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 0);
     hr = ID3D11InfoQueue_AddApplicationMessage(IQ, (D3D11_MESSAGE_SEVERITY)99, "bad severity");
-    t_note("AddApplicationMessage(severity 99) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);                      /* Win10: out-of-range enum values are not validated, the message is stored */
     hr = ID3D11InfoQueue_AddMessage(IQ, (D3D11_MESSAGE_CATEGORY)99, D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_ID_STRING_FROM_APPLICATION, "bad category");
-    t_note("AddMessage(category 99) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 2);
     ID3D11InfoQueue_ClearStoredMessages(IQ);
     dbg_close(&f);
 }
 
 TEST(d3d11_debug_refcount_infoqueue_empty_description)
 {
-    DBG(f, 1);
+    DBGQ(f);
     HRESULT hr = ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "");
-    t_note("AddApplicationMessage(\"\") -> %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);
+    D3D11_MESSAGE *m = get_msg(IQ, 0, NULL);
+    CHECK(m != NULL);
+    if (m) { EXPECT_EQ(m->DescriptionByteLength, 1); CHECK(m->pDescription && !m->pDescription[0]); free(m); }
     dbg_close(&f);
 }
 
 TEST(d3d11_debug_refcount_infoqueue_long_description)
 {
-    DBG(f, 1);
+    DBGQ(f);
     char *s = malloc(4096);
     memset(s, 'a', 4095); s[4095] = 0;
     HRESULT hr = ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, s);
@@ -881,7 +905,7 @@ TEST(d3d11_debug_refcount_infoqueue_long_description)
 
 TEST(d3d11_debug_refcount_infoqueue_messages_survive_object_destruction)
 {
-    DBG(f, 1);
+    DBGQ(f);
     ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "kept");
     ID3D11DeviceChild *o = NULL;
     if (SUCCEEDED(rc_make(K_BUF, f.dev, &o))) RC_RELEASE(o);
@@ -894,7 +918,7 @@ TEST(d3d11_debug_refcount_infoqueue_messages_survive_object_destruction)
 
 TEST(d3d11_debug_refcount_infoqueue_device_release_with_pending_messages)
 {
-    DBG(f, 1);
+    DBGQ(f);
     for (int i = 0; i < 20; i++) ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "pending");
     ID3D11InfoQueue_SetMuteDebugOutput(IQ, TRUE);
     SAFE_RELEASE(f.iq);   /* mute stays on; releasing everything must not crash */
@@ -911,5 +935,199 @@ TEST(d3d11_debug_refcount_infoqueue_private_data_on_debug_device)
     CHECK(hr == S_OK || hr == HR_MORE_DATA);
     EXPECT_EQ(sz, strlen(name));
     EXPECT_HR(ID3D11Device_SetPrivateData(f.dev, &WKPDID_D3DDebugObjectName, 0, NULL), S_OK);
+    dbg_close(&f);
+}
+
+/* ---- default filters and argument rules, measured on Win10 22H2 ---------------------------------------------- */
+TEST(d3d11_debug_refcount_infoqueue_default_storage_filter_denies_info_only)
+{
+    DBG(f, 1);   /* default filter kept */
+    SIZE_T len = 0;
+    EXPECT_HR(ID3D11InfoQueue_GetStorageFilter(IQ, NULL, &len), S_FALSE);
+    EXPECT_EQ(len, 100);
+    D3D11_INFO_QUEUE_FILTER *fl = malloc(len);
+    SIZE_T l2 = len;
+    EXPECT_HR(ID3D11InfoQueue_GetStorageFilter(IQ, fl, &l2), S_OK);
+    EXPECT_EQ(fl->AllowList.NumCategories + fl->AllowList.NumSeverities + fl->AllowList.NumIDs, 0);
+    EXPECT_EQ(fl->DenyList.NumCategories, 0);
+    EXPECT_EQ(fl->DenyList.NumIDs, 0);
+    EXPECT_EQ(fl->DenyList.NumSeverities, 1);
+    if (fl->DenyList.NumSeverities == 1) EXPECT_EQ(fl->DenyList.pSeverityList[0], D3D11_MESSAGE_SEVERITY_INFO);
+    free(fl);
+    static const struct { D3D11_MESSAGE_SEVERITY s; HRESULT hr; } t[] = {
+        { D3D11_MESSAGE_SEVERITY_CORRUPTION, S_OK }, { D3D11_MESSAGE_SEVERITY_ERROR, S_OK }, { D3D11_MESSAGE_SEVERITY_WARNING, S_OK },
+        { D3D11_MESSAGE_SEVERITY_INFO, S_FALSE }, { D3D11_MESSAGE_SEVERITY_MESSAGE, S_OK } };
+    UINT64 want = 0;
+    for (int i = 0; i < 5; i++) {
+        EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, t[i].s, "default filter"), t[i].hr);
+        if (t[i].hr == S_OK) want++;
+        EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), want);
+    }
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_default_retrieval_filter_empty)
+{
+    DBG(f, 1);
+    SIZE_T len = 0;
+    EXPECT_HR(ID3D11InfoQueue_GetRetrievalFilter(IQ, NULL, &len), S_FALSE);
+    EXPECT_EQ(len, 96);                                         /* sizeof(D3D11_INFO_QUEUE_FILTER) with empty lists */
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_clear_storage_filter_allows_info)
+{
+    DBG(f, 1);
+    EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "denied by default"), S_FALSE);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 0);
+    ID3D11InfoQueue_ClearStorageFilter(IQ);
+    EXPECT_EQ(ID3D11InfoQueue_GetStorageFilterStackSize(IQ), 1);   /* Clear empties the top filter, it does not pop it */
+    EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "allowed"), S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_push_empty_filter_allows_info_over_default)
+{
+    DBG(f, 1);
+    EXPECT_HR(ID3D11InfoQueue_PushEmptyStorageFilter(IQ), S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetStorageFilterStackSize(IQ), 2);
+    EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "allowed"), S_OK);   /* only the top filter applies */
+    ID3D11InfoQueue_PopStorageFilter(IQ);
+    EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_INFO, "denied again"), S_FALSE);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_push_null_filter_invalid)
+{
+    DBG(f, 1);
+    EXPECT_HR(ID3D11InfoQueue_PushStorageFilter(IQ, NULL), E_INVALIDARG);
+    EXPECT_HR(ID3D11InfoQueue_PushRetrievalFilter(IQ, NULL), E_INVALIDARG);
+    EXPECT_EQ(ID3D11InfoQueue_GetStorageFilterStackSize(IQ), 1);
+    EXPECT_EQ(ID3D11InfoQueue_GetRetrievalFilterStackSize(IQ), 0);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_filter_stack_depth_40)
+{
+    DBG(f, 1);
+    for (int i = 0; i < 40; i++) EXPECT_HR(ID3D11InfoQueue_PushEmptyStorageFilter(IQ), S_OK);   /* no small fixed limit */
+    EXPECT_EQ(ID3D11InfoQueue_GetStorageFilterStackSize(IQ), 41);
+    for (int i = 0; i < 40; i++) ID3D11InfoQueue_PopStorageFilter(IQ);
+    EXPECT_EQ(ID3D11InfoQueue_GetStorageFilterStackSize(IQ), 1);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_stored_filter_roundtrip_all_lists)
+{
+    DBGQ(f);
+    D3D11_MESSAGE_ID ids[2] = { 1, 2 };
+    D3D11_MESSAGE_CATEGORY cat = D3D11_MESSAGE_CATEGORY_EXECUTION;
+    D3D11_MESSAGE_SEVERITY sev = D3D11_MESSAGE_SEVERITY_MESSAGE;
+    D3D11_INFO_QUEUE_FILTER fl; memset(&fl, 0, sizeof fl);
+    fl.AllowList.NumIDs = 2; fl.AllowList.pIDList = ids; fl.AllowList.NumSeverities = 1; fl.AllowList.pSeverityList = &sev;
+    fl.DenyList.NumCategories = 1; fl.DenyList.pCategoryList = &cat;
+    EXPECT_HR(ID3D11InfoQueue_PushStorageFilter(IQ, &fl), S_OK);
+    SIZE_T len = 0;
+    EXPECT_HR(ID3D11InfoQueue_GetStorageFilter(IQ, NULL, &len), S_FALSE);
+    EXPECT_EQ(len, 112);                                      /* header + 2 ids + 1 severity + 1 category */
+    D3D11_INFO_QUEUE_FILTER *g = malloc(len);
+    EXPECT_HR(ID3D11InfoQueue_GetStorageFilter(IQ, g, &len), S_OK);
+    EXPECT_EQ(g->AllowList.NumIDs, 2); EXPECT_EQ(g->AllowList.NumSeverities, 1); EXPECT_EQ(g->AllowList.NumCategories, 0);
+    EXPECT_EQ(g->DenyList.NumCategories, 1); EXPECT_EQ(g->DenyList.NumIDs, 0); EXPECT_EQ(g->DenyList.NumSeverities, 0);
+    if (g->AllowList.NumIDs == 2) { EXPECT_EQ(g->AllowList.pIDList[0], 1); EXPECT_EQ(g->AllowList.pIDList[1], 2); }
+    if (g->DenyList.NumCategories == 1) EXPECT_EQ(g->DenyList.pCategoryList[0], D3D11_MESSAGE_CATEGORY_EXECUTION);
+    free(g);
+    ID3D11InfoQueue_PopStorageFilter(IQ);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_break_flags_accept_out_of_range)
+{
+    DBGQ(f);
+    EXPECT_HR(ID3D11InfoQueue_SetBreakOnSeverity(IQ, (D3D11_MESSAGE_SEVERITY)99, TRUE), S_OK);   /* no enum validation on Win10 */
+    EXPECT_EQ(ID3D11InfoQueue_GetBreakOnSeverity(IQ, (D3D11_MESSAGE_SEVERITY)99), TRUE);
+    EXPECT_HR(ID3D11InfoQueue_SetBreakOnSeverity(IQ, (D3D11_MESSAGE_SEVERITY)99, FALSE), S_OK);
+    EXPECT_HR(ID3D11InfoQueue_SetBreakOnCategory(IQ, (D3D11_MESSAGE_CATEGORY)99, TRUE), S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetBreakOnCategory(IQ, (D3D11_MESSAGE_CATEGORY)99), TRUE);
+    EXPECT_HR(ID3D11InfoQueue_SetBreakOnCategory(IQ, (D3D11_MESSAGE_CATEGORY)99, FALSE), S_OK);
+    for (int c = 0; c <= 13; c++) EXPECT_HR(ID3D11InfoQueue_AddMessage(IQ, (D3D11_MESSAGE_CATEGORY)c, D3D11_MESSAGE_SEVERITY_MESSAGE, 3, "cat"), S_OK);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 14);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_message_count_limit_zero_invalid)
+{
+    DBGQ(f);
+    UINT64 orig = ID3D11InfoQueue_GetMessageCountLimit(IQ);
+    EXPECT_HR(ID3D11InfoQueue_SetMessageCountLimit(IQ, 0), E_INVALIDARG);
+    EXPECT_EQ(ID3D11InfoQueue_GetMessageCountLimit(IQ), orig);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_long_description_exact_length)
+{
+    DBGQ(f);
+    char *s = malloc(5000); memset(s, 'a', 4999); s[4999] = 0;
+    EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(IQ, D3D11_MESSAGE_SEVERITY_WARNING, s), S_OK);   /* no truncation up to 5000 bytes */
+    SIZE_T len = 0;
+    EXPECT_HR(ID3D11InfoQueue_GetMessage(IQ, 0, NULL, &len), S_FALSE);
+    EXPECT_EQ(len, sizeof(D3D11_MESSAGE) + 5000);
+    free(s);
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_second_map_logs_error_message)
+{
+    DBGQ(f);
+    D3D11_BUFFER_DESC bd = {64, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE, 0, 0};
+    ID3D11Buffer *buf = NULL;
+    EXPECT_HR(ID3D11Device_CreateBuffer(f.dev, &bd, NULL, &buf), S_OK);
+    if (buf) {
+        D3D11_MAPPED_SUBRESOURCE m1, m2;
+        EXPECT_HR(ID3D11DeviceContext_Map(f.ctx, (ID3D11Resource *)buf, 0, D3D11_MAP_READ_WRITE, 0, &m1), S_OK);
+        ID3D11InfoQueue_ClearStoredMessages(IQ);
+        /* Win10: the call itself still succeeds and returns the same pointer, but the layer reports a RESOURCE_MANIPULATION error */
+        EXPECT_HR(ID3D11DeviceContext_Map(f.ctx, (ID3D11Resource *)buf, 0, D3D11_MAP_READ_WRITE, 0, &m2), S_OK);
+        CHECK(m1.pData == m2.pData);
+        EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);
+        D3D11_MESSAGE *m = get_msg(IQ, 0, NULL);
+        CHECK(m != NULL);
+        if (m) {
+            EXPECT_EQ(m->Severity, D3D11_MESSAGE_SEVERITY_ERROR);
+            EXPECT_EQ(m->Category, D3D11_MESSAGE_CATEGORY_RESOURCE_MANIPULATION);
+            EXPECT_EQ(m->ID, 2097213);
+            CHECK(m->pDescription && strstr(m->pDescription, "already mapped"));
+            free(m);
+        }
+        ID3D11DeviceContext_Unmap(f.ctx, (ID3D11Resource *)buf, 0);
+        SAFE_RELEASE(buf);
+    }
+    dbg_close(&f);
+}
+
+TEST(d3d11_debug_refcount_infoqueue_resource_creation_messages_are_info)
+{
+    DBGQ(f);
+    D3D11_BUFFER_DESC bd = {64, D3D11_USAGE_DEFAULT, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0};
+    ID3D11Buffer *b = NULL;
+    EXPECT_HR(ID3D11Device_CreateBuffer(f.dev, &bd, NULL, &b), S_OK);
+    /* Win10: with INFO allowed, object creation is announced (STATE_CREATION, INFO) with the live-object bookkeeping text */
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);
+    D3D11_MESSAGE *m = get_msg(IQ, 0, NULL);
+    CHECK(m != NULL);
+    if (m) {
+        EXPECT_EQ(m->Severity, D3D11_MESSAGE_SEVERITY_INFO);
+        EXPECT_EQ(m->Category, D3D11_MESSAGE_CATEGORY_STATE_CREATION);
+        EXPECT_EQ(m->ID, 2097228);
+        CHECK(m->pDescription && strstr(m->pDescription, "Create ID3D11Buffer"));
+        CHECK(m->pDescription && strstr(m->pDescription, "ExtRef=1"));
+        free(m);
+    }
+    ID3D11InfoQueue_ClearStoredMessages(IQ);
+    SAFE_RELEASE(b);
+    EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(IQ), 1);   /* and its destruction */
+    m = get_msg(IQ, 0, NULL);
+    if (m) { CHECK(m->pDescription && strstr(m->pDescription, "Destroy ID3D11Buffer")); free(m); } else CHECK(m != NULL);
     dbg_close(&f);
 }
