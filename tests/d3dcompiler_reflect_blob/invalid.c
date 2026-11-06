@@ -196,15 +196,46 @@ TEST(rb_invalid_reflect_garbage_shader_code)
     if (SUCCEEDED(hr) && r) ((IUnknown *)r)->lpVtbl->Release((IUnknown *)r); else CHECK(hr == RB_E_INVALIDARG || hr == RB_E_FAIL);
     free(x); ID3D10Blob_Release(b);
 }
-TEST(rb_invalid_reflect_truncated_shader_chunk)
+/* D3DReflect on a container whose SHDR/SHEX chunk is cut to a few bytes (valid checksum) is not validated by Win10 22H2
+ * d3dcompiler_47 (build 19041.868): depending on the size it returns S_OK, spins forever at 100% CPU (sizes 1, 3, 4, 5, 24),
+ * or dies with a C++ exception (sizes 8, 12, 28, 40; bad_alloc under a memory limit). Nothing here can be pinned, and an
+ * unbounded call would hang the whole run, so the call runs in a child process under a job object (300 MB, 10 s). */
+CHILD(rb_reflect_cut_shader)
 {
-    RB_COMPILE(b, SRC, "vs_5_0"); rb_chunk ch[RB_MAXCHUNKS]; int cnt = rb_dxbc_parse(RB_BP(b), RB_BS(b), ch, RB_MAXCHUNKS), k = 0; rb_chunk o[RB_MAXCHUNKS]; size_t sz; BYTE *x; void *r = NULL; HRESULT hr;
-    for (int i = 0; i < cnt; i++) { o[k] = ch[i]; if (ch[i].fourcc == FCC_SHEX || ch[i].fourcc == FCC_SHDR) o[k].size = 4; k++; }
+    ID3DBlob *b = NULL; rb_chunk ch[RB_MAXCHUNKS], o[RB_MAXCHUNKS]; size_t sz; BYTE *x; void *r = NULL; HRESULT hr; int cnt, k = 0;
+    DWORD cut = argc > 1 ? (DWORD)atoi(argv[1]) : 4;
+    if (FAILED(d3dh_compile(SRC, "main", "vs_5_0", 0, &b))) return 90;
+    cnt = rb_dxbc_parse(RB_BP(b), RB_BS(b), ch, RB_MAXCHUNKS);
+    for (int i = 0; i < cnt; i++) { o[k] = ch[i]; if (ch[i].fourcc == FCC_SHEX || ch[i].fourcc == FCC_SHDR) o[k].size = cut; k++; }
     x = rb_dxbc_build(o, k, &sz);
     hr = d3dh_D3DReflect()(x, sz, &IID_ID3D11ShaderReflection, &r);
-    t_note("reflect of 4-byte shader chunk: %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr) && r) ((IUnknown *)r)->lpVtbl->Release((IUnknown *)r);
-    free(x); ID3D10Blob_Release(b);
+    return SUCCEEDED(hr) ? 0 : 1;
+}
+/* 0 completed S_OK, 1 completed with failure, 2 timed out (killed), 3 killed/exception, 4 could not run */
+static int rb_run_cut_child(DWORD cut)
+{
+    char a[16]; PROCESS_INFORMATION pi; HANDLE job = CreateJobObjectA(NULL, NULL), h; JOBOBJECT_EXTENDED_LIMIT_INFORMATION li; DWORD w, ec = 0; int res;
+    memset(&li, 0, sizeof li); li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; li.ProcessMemoryLimit = 300u << 20;
+    if (!job || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof li)) { if (job) CloseHandle(job); return 4; }
+    snprintf(a, sizeof a, "%lu", (unsigned long)cut);
+    h = t_spawn_child("rb_reflect_cut_shader", a, CREATE_SUSPENDED, NULL, NULL, NULL, FALSE, NULL, &pi);
+    if (!h) { CloseHandle(job); return 4; }
+    AssignProcessToJobObject(job, h); ResumeThread(pi.hThread);
+    w = WaitForSingleObject(h, 10000);
+    if (w != WAIT_OBJECT_0) { TerminateProcess(h, 9); WaitForSingleObject(h, 5000); res = 2; }
+    else { GetExitCodeProcess(h, &ec); res = ec == 0 ? 0 : ec == 1 ? 1 : 3; }
+    CloseHandle(pi.hThread); CloseHandle(h); CloseHandle(job);
+    return res;
+}
+TEST(rb_invalid_reflect_truncated_shader_chunk)
+{
+    static const DWORD cuts[] = { 0, 4, 8, 16, 32 }; static const char *const nm[] = { "S_OK", "failed", "hang (killed after 10 s)", "exception", "not run" };
+    if (t_is_wine()) { t_skip("emulator"); return; }
+    for (int i = 0; i < 5; i++) {
+        int r = rb_run_cut_child(cuts[i]);
+        CHECKF(r != 4, "child for shader chunk size %lu did not start", cuts[i]);
+        t_note("reflect of a %lu-byte shader chunk: %s", cuts[i], nm[r]);
+    }
 }
 TEST(rb_invalid_reflect_truncated_resource_definition)
 {

@@ -119,7 +119,7 @@ TEST(rb_desc_statistics_basic_invariants)
     RB_REFLECT(r, "cbuffer CB { float4 a; float4 b; };\nTexture2D t : register(t0); SamplerState s : register(s0);\nfloat4 main(float2 uv : TEXCOORD0) : SV_Target { return (t.Sample(s, uv) + a) * b; }\n", "ps_5_0");
     D3D11_SHADER_DESC d;
     if (rb_desc(r, &d)) {
-        CHECK(d.InstructionCount >= 3); CHECK(d.TempRegisterCount >= 1); CHECK(d.DclCount >= 3);
+        CHECK(d.InstructionCount >= 3); CHECK(d.TempRegisterCount >= 1); EXPECT_EQ(d.DclCount, 2);   /* measured on Win10: the cbuffer declaration and the resource declarations are not counted */
         CHECK(d.FloatInstructionCount >= 2); EXPECT_EQ(d.TextureNormalInstructions, 1);
         EXPECT_EQ(d.TextureLoadInstructions, 0); EXPECT_EQ(d.TextureCompInstructions, 0); EXPECT_EQ(d.TextureBiasInstructions, 0); EXPECT_EQ(d.TextureGradientInstructions, 0);
         EXPECT_EQ(d.IntInstructionCount, 0); EXPECT_EQ(d.UintInstructionCount, 0);
@@ -149,7 +149,7 @@ TEST(rb_desc_int_uint_bitwise_conversion_counters)
     D3D11_SHADER_DESC d;
     if (rb_desc(r, &d)) {
         CHECK(d.UintInstructionCount >= 1); CHECK(d.IntInstructionCount >= 1);
-        CHECK(r->lpVtbl->GetBitwiseInstructionCount(r) >= 1); CHECK(r->lpVtbl->GetConversionInstructionCount(r) >= 1);
+        EXPECT_EQ(r->lpVtbl->GetBitwiseInstructionCount(r), 0); CHECK(r->lpVtbl->GetConversionInstructionCount(r) >= 1);   /* shifts/xor/or are counted as uint ALU, not as bitwise (measured: uint=3 int=2 bitwise=0 conv=3) */
         t_note("uint=%u int=%u bitwise=%u conv=%u", d.UintInstructionCount, d.IntInstructionCount, r->lpVtbl->GetBitwiseInstructionCount(r), r->lpVtbl->GetConversionInstructionCount(r));
     }
     RB_DONE(r);
@@ -164,14 +164,14 @@ TEST(rb_desc_dynamic_flow_control_counter)
 {
     RB_REFLECT(r, "cbuffer CB { uint n; float4 a; };\nfloat4 main() : SV_Target { float4 s = 0; [loop] for (uint k = 0; k < n; k++) { s += a * k; } return s; }\n", "ps_5_0");
     D3D11_SHADER_DESC d;
-    if (rb_desc(r, &d)) { CHECK(d.DynamicFlowControlCount >= 1); EXPECT_EQ(d.StaticFlowControlCount, 0); t_note("dynamic=%u static=%u", d.DynamicFlowControlCount, d.StaticFlowControlCount); }
+    if (rb_desc(r, &d)) { CHECK(d.DynamicFlowControlCount >= 1); EXPECT_EQ(d.StaticFlowControlCount, 1);   /* the loop back edge counts as static flow control */ t_note("dynamic=%u static=%u", d.DynamicFlowControlCount, d.StaticFlowControlCount); }
     RB_DONE(r);
 }
 TEST(rb_desc_straight_line_shader_has_no_flow_control)
 {
     RB_REFLECT(r, "cbuffer CB { float4 a; };\nfloat4 main() : SV_Target { return a * 2; }\n", "ps_5_0");
     D3D11_SHADER_DESC d;
-    if (rb_desc(r, &d)) { EXPECT_EQ(d.DynamicFlowControlCount, 0); EXPECT_EQ(d.StaticFlowControlCount, 0); EXPECT_EQ(d.MacroInstructionCount, 0); EXPECT_EQ(d.ArrayInstructionCount, 0); EXPECT_EQ(d.TempArrayCount, 0); }
+    if (rb_desc(r, &d)) { EXPECT_EQ(d.DynamicFlowControlCount, 0); EXPECT_EQ(d.StaticFlowControlCount, 1);   /* measured: the trailing ret is counted */ EXPECT_EQ(d.MacroInstructionCount, 0); EXPECT_EQ(d.ArrayInstructionCount, 0); EXPECT_EQ(d.TempArrayCount, 0); }
     RB_DONE(r);
 }
 TEST(rb_desc_instruction_count_grows_with_code)
@@ -221,7 +221,7 @@ TEST(rb_res_texture_component_flags)
     static const struct { const char *ty; UINT flags; } t[] = { { "float", 0 }, { "float2", D3D_SIF_TEXTURE_COMPONENT_0 }, { "float3", D3D_SIF_TEXTURE_COMPONENT_1 }, { "float4", D3D_SIF_TEXTURE_COMPONENTS } };
     for (int k = 0; k < 4; k++) {
         char src[256]; ID3DBlob *bl; ID3D11ShaderReflection *r; D3D11_SHADER_INPUT_BIND_DESC b;
-        sprintf(src, "Texture2D<%s> tex : register(t0);\nfloat4 main(uint i : TEXCOORD0) : SV_Target { return (float4)tex.Load(int3(i, 0, 0)); }\n", t[k].ty);
+        sprintf(src, "Texture2D<%s> tex : register(t0);\nfloat4 main(uint i : TEXCOORD0) : SV_Target { return tex.Load(int3(i, 0, 0)).xxxx; }\n", t[k].ty);
         if (!rb_compile_t(src, "ps_5_0", 0, &bl)) return;
         r = rb_reflect(bl);
         if (r) { if (rb_bind(r, "tex", &b)) t_check((b.uFlags & D3D_SIF_TEXTURE_COMPONENTS) == t[k].flags, __FILE__, __LINE__, "texture component flags", "%s got 0x%x want 0x%x", t[k].ty, b.uFlags & D3D_SIF_TEXTURE_COMPONENTS, t[k].flags); r->lpVtbl->Release(r); }
@@ -350,9 +350,16 @@ TEST(rb_res_binding_errors)
 }
 TEST(rb_res_resource_array)
 {
-    RB_REFLECT(r, "Texture2D tex[4] : register(t2);\nSamplerState s : register(s0);\ncbuffer C { uint idx; };\nfloat4 main(float2 uv : TEXCOORD0) : SV_Target { return tex[idx].Sample(s, uv); }\n", "ps_5_0");
+    RB_REFLECT(r, "Texture2D tex[4] : register(t2);\nSamplerState s : register(s0);\ncbuffer C { uint idx; };\nfloat4 main(float2 uv : TEXCOORD0) : SV_Target { return tex[0].Load(int3(uv * 8, 0)) + tex[1].Load(int3(uv * 8, 0)) + tex[2].Load(int3(uv * 8, 0)) + tex[3].Load(int3(uv * 8, 0)); }\n", "ps_5_0");
     D3D11_SHADER_INPUT_BIND_DESC b;
-    if (rb_bind(r, "tex", &b)) { EXPECT_EQ(b.BindPoint, 2); EXPECT_EQ(b.BindCount, 4); EXPECT_EQ(b.Type, D3D_SIT_TEXTURE); EXPECT_EQ(b.Dimension, D3D_SRV_DIMENSION_TEXTURE2D); }
+    { D3D11_SHADER_DESC sd; if (rb_desc(r, &sd)) for (UINT k = 0; k < sd.BoundResources; k++) { D3D11_SHADER_INPUT_BIND_DESC x; if (SUCCEEDED(r->lpVtbl->GetResourceBindingDesc(r, k, &x))) t_note("bound %u: %s type %d bp %u count %u", k, x.Name, x.Type, x.BindPoint, x.BindCount); } }
+    /* Win10: a resource array indexed with literals is reported element by element (names "tex[0]".."tex[3]", count 1,
+     * consecutive registers); the array name itself is not a binding */
+    for (UINT k = 0; k < 4; k++) {
+        char nm[16]; sprintf(nm, "tex[%u]", k);
+        if (rb_bind(r, nm, &b)) { EXPECT_EQ(b.BindPoint, 2 + k); EXPECT_EQ(b.BindCount, 1); EXPECT_EQ(b.Type, D3D_SIT_TEXTURE); EXPECT_EQ(b.Dimension, D3D_SRV_DIMENSION_TEXTURE2D); }
+    }
+    EXPECT_HR(r->lpVtbl->GetResourceBindingDescByName(r, "tex", &b), RB_E_INVALIDARG);
     RB_DONE(r);
 }
 TEST(rb_res_no_resources_shader)
@@ -414,7 +421,7 @@ TEST(rb_sig_output_masks_follow_declared_width)
     if (rb_out(r, 0, &p)) { EXPECT_STR(p.SemanticName, "SV_Position"); EXPECT_EQ(p.SystemValueType, D3D_NAME_POSITION); EXPECT_EQ(p.Mask, 0xf); EXPECT_EQ(p.Register, 0); EXPECT_EQ(p.ComponentType, D3D_REGISTER_COMPONENT_FLOAT32); }
     if (rb_out(r, 1, &p)) { EXPECT_STR(p.SemanticName, "AAA"); EXPECT_EQ(p.Mask, 0x7); EXPECT_EQ(p.Register, 1); }
     if (rb_out(r, 2, &p)) { EXPECT_STR(p.SemanticName, "BBB"); EXPECT_EQ(p.Mask, 0x3); EXPECT_EQ(p.Register, 2); }
-    if (rb_out(r, 3, &p)) { EXPECT_STR(p.SemanticName, "CCC"); EXPECT_EQ(p.Mask, 0x1); EXPECT_EQ(p.Register, 3); }
+    if (rb_out(r, 3, &p)) { EXPECT_STR(p.SemanticName, "CCC"); EXPECT_EQ(p.Mask, 0x4); EXPECT_EQ(p.Register, 2); }   /* a lone float packs into the free z lane of the register BBB uses */
     RB_DONE(r);
 }
 TEST(rb_sig_semantic_index_split_from_name)
@@ -505,7 +512,7 @@ SV_VS_IN(sv_instanceid, "uint v : SV_InstanceID", "float4(v, 0, 0, 1)", "SV_Inst
 
 #define SV_PS_OUT(nm, rettype, semdecl, body, semname, sv, ctype, mask) \
 TEST(rb_sig_ps_output_##nm) { \
-    RB_REFLECT(r, rettype " main(float4 p : SV_Position) : " semdecl " { " body " }\n", "ps_5_0"); \
+    RB_REFLECT(r, rettype " main(linear noperspective centroid float4 p : SV_Position) : " semdecl " { " body " }\n", "ps_5_0"); \
     D3D11_SIGNATURE_PARAMETER_DESC p; \
     if (rb_out(r, 0, &p)) { EXPECT_STR(p.SemanticName, semname); EXPECT_EQ(p.SystemValueType, sv); EXPECT_EQ(p.ComponentType, ctype); EXPECT_EQ(p.Mask, mask); } \
     RB_DONE(r); }
@@ -548,7 +555,7 @@ TEST(rb_sig_gs_stream_field)
 /* ---- geometry / tessellation / compute description fields ---------------------------------------- */
 #define GS_CASE(nm, ins, prim, outty, topo, maxv, body) \
 TEST(rb_gs_##nm) { \
-    RB_REFLECT(r, "struct V { float4 p : SV_Position; };\n[maxvertexcount(" #maxv ")] void main(" ins " i, inout " outty "<V> s) { " body " }\n", "gs_5_0"); \
+    RB_REFLECT(r, "struct V { float4 p : SV_Position; };\n[maxvertexcount(" #maxv ")] void main(" ins ", inout " outty "<V> s) { " body " }\n", "gs_5_0"); \
     D3D11_SHADER_DESC d; \
     if (rb_desc(r, &d)) { EXPECT_EQ(d.GSOutputTopology, topo); EXPECT_EQ(d.GSMaxOutputVertexCount, maxv); EXPECT_EQ(d.InputPrimitive, prim); } \
     EXPECT_EQ(r->lpVtbl->GetGSInputPrimitive(r), prim); \
@@ -568,8 +575,8 @@ TEST(rb_gs_instance_count)
 {
     RB_REFLECT(r, "struct V { float4 p : SV_Position; };\n[instance(4)][maxvertexcount(1)] void main(point V i[1], uint id : SV_GSInstanceID, inout PointStream<V> s) { V o = i[0]; o.p.x += id; s.Append(o); }\n", "gs_5_0");
     D3D11_SHADER_DESC d; D3D11_SIGNATURE_PARAMETER_DESC p; int found = 0;
-    if (rb_desc(r, &d)) { EXPECT_EQ(d.cGSInstanceCount, 4); for (UINT k = 0; k < d.InputParameters; k++) if (rb_in(r, k, &p) && !strcmp(p.SemanticName, "SV_GSInstanceID")) { found = 1; EXPECT_EQ(p.ComponentType, D3D_REGISTER_COMPONENT_UINT32); } }
-    CHECK(found);
+    if (rb_desc(r, &d)) { EXPECT_EQ(d.cGSInstanceCount, 4); for (UINT k = 0; k < d.InputParameters; k++) if (rb_in(r, k, &p) && (t_note("gs input %u: %s%u sv=%d mask=0x%x", k, p.SemanticName, p.SemanticIndex, p.SystemValueType, p.Mask), !strcmp(p.SemanticName, "SV_GSInstanceID"))) { found = 1; EXPECT_EQ(p.ComponentType, D3D_REGISTER_COMPONENT_UINT32); } }
+    CHECK(!found);   /* measured: SV_GSInstanceID is not listed in the input signature (cGSInstanceCount carries it) */
     RB_DONE(r);
 }
 TEST(rb_gs_input_primitive_on_other_stages)

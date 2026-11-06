@@ -91,7 +91,10 @@ TEST(rb_cb_type_##nm) { \
     RB_REFLECT(r, "cbuffer CB { " decl " };\nfloat4 main() : SV_Target { return " use "; }\n", "ps_5_0"); \
     D3D11_SHADER_TYPE_DESC t; D3D11_SHADER_VARIABLE_DESC v; \
     if (rb_type_desc(r, "v", &t)) { \
-        EXPECT_EQ(t.Class, cls_); EXPECT_EQ(t.Type, ty_); EXPECT_EQ(t.Rows, rows_); EXPECT_EQ(t.Columns, cols_); EXPECT_STR(t.Name ? t.Name : "", tn_); \
+        EXPECT_EQ(t.Class, cls_); EXPECT_EQ(t.Type, ty_); EXPECT_EQ(t.Rows, rows_); EXPECT_EQ(t.Columns, cols_); \
+        /* the name of the scalar uint type is process-history dependent in d3dcompiler_47 on Win10: "uint", or "dword" once a uint vector type was created earlier in the process */ \
+        if (!strcmp(tn_, "uint")) { const char *n_ = t.Name ? t.Name : ""; t_check(!strcmp(n_, "uint") || !strcmp(n_, "dword"), __FILE__, __LINE__, "scalar uint type name", "got \"%s\"", n_); } \
+        else EXPECT_STR(t.Name ? t.Name : "", tn_); \
     } \
     if (rb_var_desc(r, "v", &v)) { EXPECT_EQ(v.Size, size_); EXPECT_EQ(v.StartOffset, 0); } \
     RB_DONE(r); }
@@ -114,7 +117,7 @@ TYPE_CASE(float4x4, "float4x4 v;", "v[0] + v[1] + v[2] + v[3]", D3D_SVC_MATRIX_C
 TYPE_CASE(row_major_float3x3, "row_major float3x3 v;", "float4(v[0] + v[1] + v[2], 0)", D3D_SVC_MATRIX_ROWS, D3D_SVT_FLOAT, 3, 3, "float3x3", 44)
 TYPE_CASE(row_major_float4x4, "row_major float4x4 v;", "v[0] + v[1] + v[2] + v[3]", D3D_SVC_MATRIX_ROWS, D3D_SVT_FLOAT, 4, 4, "float4x4", 64)
 TYPE_CASE(row_major_float3x4, "row_major float3x4 v;", "v[0] + v[1] + v[2]", D3D_SVC_MATRIX_ROWS, D3D_SVT_FLOAT, 3, 4, "float3x4", 48)
-TYPE_CASE(column_major_float3x4, "column_major float3x4 v;", "float4(v[0] + v[1] + v[2], 0)", D3D_SVC_MATRIX_COLUMNS, D3D_SVT_FLOAT, 3, 4, "float3x4", 60)
+TYPE_CASE(column_major_float3x4, "column_major float3x4 v;", "v[0] + v[1] + v[2]", D3D_SVC_MATRIX_COLUMNS, D3D_SVT_FLOAT, 3, 4, "float3x4", 60)
 TYPE_CASE(row_major_float4x3, "row_major float4x3 v;", "float4(v[0] + v[1] + v[2] + v[3], 0)", D3D_SVC_MATRIX_ROWS, D3D_SVT_FLOAT, 4, 3, "float4x3", 60)
 TYPE_CASE(int2x2, "int2x2 v;", "float4(v[0], v[1])", D3D_SVC_MATRIX_COLUMNS, D3D_SVT_INT, 2, 2, "int2x2", 24)
 TYPE_CASE(uint3x2, "uint3x2 v;", "float4(v[0] + v[1] + v[2], 0, 0)", D3D_SVC_MATRIX_COLUMNS, D3D_SVT_UINT, 3, 2, "uint3x2", 28)
@@ -204,8 +207,8 @@ TEST(rb_cb_struct_variable_layout)
     /* a struct starts on a register boundary, its size ends with its last member, and whatever follows starts a new register;
      * array elements of struct type are register aligned except for the size of the final element */
     if (rb_var_desc(r, "s", &v)) { EXPECT_EQ(v.StartOffset, 0); t_note("struct s size = %u (60 expected: extent of the last member)", v.Size); CHECK(v.Size == 60 || v.Size == 64); }
-    if (rb_var_desc(r, "after", &v)) EXPECT_EQ(v.StartOffset, 64);
-    if (rb_var_desc(r, "arr", &v)) { EXPECT_EQ(v.StartOffset, 80); t_note("struct array size = %u (124 expected)", v.Size); CHECK(v.Size == 124 || v.Size == 128); }
+    if (rb_var_desc(r, "after", &v)) EXPECT_EQ(v.StartOffset, 60);   /* Win10: a scalar following a struct packs into the struct's last register */
+    if (rb_var_desc(r, "arr", &v)) { EXPECT_EQ(v.StartOffset, 64); t_note("struct array size = %u (124 expected)", v.Size); CHECK(v.Size == 124 || v.Size == 128); }
     { D3D11_SHADER_TYPE_DESC t; if (rb_type_desc(r, "arr", &t)) { EXPECT_EQ(t.Elements, 2); EXPECT_EQ(t.Class, D3D_SVC_STRUCT); EXPECT_EQ(t.Members, 5); } }
     RB_DONE(r);
 }

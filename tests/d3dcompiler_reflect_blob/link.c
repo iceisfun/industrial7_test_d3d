@@ -62,7 +62,7 @@ TEST(rb_lib_refcount_and_query_interface)
 {
     LIB_ENV(lib, blob); void *o;
     ULONG n = lib->lpVtbl->AddRef(lib); EXPECT_EQ(n, 2); n = lib->lpVtbl->Release(lib); EXPECT_EQ(n, 1);
-    o = NULL; EXPECT_HR(lib->lpVtbl->QueryInterface(lib, &IID_IUnknown, &o), S_OK); CHECK(o == (void *)lib); if (o) lib->lpVtbl->Release(lib);
+    o = (void *)1; EXPECT_HR(lib->lpVtbl->QueryInterface(lib, &IID_IUnknown, &o), RB_E_NOINTERFACE); CHECK(o == NULL);   /* Win10: these objects answer only for their own IIDs, not for IID_IUnknown */
     o = NULL; EXPECT_HR(lib->lpVtbl->QueryInterface(lib, &RB_IID_LibraryReflection, &o), S_OK); if (o) lib->lpVtbl->Release(lib);
     o = (void *)1; EXPECT_HR(lib->lpVtbl->QueryInterface(lib, &IID_ID3D11ShaderReflection, &o), RB_E_NOINTERFACE); CHECK(o == NULL);
     LIB_DONE(lib, blob);
@@ -202,7 +202,7 @@ TEST(rb_module_load_and_instance)
     if (m) {
         ULONG n = m->lpVtbl->AddRef(m); EXPECT_EQ(n, 2); n = m->lpVtbl->Release(m); EXPECT_EQ(n, 1);
         o = NULL; EXPECT_HR(m->lpVtbl->QueryInterface(m, &IID_ID3D11Module, &o), S_OK); if (o) m->lpVtbl->Release(m);
-        o = NULL; EXPECT_HR(m->lpVtbl->QueryInterface(m, &IID_IUnknown, &o), S_OK); if (o) m->lpVtbl->Release(m);
+        o = (void *)1; EXPECT_HR(m->lpVtbl->QueryInterface(m, &IID_IUnknown, &o), RB_E_NOINTERFACE); CHECK(o == NULL);   /* see rb_lib_refcount_and_query_interface */
         o = (void *)1; EXPECT_HR(m->lpVtbl->QueryInterface(m, &IID_ID3D11Linker, &o), RB_E_NOINTERFACE); CHECK(o == NULL);
         EXPECT_HR(m->lpVtbl->CreateInstance(m, "", NULL), RB_E_INVALIDARG);
         EXPECT_HR(m->lpVtbl->CreateInstance(m, "", &inst), S_OK);
@@ -241,17 +241,18 @@ TEST(rb_module_load_from_plain_shader_container)
     if (m) m->lpVtbl->Release(m);
     ID3D10Blob_Release(b);
 }
-TEST(rb_module_instance_bind_by_unknown_name_fails)
+TEST(rb_module_instance_bind_by_unknown_name_is_s_false)
 {
     ID3DBlob *blob; ID3D11Module *m = NULL; ID3D11ModuleInstance *inst = NULL;
     REQUIRE(LOADMODULE); RB_NOWINE("D3DLoadModule");
     if (!rb_compile_lib(LIB_SRC, &blob)) return;
     if (SUCCEEDED(LOADMODULE(RB_BP(blob), RB_BS(blob), &m)) && m && SUCCEEDED(m->lpVtbl->CreateInstance(m, "", &inst)) && inst) {
-        CHECK(FAILED(inst->lpVtbl->BindConstantBufferByName(inst, "NoSuchBuffer", 0, 0)));
-        CHECK(FAILED(inst->lpVtbl->BindResourceByName(inst, "NoSuchTexture", 0, 1)));
-        CHECK(FAILED(inst->lpVtbl->BindSamplerByName(inst, "NoSuchSampler", 0, 1)));
-        CHECK(FAILED(inst->lpVtbl->BindUnorderedAccessViewByName(inst, "NoSuchUav", 0, 1)));
-        CHECK(FAILED(inst->lpVtbl->BindResourceAsUnorderedAccessViewByName(inst, "NoSuchTexture", 0, 1)));
+        /* Win10: binding a name the module does not contain is not an error, it reports S_FALSE */
+        EXPECT_HR(inst->lpVtbl->BindConstantBufferByName(inst, "NoSuchBuffer", 0, 0), S_FALSE);
+        EXPECT_HR(inst->lpVtbl->BindResourceByName(inst, "NoSuchTexture", 0, 1), S_FALSE);
+        EXPECT_HR(inst->lpVtbl->BindSamplerByName(inst, "NoSuchSampler", 0, 1), S_FALSE);
+        EXPECT_HR(inst->lpVtbl->BindUnorderedAccessViewByName(inst, "NoSuchUav", 0, 1), S_FALSE);
+        EXPECT_HR(inst->lpVtbl->BindResourceAsUnorderedAccessViewByName(inst, "NoSuchTexture", 0, 1), S_FALSE);
         EXPECT_HR(inst->lpVtbl->BindConstantBufferByName(inst, "LibCB", 3, 0), S_OK);
         inst->lpVtbl->Release(inst);
     } else CHECK(0);
@@ -271,7 +272,7 @@ TEST(rb_linker_create)
     if (l) {
         ULONG n = l->lpVtbl->AddRef(l); EXPECT_EQ(n, 2); n = l->lpVtbl->Release(l); EXPECT_EQ(n, 1);
         o = NULL; EXPECT_HR(l->lpVtbl->QueryInterface(l, &IID_ID3D11Linker, &o), S_OK); if (o) l->lpVtbl->Release(l);
-        o = NULL; EXPECT_HR(l->lpVtbl->QueryInterface(l, &IID_IUnknown, &o), S_OK); if (o) l->lpVtbl->Release(l);
+        o = (void *)1; EXPECT_HR(l->lpVtbl->QueryInterface(l, &IID_IUnknown, &o), RB_E_NOINTERFACE); CHECK(o == NULL);
         o = (void *)1; EXPECT_HR(l->lpVtbl->QueryInterface(l, &IID_ID3D11Module, &o), RB_E_NOINTERFACE); CHECK(o == NULL);
         n = l->lpVtbl->Release(l); EXPECT_EQ(n, 0);
     }
@@ -374,7 +375,7 @@ TEST(rb_flg_create_arguments)
     if (g) {
         ULONG n = g->lpVtbl->AddRef(g); EXPECT_EQ(n, 2); n = g->lpVtbl->Release(g); EXPECT_EQ(n, 1);
         o = NULL; EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_ID3D11FunctionLinkingGraph, &o), S_OK); if (o) g->lpVtbl->Release(g);
-        o = NULL; EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_IUnknown, &o), S_OK); if (o) g->lpVtbl->Release(g);
+        o = (void *)1; EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_IUnknown, &o), RB_E_NOINTERFACE); CHECK(o == NULL);
         o = (void *)1; EXPECT_HR(g->lpVtbl->QueryInterface(g, &IID_ID3D11Linker, &o), RB_E_NOINTERFACE); CHECK(o == NULL);
         n = g->lpVtbl->Release(g); EXPECT_EQ(n, 0);
     }
@@ -409,7 +410,7 @@ TEST(rb_flg_input_signature_rules)
     EXPECT_HR(g->lpVtbl->SetInputSignature(g, p, 2, &in2), RB_E_FAIL);   /* already set; the graph is now in error state */
     CHECK(in2 == NULL);
     { ID3DBlob *e = NULL; HRESULT hr = g->lpVtbl->GetLastError(g, &e); t_note("GetLastError after a rejected call: %s text=\"%s\"", d3dh_hr_name(hr), SUCCEEDED(hr) ? rb_blob_text(e) : ""); SAFE_RELEASE(e); }
-    if (in1) { ULONG n = in1->lpVtbl->AddRef(in1); EXPECT_EQ(n, 2); in1->lpVtbl->Release(in1); in1->lpVtbl->Release(in1); }
+    if (in1) { ULONG n = in1->lpVtbl->AddRef(in1); EXPECT_EQ(n, 3); in1->lpVtbl->Release(in1); in1->lpVtbl->Release(in1); }   /* the graph keeps its own reference on the node */
     g->lpVtbl->Release(g);
 }
 TEST(rb_flg_input_signature_null_arguments)
@@ -456,10 +457,10 @@ TEST(rb_flg_set_output_signature_null_arguments)
     ID3D11FunctionLinkingGraph *g; D3D11_PARAMETER_DESC p; ID3D11LinkingNode *n = NULL;
     RB_NOWINE("D3DCreateFunctionLinkingGraph"); g = rb_make_flg(); if (!g) return;
     p = rb_param("outPos", "SV_POSITION", D3D_SVT_FLOAT, D3D_SVC_VECTOR, 1, 4);
-    EXPECT_HR(g->lpVtbl->SetOutputSignature(g, &p, 1, NULL), RB_E_FAIL);
+    EXPECT_HR(g->lpVtbl->SetOutputSignature(g, &p, 1, NULL), RB_E_INVALIDARG);   /* Win10: argument validation, unlike SetInputSignature (E_FAIL) */
     g->lpVtbl->Release(g);
     g = rb_make_flg(); if (!g) return;
-    EXPECT_HR(g->lpVtbl->SetOutputSignature(g, NULL, 1, &n), RB_E_FAIL);
+    EXPECT_HR(g->lpVtbl->SetOutputSignature(g, NULL, 1, &n), RB_E_INVALIDARG);
     CHECK(n == NULL);
     g->lpVtbl->Release(g);
 }

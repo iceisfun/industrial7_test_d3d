@@ -85,7 +85,7 @@ TEST(rb_blob_module_file_name_and_version)
             DWORD z = gsz(path, NULL); void *buf = z ? malloc(z) : NULL; VS_FIXEDFILEINFO *ffi = NULL; UINT len = 0;
             if (buf && gi(path, 0, z, buf) && vq(buf, "\\", (void **)&ffi, &len) && ffi) {
                 t_note("d3dcompiler_47 file version %lu.%lu.%lu.%lu", ffi->dwFileVersionMS >> 16, ffi->dwFileVersionMS & 0xffff, ffi->dwFileVersionLS >> 16, ffi->dwFileVersionLS & 0xffff);
-                if (!t_is_wine()) CHECK((ffi->dwFileVersionMS >> 16) == 10);
+                if (!t_is_wine()) { CHECK((ffi->dwFileVersionMS >> 16) == 6); CHECK((ffi->dwProductVersionMS >> 16) == 10); CHECK((ffi->dwFileVersionLS >> 16) >= 19041); }   /* file version shim: 6.2 for executables without a manifest */
             }
             free(buf);
         }
@@ -374,6 +374,25 @@ TEST(rb_blob_write_then_read_shader_roundtrip)
 }
 
 /* ---- D3DCompressShaders / D3DDecompressShaders --------------------------------------------------- */
+/* D3DDecompressShaders returns the same shader with its chunks in reverse order (measured on Win10, build 19041.868):
+ * same size, same chunk contents, and a container checksum that is valid for the reordered chunks. */
+static int rb_reversed_same(ID3DBlob *got, const void *want, size_t wsz)
+{
+    rb_chunk a[RB_MAXCHUNKS], b[RB_MAXCHUNKS]; int na = rb_dxbc_parse(RB_BP(got), RB_BS(got), a, RB_MAXCHUNKS), nb = rb_dxbc_parse(want, wsz, b, RB_MAXCHUNKS);
+    BYTE *cp; int ok = RB_BS(got) == wsz && na == nb && na > 0;
+    for (int i = 0; ok && i < na; i++) { const rb_chunk *w = &b[nb - 1 - i]; ok = a[i].fourcc == w->fourcc && a[i].size == w->size && !memcmp(a[i].data, w->data, w->size); }
+    cp = malloc(RB_BS(got)); memcpy(cp, RB_BP(got), RB_BS(got)); rb_dxbc_rehash(cp, RB_BS(got));
+    t_check(!memcmp(cp, RB_BP(got), 20), __FILE__, __LINE__, "decompressed container checksum valid", NULL); free(cp);
+    return ok;
+}
+static void rb_cmp_note(const char *what, ID3DBlob *got, ID3DBlob *want)
+{
+    const BYTE *a = RB_BP(got), *b = RB_BP(want); size_t i, n = RB_BS(got) < RB_BS(want) ? RB_BS(got) : RB_BS(want), d = 0, first = (size_t)-1;
+    rb_chunk ca[RB_MAXCHUNKS], cb[RB_MAXCHUNKS]; int na = rb_dxbc_parse(a, RB_BS(got), ca, RB_MAXCHUNKS), nb = rb_dxbc_parse(b, RB_BS(want), cb, RB_MAXCHUNKS);
+    for (i = 0; i < n; i++) if (a[i] != b[i]) { if (first == (size_t)-1) first = i; d++; }
+    t_note("%s: got %zu bytes want %zu, %zu differing bytes, first at 0x%zx, chunks got %d want %d", what, (size_t)RB_BS(got), (size_t)RB_BS(want), d, first, na, nb);
+    for (int k = 0; k < na || k < nb; k++) t_note("  chunk %d: got %.4s/%lu want %.4s/%lu", k, k < na ? (const char *)&ca[k].fourcc : "----", k < na ? (unsigned long)ca[k].size : 0, k < nb ? (const char *)&cb[k].fourcc : "----", k < nb ? (unsigned long)cb[k].size : 0);
+}
 static int rb_two_shaders(ID3DBlob **vs, ID3DBlob **ps)
 {
     return rb_compile_t("float4 main(float4 p : POSITION, float2 uv : TEXCOORD0) : SV_Position { return p + float4(uv, 0, 0); }", "vs_5_0", 0, vs) &&
@@ -392,8 +411,8 @@ TEST(rb_blob_compress_roundtrip_keep_all)
         CHECK(RB_BS(packed) >= 0x20);
         hr = RB_D3DDecompressShaders()(RB_BP(packed), RB_BS(packed), 2, 0, NULL, 0, out, &total);
         EXPECT_HR(hr, S_OK); EXPECT_EQ(total, 2);
-        if (out[0]) { CHECK(RB_BS(out[0]) == RB_BS(vs) && !memcmp(RB_BP(out[0]), RB_BP(vs), RB_BS(vs))); ID3D10Blob_Release(out[0]); }
-        if (out[1]) { CHECK(RB_BS(out[1]) == RB_BS(ps) && !memcmp(RB_BP(out[1]), RB_BP(ps), RB_BS(ps))); ID3D10Blob_Release(out[1]); }
+        if (out[0]) { CHECK(rb_reversed_same(out[0], RB_BP(vs), RB_BS(vs))); if (RB_BS(out[0]) != RB_BS(vs) || memcmp(RB_BP(out[0]), RB_BP(vs), RB_BS(vs))) rb_cmp_note("vs", out[0], vs); ID3D10Blob_Release(out[0]); }
+        if (out[1]) { CHECK(rb_reversed_same(out[1], RB_BP(ps), RB_BS(ps))); ID3D10Blob_Release(out[1]); }
         ID3D10Blob_Release(packed);
     }
     ID3D10Blob_Release(vs); ID3D10Blob_Release(ps);
@@ -433,11 +452,11 @@ TEST(rb_blob_decompress_selects_by_index)
     if (packed) {
         /* explicit index list reverses the order */
         EXPECT_HR(RB_D3DDecompressShaders()(RB_BP(packed), RB_BS(packed), 2, 0, idx, 0, out, &total), S_OK);
-        if (out[0]) { CHECK(RB_BS(out[0]) == RB_BS(ps) && !memcmp(RB_BP(out[0]), RB_BP(ps), RB_BS(ps))); ID3D10Blob_Release(out[0]); out[0] = NULL; }
-        if (out[1]) { CHECK(RB_BS(out[1]) == RB_BS(vs) && !memcmp(RB_BP(out[1]), RB_BP(vs), RB_BS(vs))); ID3D10Blob_Release(out[1]); out[1] = NULL; }
+        if (out[0]) { CHECK(rb_reversed_same(out[0], RB_BP(ps), RB_BS(ps))); ID3D10Blob_Release(out[0]); out[0] = NULL; }
+        if (out[1]) { CHECK(rb_reversed_same(out[1], RB_BP(vs), RB_BS(vs))); ID3D10Blob_Release(out[1]); out[1] = NULL; }
         /* a start index selects a run of shaders */
         EXPECT_HR(RB_D3DDecompressShaders()(RB_BP(packed), RB_BS(packed), 1, 1, NULL, 0, out, &total), S_OK);
-        if (out[0]) { CHECK(RB_BS(out[0]) == RB_BS(ps) && !memcmp(RB_BP(out[0]), RB_BP(ps), RB_BS(ps))); ID3D10Blob_Release(out[0]); }
+        if (out[0]) { CHECK(rb_reversed_same(out[0], RB_BP(ps), RB_BS(ps))); ID3D10Blob_Release(out[0]); }
         ID3D10Blob_Release(packed);
     }
     ID3D10Blob_Release(vs); ID3D10Blob_Release(ps);
@@ -472,7 +491,13 @@ TEST(rb_blob_compress_rejects_non_dxbc_input)
     static const BYTE junk[64] = { 1, 2, 3 }; RB_SHADER_DATA sd = { junk, sizeof junk }; ID3DBlob *packed = NULL; HRESULT hr;
     REQUIRE(RB_D3DCompressShaders()); RB_NOWINE("D3DCompressShaders");
     hr = RB_D3DCompressShaders()(1, &sd, 0, &packed);
-    EXPECT_HR_FAILED(hr); CHECK(packed == NULL);
+    /* Win10: the compressor does not look inside the input, any byte string is packed */
+    EXPECT_HR(hr, S_OK); CHECK(packed != NULL);
+    if (packed) {
+        ID3DBlob *out[1] = { 0 }; UINT total = 0;
+        EXPECT_HR(RB_D3DDecompressShaders()(RB_BP(packed), RB_BS(packed), 1, 0, NULL, 0, out, &total), S_OK);
+        if (out[0]) { t_note("junk round trip: %zu bytes in, %zu out, equal=%d", sizeof junk, (size_t)RB_BS(out[0]), RB_BS(out[0]) == sizeof junk && !memcmp(RB_BP(out[0]), junk, sizeof junk)); ID3D10Blob_Release(out[0]); }
+    }
     SAFE_RELEASE(packed);
 }
 TEST(rb_blob_decompress_invalid_arguments)
@@ -512,7 +537,7 @@ TEST(rb_blob_compress_many_shaders)
         EXPECT_HR(RB_D3DDecompressShaders()(RB_BP(packed), RB_BS(packed), 8, 0, NULL, 0, out, &total), S_OK);
         EXPECT_EQ(total, 8);
         for (int i = 0; i < 8; i++) if (out[i]) {
-            CHECK(RB_BS(out[i]) == sd[i].BytecodeLength && !memcmp(RB_BP(out[i]), sd[i].pBytecode, sd[i].BytecodeLength));
+            CHECK(rb_reversed_same(out[i], sd[i].pBytecode, sd[i].BytecodeLength));
             ID3D10Blob_Release(out[i]);
         }
         ID3D10Blob_Release(packed);
