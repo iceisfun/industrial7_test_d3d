@@ -91,9 +91,14 @@ T(video_support_flag_driver_matrix) {
         d = NULL;
         hr = create(NULL, types[i], NULL, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, NULL, 0, D3D11_SDK_VERSION, &d, NULL, NULL);
         t_note("VIDEO_SUPPORT with %s -> %s", names[i], d3dh_hr_name(hr));
+        if (types[i] != D3D_DRIVER_TYPE_HARDWARE) EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);   /* only HARDWARE can carry video */
+        else EXPECT_HR(hr, S_OK);
         if (SUCCEEDED(hr) && d) {
             ID3D11VideoDevice *vd = NULL;
-            EXPECT_HR(ID3D11Device_QueryInterface(d, &IID_ID3D11VideoDevice, (void **)&vd), S_OK);
+            /* HARDWARE accepts VIDEO_SUPPORT, yet the Basic Render Driver exposes no ID3D11VideoDevice (QI -> E_NOINTERFACE) while
+             * ID3D11VideoContext still answers on the context; a real GPU exposes both. */
+            EXPECT_HR(ID3D11Device_QueryInterface(d, &IID_ID3D11VideoDevice, (void **)&vd), ifv_is_brd(d) ? E_NOINTERFACE : S_OK);
+            if (ifv_is_brd(d)) CHECK(vd == NULL);
             if (vd) { t_note("  decoder profile count %u", ID3D11VideoDevice_GetVideoDecoderProfileCount(vd)); SAFE_RELEASE(vd); }
             CHECK((ID3D11Device_GetCreationFlags(d) & D3D11_CREATE_DEVICE_VIDEO_SUPPORT) != 0);
             SAFE_RELEASE(d);
@@ -532,4 +537,18 @@ T(video_device_private_data) {
     HRESULT hr = ID3D11Device_GetPrivateData(v.dev, &g, &sz, got);
     CHECKF(FAILED(hr), "private data still present after removal: %s", d3dh_hr_name(hr));
     ifv_video_close(&v);
+}
+
+/* The oracle's only adapter (Basic Render Driver) has no video processor/decoder: pin exactly how that shows up so the 70+ skipped video
+ * tests are explained by a measured fact rather than a guess. */
+T(video_unavailable_on_basic_render_driver) {
+    IFV_DEV(d, c);
+    if (!ifv_is_brd(d)) { t_skip("not the Basic Render Driver: video interfaces are expected"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
+    void *p = (void *)(ULONG_PTR)1;
+    EXPECT_HR(ID3D11Device_QueryInterface(d, &IID_ID3D11VideoDevice, &p), E_NOINTERFACE);
+    CHECK(p == NULL);
+    p = NULL;
+    EXPECT_HR(ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11VideoContext, &p), S_OK);   /* the context interface is exposed without a device */
+    if (p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
+    SAFE_RELEASE(c); SAFE_RELEASE(d);
 }

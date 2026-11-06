@@ -100,7 +100,7 @@ T(fence_getdevice_and_refs) {
     ULONG rc = d3dh_refcount(f.d);
     ID3D11Fence *fe = fx_fence(&f, 0, D3D11_FENCE_FLAG_NONE);
     if (fe) {
-        t_note("device refcount %lu -> %lu after CreateFence", rc, d3dh_refcount(f.d));
+        EXPECT_EQ(d3dh_refcount(f.d), rc + 1);   /* a fence holds one reference on its device */
         ID3D11Device *g = NULL;
         ID3D11Fence_GetDevice(fe, &g);
         CHECK(g == f.d);
@@ -282,7 +282,7 @@ T(fence_shared_handle_requires_shared_flag) {
         HANDLE h = NULL;
         HRESULT hr = ID3D11Fence_CreateSharedHandle(fe, NULL, GENERIC_ALL, NULL, &h);
         CHECKF(FAILED(hr), "CreateSharedHandle on a non-shared fence = %s", d3dh_hr_name(hr));
-        t_note("CreateSharedHandle(non-shared) -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);
         if (SUCCEEDED(hr) && h) CloseHandle(h);
         SAFE_RELEASE(fe);
     }
@@ -299,7 +299,7 @@ T(fence_open_shared_invalid_handles) {
         for (unsigned i = 0; i < sizeof(hs) / sizeof(hs[0]); i++) {
             ID3D11Fence *fe = (void *)(ULONG_PTR)1;
             HRESULT hr = ID3D11Device5_OpenSharedFence(f.d5, hs[i], &IID_ID3D11Fence, (void **)&fe);
-            t_note("OpenSharedFence(handle #%u) -> %s", i, d3dh_hr_name(hr));
+            EXPECT_HR(hr, E_INVALIDARG);
             CHECKF(FAILED(hr), "OpenSharedFence(handle #%u) succeeded", i);
             CHECKF(fe == NULL, "out pointer not cleared for handle #%u", i);
             if (SUCCEEDED(hr)) SAFE_RELEASE(fe);
@@ -313,8 +313,9 @@ T(fence_non_monitored) {
     FX(f);
     ID3D11Fence *fe = NULL;
     HRESULT hr = ID3D11Device5_CreateFence(f.d5, 0, D3D11_FENCE_FLAG_NON_MONITORED, &IID_ID3D11Fence, (void **)&fe);
-    t_note("CreateFence(NON_MONITORED) -> %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) { CHECK(fe == NULL); fx_close(&f); t_skip("non-monitored fences unsupported"); return; }
+    /* Win10 22H2 (Basic Render Driver): D3D11_FENCE_FLAG_NON_MONITORED is rejected with E_INVALIDARG */
+    EXPECT_HR(hr, E_INVALIDARG);
+    if (FAILED(hr)) { CHECK(fe == NULL); fx_close(&f); return; }
     HANDLE ev = CreateEventA(NULL, TRUE, FALSE, NULL);
     hr = ID3D11Fence_SetEventOnCompletion(fe, 1, ev);
     t_note("SetEventOnCompletion on a non-monitored fence -> %s", d3dh_hr_name(hr));
@@ -350,8 +351,7 @@ T(feature_tiled_resources_tier) {
         CHECK(o1.MinMaxFiltering == TRUE || o1.MinMaxFiltering == FALSE);
         CHECK(o1.ClearViewAlsoSupportsDepthOnlyFormats == TRUE || o1.ClearViewAlsoSupportsDepthOnlyFormats == FALSE);
         CHECK(o1.MapOnDefaultBuffers == TRUE || o1.MapOnDefaultBuffers == FALSE);
-        t_note("FL 0x%x: tiled tier %d, minmax %d, clearview depth %d, map default buffers %d", fl_,
-               o1.TiledResourcesTier, o1.MinMaxFiltering, o1.ClearViewAlsoSupportsDepthOnlyFormats, o1.MapOnDefaultBuffers);
+        BRD_EQ(o1.TiledResourcesTier, 1); BRD_EQ(o1.MinMaxFiltering, 1); BRD_EQ(o1.ClearViewAlsoSupportsDepthOnlyFormats, 1); BRD_EQ(o1.MapOnDefaultBuffers, 1);
     }
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
@@ -372,9 +372,8 @@ T(feature_options2_consistent_with_options1) {
     CHECK(o2.MapOnDefaultTextures == TRUE || o2.MapOnDefaultTextures == FALSE);
     CHECK(o2.StandardSwizzle == TRUE || o2.StandardSwizzle == FALSE);
     CHECK(o2.UnifiedMemoryArchitecture == TRUE || o2.UnifiedMemoryArchitecture == FALSE);
-    t_note("conservative raster tier %d, ROV %d, typed UAV additional %d, map default tex %d, UMA %d",
-           o2.ConservativeRasterizationTier, o2.ROVsSupported, o2.TypedUAVLoadAdditionalFormats, o2.MapOnDefaultTextures,
-           o2.UnifiedMemoryArchitecture);
+    BRD_EQ(o2.ConservativeRasterizationTier, 0); BRD_EQ(o2.ROVsSupported, 0); BRD_EQ(o2.TypedUAVLoadAdditionalFormats, 1);
+    BRD_EQ(o2.MapOnDefaultTextures, 1); BRD_EQ(o2.UnifiedMemoryArchitecture, 1);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
@@ -386,7 +385,7 @@ T(feature_tiled_tier_zero_rejects_tiled_resources) {
         D3D11_BIND_SHADER_RESOURCE, 0, D3D11_RESOURCE_MISC_TILED };
     ID3D11Texture2D *t = NULL;
     HRESULT hr = ID3D11Device_CreateTexture2D(d, &td, NULL, &t);
-    t_note("tier %d: CreateTexture2D(MISC_TILED) -> %s", o1.TiledResourcesTier, d3dh_hr_name(hr));
+    BRD_HR(hr, S_OK);   /* tier 1 */
     if (o1.TiledResourcesTier == D3D11_TILED_RESOURCES_NOT_SUPPORTED) {
         CHECKF(FAILED(hr), "tiled texture created although tiled resources are not supported");
         CHECK(t == NULL);
@@ -395,7 +394,7 @@ T(feature_tiled_tier_zero_rejects_tiled_resources) {
     D3D11_BUFFER_DESC bd = { 65536 * 4, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, D3D11_RESOURCE_MISC_TILED, 0 };
     ID3D11Buffer *b = NULL;
     hr = ID3D11Device_CreateBuffer(d, &bd, NULL, &b);
-    t_note("tier %d: CreateBuffer(MISC_TILED) -> %s", o1.TiledResourcesTier, d3dh_hr_name(hr));
+    BRD_HR(hr, S_OK);
     if (o1.TiledResourcesTier == D3D11_TILED_RESOURCES_NOT_SUPPORTED) CHECKF(FAILED(hr), "tiled buffer created without support");
     SAFE_RELEASE(b);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -407,16 +406,16 @@ T(feature_gpu_virtual_address_and_cache) {
     HRESULT hr = ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT, &va, sizeof(va));
     EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
-        t_note("VA bits per resource %u, per process %u", va.MaxGPUVirtualAddressBitsPerResource, va.MaxGPUVirtualAddressBitsPerProcess);
+        BRD_EQ(va.MaxGPUVirtualAddressBitsPerResource, 32); BRD_EQ(va.MaxGPUVirtualAddressBitsPerProcess, 47);
         CHECK(va.MaxGPUVirtualAddressBitsPerProcess >= va.MaxGPUVirtualAddressBitsPerResource || va.MaxGPUVirtualAddressBitsPerProcess == 0);
     }
     D3D11_FEATURE_DATA_SHADER_CACHE sc; memset(&sc, 0, sizeof(sc));
     hr = ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_SHADER_CACHE, &sc, sizeof(sc));
-    t_note("SHADER_CACHE -> %s support flags 0x%x", d3dh_hr_name(hr), sc.SupportFlags);
+    EXPECT_HR(hr, S_OK); BRD_EQ(sc.SupportFlags, 0);
     D3D11_FEATURE_DATA_MARKER_SUPPORT ms; memset(&ms, 0, sizeof(ms));
     hr = ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_MARKER_SUPPORT, &ms, sizeof(ms));
     EXPECT_HR(hr, S_OK);
-    t_note("marker support %d", ms.Profile);
+    BRD_EQ(ms.Profile, 1);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
@@ -430,18 +429,18 @@ T(device2_check_multisample_quality_levels1) {
     for (UINT s = 2; s <= 8; s *= 2) {
         n = 0xdead;
         HRESULT hr = ID3D11Device2_CheckMultisampleQualityLevels1(d2, DXGI_FORMAT_R8G8B8A8_UNORM, s, 0, &n);
-        t_note("%ux MSAA: %s, %u levels", s, d3dh_hr_name(hr), n);
+        BRD_EQ(n, 1);
         CHECK(SUCCEEDED(hr));
         if (SUCCEEDED(hr)) CHECK(n != 0xdead);
         n = 0xdead;
         hr = ID3D11Device2_CheckMultisampleQualityLevels1(d2, DXGI_FORMAT_R8G8B8A8_UNORM, s, D3D11_CHECK_MULTISAMPLE_QUALITY_LEVELS_TILED_RESOURCE, &n);
-        t_note("%ux MSAA tiled: %s, %u levels", s, d3dh_hr_name(hr), n);
+        EXPECT_HR(hr, S_OK); BRD_EQ(n, s == 4 ? 1 : 0);   /* tiled MSAA: only 4x on the Basic Render Driver */
     }
     n = 0xdead;
     HRESULT hr = ID3D11Device2_CheckMultisampleQualityLevels1(d2, DXGI_FORMAT_R8G8B8A8_UNORM, 3, 0, &n);
-    t_note("3x MSAA (invalid count): %s, %u", d3dh_hr_name(hr), n);
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(n, 0);   /* an unsupported sample count is not an error: zero quality levels */
     hr = ID3D11Device2_CheckMultisampleQualityLevels1(d2, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 0x80, &n);
-    t_note("invalid flags: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* unknown flag bits are ignored */
     SAFE_RELEASE(d2); SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
@@ -458,7 +457,7 @@ T(device1_open_shared_resource_failures) {
     CHECKF(FAILED(hr), "OpenSharedResource1(INVALID_HANDLE_VALUE) = %s", d3dh_hr_name(hr));
     p = (void *)(ULONG_PTR)1;
     hr = ID3D11Device1_OpenSharedResourceByName(d1, L"ifv_no_such_shared_resource", GENERIC_ALL, &IID_ID3D11Texture2D, &p);
-    t_note("OpenSharedResourceByName(missing) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     CHECKF(FAILED(hr), "OpenSharedResourceByName(missing name) succeeded");
     CHECK(p == NULL);
     SAFE_RELEASE(d1); SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -480,7 +479,7 @@ T(context1_constant_buffer_offsets) {
         ID3D11DeviceContext1_VSGetConstantBuffers1(c1, 3, 1, &gb, &first, &cnt);
         CHECK(gb == b);
         EXPECT_EQ(first, 0);
-        t_note("whole-buffer binding reports %u constants (buffer holds %u)", cnt, bd.ByteWidth / 16);
+        EXPECT_EQ(cnt, 4096);   /* a classic Set binds the whole buffer: reported as the 4096-constant maximum, not the buffer size */
         SAFE_RELEASE(gb);
         if (o.ConstantBufferOffsetting) {
             UINT f = 16, n = 32;
@@ -534,7 +533,7 @@ T(device3_texture2d1_desc_roundtrip) {
         EXPECT_HR(ifv_qi(t, &IID_ID3D11Texture2D, NULL), S_OK);
         EXPECT_HR(ifv_qi(t, &IID_ID3D11Resource, NULL), S_OK);
         EXPECT_HR(ifv_qi(t, &IID_IDXGIResource, NULL), S_OK);
-        EXPECT_HR(ifv_qi(t, &IID_IDXGISurface, NULL), S_OK);
+        EXPECT_HR(ifv_qi(t, &IID_IDXGISurface, NULL), E_NOINTERFACE);   /* 3 mips x 2 slices: IDXGISurface exists only for a single-subresource texture */
         SAFE_RELEASE(t);
     }
     SAFE_RELEASE(d3); SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -600,7 +599,7 @@ T(device3_texture_layout_validation) {
     td.TextureLayout = (D3D11_TEXTURE_LAYOUT)99;
     ID3D11Texture2D1 *t = (void *)(ULONG_PTR)1;
     HRESULT hr = ID3D11Device3_CreateTexture2D1(d3, &td, NULL, &t);
-    t_note("TextureLayout 99 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) SAFE_RELEASE(t);
     static const D3D11_TEXTURE_LAYOUT lay[] = { D3D11_TEXTURE_LAYOUT_ROW_MAJOR, D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE };
     for (unsigned i = 0; i < 2; i++) {
@@ -608,7 +607,7 @@ T(device3_texture_layout_validation) {
         td.Usage = D3D11_USAGE_DEFAULT; td.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         t = NULL;
         hr = ID3D11Device3_CreateTexture2D1(d3, &td, NULL, &t);
-        t_note("layout %d with default usage + CPU write -> %s", lay[i], d3dh_hr_name(hr));
+        BRD_HR(hr, lay[i] == D3D11_TEXTURE_LAYOUT_ROW_MAJOR ? E_INVALIDARG : S_OK);
         SAFE_RELEASE(t);
     }
     SAFE_RELEASE(d3); SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -660,13 +659,13 @@ T(device3_rasterizer_state2_conservative) {
     rd.ConservativeRaster = D3D11_CONSERVATIVE_RASTERIZATION_MODE_ON;
     ID3D11RasterizerState2 *rs = NULL;
     HRESULT hr = ID3D11Device3_CreateRasterizerState2(d3, &rd, &rs);
-    t_note("conservative ON with tier %d -> %s", o2.ConservativeRasterizationTier, d3dh_hr_name(hr));
+    BRD_HR(hr, E_INVALIDARG);   /* tier 0 */
     if (o2.ConservativeRasterizationTier == D3D11_CONSERVATIVE_RASTERIZATION_NOT_SUPPORTED) CHECKF(FAILED(hr), "conservative rasterization accepted without support");
     else EXPECT_HR(hr, S_OK);
     SAFE_RELEASE(rs);
     rd.ConservativeRaster = (D3D11_CONSERVATIVE_RASTERIZATION_MODE)7;
     hr = ID3D11Device3_CreateRasterizerState2(d3, &rd, &rs);
-    t_note("invalid ConservativeRaster value -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     SAFE_RELEASE(rs);
     SAFE_RELEASE(d3); SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
@@ -741,7 +740,7 @@ T(device3_query1_roundtrip) {
         D3D11_QUERY_DESC1 qd = { D3D11_QUERY_EVENT, 0, cts[i] };
         ID3D11Query1 *q = NULL;
         HRESULT hr = ID3D11Device3_CreateQuery1(d3, &qd, &q);
-        t_note("CreateQuery1(EVENT, context type %d) -> %s", cts[i], d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);
         if (q) { D3D11_QUERY_DESC1 g; ID3D11Query1_GetDesc1(q, &g); EXPECT_EQ(g.ContextType, cts[i]); SAFE_RELEASE(q); }
     }
     SAFE_RELEASE(d3); SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -801,6 +800,9 @@ T(device3_views1_roundtrip) {
     SAFE_RELEASE(d3); SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
+struct rw_ctx { ID3D11Device3 *d3; ID3D11Resource *res; unsigned *src, *dst; };
+static void rw_write(void *p) { struct rw_ctx *x = p; ID3D11Device3_WriteToSubresource(x->d3, x->res, 0, NULL, x->src, 32, 256); }
+static void rw_read(void *p) { struct rw_ctx *x = p; ID3D11Device3_ReadFromSubresource(x->d3, x->dst, 32, 256, x->res, 0, NULL); }
 T(device3_read_write_subresource) {
     IFV_DEV(d, c);
     ID3D11Device3 *c3 = NULL;
@@ -808,29 +810,28 @@ T(device3_read_write_subresource) {
     D3D11_FEATURE_DATA_D3D11_OPTIONS2 o2; memset(&o2, 0, sizeof(o2));
     ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_D3D11_OPTIONS2, &o2, sizeof(o2));
     if (!o2.MapOnDefaultTextures) {
-        t_note("MapOnDefaultTextures not supported: Read/WriteToSubresource are only exercised on supporting drivers");
         ID3D11Device3_Release(c3); SAFE_RELEASE(c); SAFE_RELEASE(d);
-        t_skip("no CPU access to default textures");
+        t_skip("MapOnDefaultTextures not supported: no CPU access to default textures");
         return;
     }
     D3D11_TEXTURE2D_DESC td = { 8, 8, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE,
         D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE, 0 };
     ID3D11Texture2D *t = NULL;
-    HRESULT hr = ID3D11Device_CreateTexture2D(d, &td, NULL, &t);
-    t_note("default texture with CPU access -> %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr) && t) {
+    EXPECT_HR(ID3D11Device_CreateTexture2D(d, &td, NULL, &t), S_OK);
+    if (t) {
         unsigned src[64], dst[64];
+        struct rw_ctx x = { c3, (ID3D11Resource *)t, src, dst };
         for (int i = 0; i < 64; i++) { src[i] = 0x01010101u * (unsigned)(i + 1); dst[i] = 0; }
-        ID3D11Device3_WriteToSubresource(c3, (ID3D11Resource *)t, 0, NULL, src, 32, 256);
-        ID3D11Device3_ReadFromSubresource(c3, dst, 32, 256, (ID3D11Resource *)t, 0, NULL);
-        t_note("write/read roundtrip %s", memcmp(src, dst, sizeof(src)) ? "mismatch" : "matches");
-        D3D11_BOX box = { 2, 2, 0, 6, 6, 1 };
-        unsigned patch[16];
-        for (int i = 0; i < 16; i++) patch[i] = 0xff000000u | (unsigned)i;
-        ID3D11Device3_WriteToSubresource(c3, (ID3D11Resource *)t, 0, &box, patch, 16, 64);
-        memset(dst, 0, sizeof(dst));
-        ID3D11Device3_ReadFromSubresource(c3, dst, 16, 64, (ID3D11Resource *)t, 0, &box);
-        t_note("partial roundtrip %s", memcmp(patch, dst, sizeof(patch)) ? "mismatch" : "matches");
+        if (ifv_is_brd(d)) {
+            /* Basic Render Driver: MapOnDefaultTextures is advertised (and the texture is created) but both Device3 methods raise an
+             * access violation even with valid arguments. */
+            EXPECT_EQ(t_try(rw_write, &x), 0xc0000005);
+            EXPECT_EQ(t_try(rw_read, &x), 0xc0000005);
+        } else {
+            EXPECT_EQ(t_try(rw_write, &x), 0);
+            EXPECT_EQ(t_try(rw_read, &x), 0);
+            CHECK(!memcmp(src, dst, sizeof(src)));
+        }
         SAFE_RELEASE(t);
     }
     ID3D11Device3_Release(c3);

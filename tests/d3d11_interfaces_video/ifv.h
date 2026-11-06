@@ -51,4 +51,10 @@ int  ifv_make_vp(struct ifv_video *v, UINT w, UINT h, ID3D11VideoProcessorEnumer
     IFV_VIDEO(v); ID3D11VideoProcessorEnumerator *e = NULL; ID3D11VideoProcessor *p = NULL; \
     if (!ifv_make_vp(&v, w, h, &e, &p)) { ifv_video_close(&v); return; }
 #define IFV_VP_CLOSE(v, e, p) do { SAFE_RELEASE(p); SAFE_RELEASE(e); ifv_video_close(&v); } while (0)
+/* 1 when dev runs on the Microsoft Basic Render Driver (vendor 0x1414): the oracle's only adapter, WARP-backed, no video decoder/processor. */
+int  ifv_is_brd(ID3D11Device *dev);
+/* Pins of values the runtime leaves to the adapter apply to the oracle adapter only (the last device made by ifv_dev/ifv_dev_at). */
+int  ifv_brd(void);
+#define BRD_EQ(a, b) do { if (ifv_brd()) EXPECT_EQ(a, b); } while (0)
+#define BRD_HR(a, b) do { if (ifv_brd()) EXPECT_HR(a, b); } while (0)
 #endif

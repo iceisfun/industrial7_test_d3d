@@ -190,7 +190,7 @@ T(mt_singlethreaded_device_note) {
     HRESULT hr = ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11Multithread, (void **)&mt);
     t_note("singlethreaded context QI ID3D11Multithread -> %s", d3dh_hr_name(hr));
     if (mt) {
-        t_note("protected default = %d", ID3D11Multithread_GetMultithreadProtected(mt));
+        EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), FALSE);
         SAFE_RELEASE(mt);
     }
     SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -248,7 +248,7 @@ T(ctx_deferred_finish_null_out) {
     ID3D11DeviceContext *dc = NULL;
     if (FAILED(ID3D11Device_CreateDeferredContext(d, 0, &dc))) { t_skip("no deferred"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
     HRESULT hr = ID3D11DeviceContext_FinishCommandList(dc, FALSE, NULL);
-    t_note("FinishCommandList(NULL out) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_UNEXPECTED);   /* NULL ppCommandList on an immediate context */
     ID3D11CommandList *cl = NULL;
     EXPECT_HR(ID3D11DeviceContext_FinishCommandList(dc, FALSE, &cl), S_OK);
     SAFE_RELEASE(cl);
@@ -346,7 +346,7 @@ T(ctx_state_create_emulated_interface) {
     for (unsigned i = 0; i < sizeof(e) / sizeof(e[0]); i++) {
         ID3DDeviceContextState *st = (void *)(ULONG_PTR)1;
         HRESULT hr = ID3D11Device1_CreateDeviceContextState(d1, 0, &fl, 1, D3D11_SDK_VERSION, e[i].iid, NULL, &st);
-        t_note("CreateDeviceContextState(emulated %s) -> %s", e[i].n, d3dh_hr_name(hr));
+        EXPECT_HR(hr, i < 2 ? S_OK : E_INVALIDARG);   /* only the D3D11 device interfaces can be emulated */
         if (FAILED(hr)) CHECKF(st == NULL, "state not NULLed for %s", e[i].n); else SAFE_RELEASE(st);
     }
     ID3DDeviceContextState *st = NULL;
@@ -396,7 +396,7 @@ T(ctx_state_swap_refcounts) {
     if (st) {
         ULONG r0 = d3dh_refcount(st);
         ID3D11DeviceContext1_SwapDeviceContextState(c1, st, &prev);
-        t_note("state refcount before %lu after swap-in %lu; previous state refcount %lu", r0, d3dh_refcount(st), d3dh_refcount(prev));
+        EXPECT_EQ(r0, 1); EXPECT_EQ(d3dh_refcount(st), 1); EXPECT_EQ(d3dh_refcount(prev), 1);   /* the context holds only a private reference on states */
         EXPECT_EQ(d3dh_refcount(prev), 1);   /* only the returned reference keeps the old default state */
         ID3D11DeviceContext1_SwapDeviceContextState(c1, prev, NULL);
         SAFE_RELEASE(prev);

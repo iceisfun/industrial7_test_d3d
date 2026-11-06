@@ -80,14 +80,14 @@ T(on12_invalid_creation_arguments) {
     REQUIRE(create);
     ID3D11Device *d = (void *)(ULONG_PTR)1; ID3D11DeviceContext *c = (void *)(ULONG_PTR)1; D3D_FEATURE_LEVEL fl = 0;
     HRESULT hr = create(NULL, 0, NULL, 0, NULL, 0, 0, &d, &c, &fl);
-    t_note("D3D11On12CreateDevice(NULL device) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     CHECKF(FAILED(hr), "created a device from a NULL D3D12 device");
     if (SUCCEEDED(hr)) { SAFE_RELEASE(c); SAFE_RELEASE(d); }
     ID3D11Device *d11 = NULL; ID3D11DeviceContext *c11 = NULL;
     if (SUCCEEDED(d3dh_make_device11(&d11, &c11, NULL, NULL, 0))) {
         d = NULL; c = NULL;
         hr = create((IUnknown *)d11, 0, NULL, 0, NULL, 0, 0, &d, &c, &fl);
-        t_note("D3D11On12CreateDevice(an ID3D11Device) -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);
         CHECKF(FAILED(hr), "created a device on top of a D3D11 device");
         if (SUCCEEDED(hr)) { SAFE_RELEASE(c); SAFE_RELEASE(d); }
         SAFE_RELEASE(c11); SAFE_RELEASE(d11);
@@ -104,9 +104,18 @@ T(dev4_removed_event_registration) {
     t_note("RegisterDeviceRemovedEvent -> %s cookie %lu", d3dh_hr_name(hr), cookie);
     EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
+        /* registering the same event handle twice is refused; a different event gets the next cookie */
         HRESULT hr2 = ID3D11Device4_RegisterDeviceRemovedEvent(d4, ev, &cookie2);
-        EXPECT_HR(hr2, S_OK);
-        if (SUCCEEDED(hr2)) { CHECK(cookie != cookie2); ID3D11Device4_UnregisterDeviceRemoved(d4, cookie2); }
+        EXPECT_HR(hr2, DXGI_ERROR_INVALID_CALL);
+        {
+            HANDLE ev2 = CreateEventA(NULL, TRUE, FALSE, NULL);
+            hr2 = ID3D11Device4_RegisterDeviceRemovedEvent(d4, ev2, &cookie2);
+            EXPECT_HR(hr2, S_OK);
+            if (SUCCEEDED(hr2)) { CHECK(cookie != cookie2); ID3D11Device4_UnregisterDeviceRemoved(d4, cookie2); }
+            CloseHandle(ev2);
+        }
+        EXPECT_HR(ID3D11Device4_RegisterDeviceRemovedEvent(d4, NULL, &cookie2), DXGI_ERROR_INVALID_CALL);
+        EXPECT_HR(ID3D11Device4_RegisterDeviceRemovedEvent(d4, ev, NULL), DXGI_ERROR_INVALID_CALL);
         EXPECT_EQ(WaitForSingleObject(ev, 0), WAIT_TIMEOUT);       /* the device is healthy: nothing fires */
         ID3D11Device4_UnregisterDeviceRemoved(d4, cookie);
         ID3D11Device4_UnregisterDeviceRemoved(d4, cookie);         /* unregistering twice is harmless */
@@ -121,10 +130,10 @@ T(dev4_removed_event_invalid_arguments) {
     if (FAILED(ID3D11Device_QueryInterface(d, &IID_ID3D11Device4, (void **)&d4))) { t_skip("no Device4"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
     DWORD cookie = 0xdeadbeef;
     HRESULT hr = ID3D11Device4_RegisterDeviceRemovedEvent(d4, NULL, &cookie);
-    t_note("RegisterDeviceRemovedEvent(NULL event) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);
     CHECKF(FAILED(hr), "NULL event accepted");
     hr = ID3D11Device4_RegisterDeviceRemovedEvent(d4, INVALID_HANDLE_VALUE, &cookie);
-    t_note("RegisterDeviceRemovedEvent(INVALID_HANDLE_VALUE) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* INVALID_HANDLE_VALUE is not validated */
     if (SUCCEEDED(hr)) ID3D11Device4_UnregisterDeviceRemoved(d4, cookie);
     ID3D11Device4_UnregisterDeviceRemoved(d4, 0xffffff00u);        /* unknown cookie: ignored */
     SAFE_RELEASE(d4); SAFE_RELEASE(c); SAFE_RELEASE(d);
@@ -135,7 +144,7 @@ T(ctx2_annotation_helpers) {
     ID3D11DeviceContext2 *c2 = NULL;
     if (FAILED(ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11DeviceContext2, (void **)&c2))) { t_skip("no Context2"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
     BOOL en = ID3D11DeviceContext2_IsAnnotationEnabled(c2);
-    t_note("IsAnnotationEnabled = %d", en);
+    EXPECT_EQ(en, 0);   /* no profiler attached */
     CHECK(en == FALSE);       /* no graphics debugger attached */
     ID3D11DeviceContext2_SetMarkerInt(c2, L"ifv marker", 1);
     ID3D11DeviceContext2_BeginEventInt(c2, L"ifv event", 2);
@@ -152,7 +161,7 @@ T(ctx3_hardware_protection_state) {
     ID3D11DeviceContext3_Flush1(c3, D3D11_CONTEXT_TYPE_3D, NULL);
     BOOL prot = 0x5a5a;
     ID3D11DeviceContext3_GetHardwareProtectionState(c3, &prot);
-    t_note("hardware protection state %d", prot);
+    BRD_EQ(prot, 0);
     CHECK(prot == FALSE);
     ID3D11DeviceContext3_SetHardwareProtectionState(c3, FALSE);
     ID3D11DeviceContext3_GetHardwareProtectionState(c3, &prot);
@@ -170,7 +179,7 @@ T(lifetime_release_device_before_children) {
     ID3D11Device_CreateDeferredContext(d, 0, &dc);
     ID3D11Device_AddRef(d);
     ULONG rc = ID3D11Device_Release(d);
-    t_note("device refcount with buffer + immediate + deferred context alive: %lu", rc);
+    EXPECT_EQ(rc, 4);
     CHECK(rc >= 2);
     /* children remain usable while their device is kept alive by them */
     ID3D11Device *g = NULL;

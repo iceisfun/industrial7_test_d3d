@@ -420,7 +420,7 @@ T(dev_dxgi_maximum_frame_latency) {
     EXPECT_HR(IDXGIDevice1_SetMaximumFrameLatency(d1, 0), S_OK);
     lat = 99;
     EXPECT_HR(IDXGIDevice1_GetMaximumFrameLatency(d1, &lat), S_OK);
-    t_note("latency after Set(0) = %u", lat);
+    EXPECT_EQ(lat, 0);   /* Set(0) is accepted and read back as 0 */
     SAFE_RELEASE(d1); SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
@@ -453,8 +453,8 @@ static const struct feat k_feats[] = {
     FE(D3D11_FEATURE_D3D11_OPTIONS3, D3D11_FEATURE_DATA_D3D11_OPTIONS3, 1),
     FE(D3D11_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT, D3D11_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT, 1),
     FE(D3D11_FEATURE_D3D11_OPTIONS4, D3D11_FEATURE_DATA_D3D11_OPTIONS4, 1),
-    FE(D3D11_FEATURE_SHADER_CACHE, D3D11_FEATURE_DATA_SHADER_CACHE, 0),
-    FE(D3D11_FEATURE_D3D11_OPTIONS5, D3D11_FEATURE_DATA_D3D11_OPTIONS5, 0),
+    FE(D3D11_FEATURE_SHADER_CACHE, D3D11_FEATURE_DATA_SHADER_CACHE, 1),
+    FE(D3D11_FEATURE_D3D11_OPTIONS5, D3D11_FEATURE_DATA_D3D11_OPTIONS5, 1),
 };
 
 T(dev_check_feature_support_sizes) {
@@ -471,8 +471,13 @@ T(dev_check_feature_support_sizes) {
             hr = ID3D11Device_CheckFeatureSupport(d, f->f, buf, f->size - 1);
             t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "size-1", "%s size-1: %s", f->name, d3dh_hr_name(hr));
         }
+        /* Win10: only D3D11_FEATURE_D3D11_OPTIONS2 tolerates a size that is 4 bytes too large (older layout); everything else is exact */
         hr = ID3D11Device_CheckFeatureSupport(d, f->f, buf, f->size + 4);
-        t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "size+4", "%s size+4: %s", f->name, d3dh_hr_name(hr));
+        t_check(hr == (f->f == D3D11_FEATURE_D3D11_OPTIONS2 ? S_OK : E_INVALIDARG), __FILE__, __LINE__, "size+4", "%s size+4: %s", f->name, d3dh_hr_name(hr));
+        hr = ID3D11Device_CheckFeatureSupport(d, f->f, buf, f->size + 8);
+        t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "size+8", "%s size+8: %s", f->name, d3dh_hr_name(hr));
+        hr = ID3D11Device_CheckFeatureSupport(d, f->f, buf, f->size + 1);
+        t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "size+1", "%s size+1: %s", f->name, d3dh_hr_name(hr));
         hr = ID3D11Device_CheckFeatureSupport(d, f->f, buf, 0);
         t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "size 0", "%s size 0: %s", f->name, d3dh_hr_name(hr));
     }
@@ -496,7 +501,7 @@ T(dev_check_feature_support_defaults) {
     if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, &th, sizeof(th)))) {
         CHECK(th.DriverConcurrentCreates == TRUE || th.DriverConcurrentCreates == FALSE);
         CHECK(th.DriverCommandLists == TRUE || th.DriverCommandLists == FALSE);
-        t_note("threading: concurrent creates %d, command lists %d", th.DriverConcurrentCreates, th.DriverCommandLists);
+        BRD_EQ(th.DriverConcurrentCreates, 1); BRD_EQ(th.DriverCommandLists, 0);
     }
     D3D11_FEATURE_DATA_DOUBLES db; memset(&db, 0xff, sizeof(db));
     if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_DOUBLES, &db, sizeof(db)))) {
@@ -506,22 +511,24 @@ T(dev_check_feature_support_defaults) {
     D3D11_FEATURE_DATA_ARCHITECTURE_INFO ai; memset(&ai, 0xff, sizeof(ai));
     if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_ARCHITECTURE_INFO, &ai, sizeof(ai)))) {
         CHECK(ai.TileBasedDeferredRenderer == TRUE || ai.TileBasedDeferredRenderer == FALSE);
-        t_note("TBDR %d", ai.TileBasedDeferredRenderer);
+        BRD_EQ(ai.TileBasedDeferredRenderer, 0);
     }
     D3D11_FEATURE_DATA_D3D11_OPTIONS o; memset(&o, 0xff, sizeof(o));
     if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_D3D11_OPTIONS, &o, sizeof(o)))) {
-        t_note("options: clearview %d, constbuf offsetting %d, partial update %d, logic op %d",
-               o.ClearView, o.ConstantBufferOffsetting, o.ConstantBufferPartialUpdate, o.OutputMergerLogicOp);
+        BRD_EQ(o.ClearView, 1); BRD_EQ(o.ConstantBufferOffsetting, 1); BRD_EQ(o.ConstantBufferPartialUpdate, 1); BRD_EQ(o.OutputMergerLogicOp, 1);
         if (fl_ >= D3D_FEATURE_LEVEL_11_1) CHECK(o.ConstantBufferOffsetting == TRUE || o.ConstantBufferOffsetting == FALSE);
     }
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
+static void cfs_null_data(void *p)
+{
+    ID3D11Device_CheckFeatureSupport((ID3D11Device *)p, D3D11_FEATURE_THREADING, NULL, sizeof(D3D11_FEATURE_DATA_THREADING));
+}
 T(dev_check_feature_support_null_data) {
     IFV_DEV(d, c);
-    HRESULT hr = ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, NULL, sizeof(D3D11_FEATURE_DATA_THREADING));
-    t_note("CheckFeatureSupport(NULL data) = %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr) || hr == S_OK);
+    /* Win10 does not validate the pointer: a NULL pFeatureSupportData with a correct size raises an access violation */
+    EXPECT_EQ(t_try(cfs_null_data, d), 0xc0000005);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
 
@@ -539,15 +546,19 @@ T(dev_debug_layer_interfaces) {
     if (SUCCEEDED(ID3D11Device_QueryInterface(d, &IID_ID3D11InfoQueue, (void **)&iq))) {
         ID3D11InfoQueue_ClearStoredMessages(iq);
         EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(iq), 0);
-        EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(iq, D3D11_MESSAGE_SEVERITY_INFO, "ifv test message"), S_OK);
+        /* the default storage filter drops INFO (AddApplicationMessage reports S_FALSE and stores nothing) but keeps CORRUPTION, ERROR,
+         * WARNING and MESSAGE */
+        EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(iq, D3D11_MESSAGE_SEVERITY_INFO, "ifv test message"), S_FALSE);
+        EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(iq), 0);
+        EXPECT_HR(ID3D11InfoQueue_AddApplicationMessage(iq, D3D11_MESSAGE_SEVERITY_WARNING, "ifv test message"), S_OK);
         EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(iq), 1);
         SIZE_T len = 0;
-        EXPECT_HR(ID3D11InfoQueue_GetMessage(iq, 0, NULL, &len), S_OK);
+        EXPECT_HR(ID3D11InfoQueue_GetMessage(iq, 0, NULL, &len), S_FALSE);   /* size query with a NULL buffer reports S_FALSE */
         CHECK(len >= sizeof(D3D11_MESSAGE));
         ID3D11InfoQueue_ClearStoredMessages(iq);
         EXPECT_EQ(ID3D11InfoQueue_GetNumStoredMessages(iq), 0);
         UINT64 lim = ID3D11InfoQueue_GetMessageCountLimit(iq);
-        t_note("message count limit %llu", (unsigned long long)lim);
+        EXPECT_EQ(lim, 1024);
         CHECK(ID3D11InfoQueue_GetStorageFilterStackSize(iq) >= 0);
         SAFE_RELEASE(iq);
     }
@@ -560,6 +571,5 @@ T(dev_debug_flag_requires_sdk_layers_error_code) {
     if (SUCCEEDED(hr)) { t_note("debug device created"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
     /* Without the Graphics Tools feature the runtime reports the missing component. */
     t_note("debug device creation -> %s", d3dh_hr_name(hr));
-    CHECKF(hr == DXGI_ERROR_SDK_COMPONENT_MISSING || hr == E_FAIL || hr == DXGI_ERROR_UNSUPPORTED,
-           "unexpected debug creation failure %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_ERROR_SDK_COMPONENT_MISSING);   /* measured on Win10 22H2 without Graphics Tools */
 }

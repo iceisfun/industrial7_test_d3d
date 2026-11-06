@@ -1,4 +1,7 @@
 #include "ifv.h"
+#include "ifv_qi_pins.h"
+
+static int g_brd;   /* last device created by ifv_dev/ifv_dev_at runs on the Basic Render Driver */
 
 const GUID ifv_IID_VideoDevice2  = {0x59c0cb01, 0x35f0, 0x4a70, {0x8f, 0x67, 0x87, 0x90, 0x5c, 0x90, 0x6a, 0x53}};
 const GUID ifv_IID_VideoContext3 = {0xa9e2faa0, 0xcb39, 0x418f, {0xa0, 0xb7, 0xd8, 0xaa, 0xd4, 0xde, 0x67, 0x2e}};
@@ -8,6 +11,7 @@ int ifv_dev(ID3D11Device **d, ID3D11DeviceContext **c, D3D_FEATURE_LEVEL *fl, UI
     D3D_FEATURE_LEVEL f = 0;
     HRESULT hr = d3dh_make_device11(d, c, &f, NULL, flags);
     if (FAILED(hr) || !*d || !*c) { t_skip("cannot create a D3D11 device (%s)", d3dh_hr_name(hr)); return 0; }
+    g_brd = ifv_is_brd(*d);
     if (fl) *fl = f;
     return 1;
 }
@@ -17,6 +21,7 @@ int ifv_dev_at(ID3D11Device **d, ID3D11DeviceContext **c, D3D_FEATURE_LEVEL want
     HRESULT hr = d3dh_make_device11_fl(d, c, &want, 1, &got, NULL, flags);
     if (FAILED(hr) || !*d || !*c) return 0;
     if (got != want) { SAFE_RELEASE(*c); SAFE_RELEASE(*d); return 0; }
+    g_brd = ifv_is_brd(*d);
     return 1;
 }
 
@@ -51,7 +56,14 @@ void ifv_check_qi_table(void *obj, const struct ifv_qi_ent *tab, unsigned n, con
         } else if (tab[i].want == 0) {
             t_check(hr == E_NOINTERFACE, __FILE__, __LINE__, "QI E_NOINTERFACE", "%s %s: got %s", what, tab[i].name, d3dh_hr_name(hr));
         } else {
+            unsigned k, pinned = 0;
             t_note("%s QI %s -> %s", what, tab[i].name, d3dh_hr_name(hr));
+            if (g_brd) for (k = 0; k < sizeof(k_qi_pins) / sizeof(k_qi_pins[0]); k++)
+                if (!strcmp(k_qi_pins[k].what, what) && !strcmp(k_qi_pins[k].name, tab[i].name)) {
+                    pinned = 1;
+                    t_check(hr == k_qi_pins[k].hr, __FILE__, __LINE__, "QI pinned", "%s QI %s: got %s want %s", what, tab[i].name, d3dh_hr_name(hr), d3dh_hr_name(k_qi_pins[k].hr));
+                }
+            (void)pinned;
         }
     }
 }
@@ -59,9 +71,11 @@ void ifv_check_qi_table(void *obj, const struct ifv_qi_ent *tab, unsigned n, con
 int ifv_video_open(struct ifv_video *v) {
     memset(v, 0, sizeof(*v));
     if (!ifv_dev(&v->dev, &v->ctx, &v->fl, 0)) return 0;
-    if (FAILED(ID3D11Device_QueryInterface(v->dev, &IID_ID3D11VideoDevice, (void **)&v->vd)) ||
-        FAILED(ID3D11DeviceContext_QueryInterface(v->ctx, &IID_ID3D11VideoContext, (void **)&v->vc))) {
-        t_skip("no ID3D11VideoDevice/ID3D11VideoContext on this device");
+    HRESULT h1 = ID3D11Device_QueryInterface(v->dev, &IID_ID3D11VideoDevice, (void **)&v->vd);
+    HRESULT h2 = ID3D11DeviceContext_QueryInterface(v->ctx, &IID_ID3D11VideoContext, (void **)&v->vc);
+    if (FAILED(h1) || FAILED(h2)) {
+        t_skip("no video interfaces on this device: QI ID3D11VideoDevice %s, ID3D11VideoContext %s, Basic Render Driver %d",
+               d3dh_hr_name(h1), d3dh_hr_name(h2), ifv_is_brd(v->dev));
         ifv_video_close(v);
         return 0;
     }
@@ -96,4 +110,19 @@ int ifv_make_vp(struct ifv_video *v, UINT w, UINT h, ID3D11VideoProcessorEnumera
     hr = ID3D11VideoDevice_CreateVideoProcessor(v->vd, *e, 0, p);
     if (FAILED(hr) || !*p) { t_skip("CreateVideoProcessor unsupported (%s)", d3dh_hr_name(hr)); SAFE_RELEASE(*e); return 0; }
     return 1;
+}
+
+int ifv_brd(void) { return g_brd; }
+
+int ifv_is_brd(ID3D11Device *dev)
+{
+    IDXGIDevice *dd = NULL;
+    IDXGIAdapter *ad = NULL;
+    DXGI_ADAPTER_DESC desc;
+    int r = 0;
+    if (FAILED(ID3D11Device_QueryInterface(dev, &IID_IDXGIDevice, (void **)&dd))) return 0;
+    if (SUCCEEDED(IDXGIDevice_GetAdapter(dd, &ad)) && SUCCEEDED(IDXGIAdapter_GetDesc(ad, &desc))) r = desc.VendorId == 0x1414;
+    if (ad) IDXGIAdapter_Release(ad);
+    IDXGIDevice_Release(dd);
+    return r;
 }
