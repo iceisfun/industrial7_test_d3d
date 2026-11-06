@@ -11,10 +11,12 @@ TEST(d3d12_objects_dheap_increment_sizes) {
         UINT a = ID3D12Device_GetDescriptorHandleIncrementSize(dev, dh_types[i]), b = ID3D12Device_GetDescriptorHandleIncrementSize(dev, dh_types[i]);
         CHECKF(a > 0 && a == b, "%s increment %u/%u", dh_names[i], a, b);
         CHECKF(a < 4096, "%s increment %u suspiciously large", dh_names[i], a);
-        t_note("descriptor increment %s = %u", dh_names[i], a);
+        static const UINT warp_inc[4] = { 64, 64, 32, 8 };   /* CBV_SRV_UAV, SAMPLER, RTV, DSV on WARP (Win10 22H2) */
+        if (g_d12warp) CHECKF(a == warp_inc[i], "%s increment %u want %u", dh_names[i], a, warp_inc[i]);
+        else t_note("descriptor increment %s = %u", dh_names[i], a);
     }
     UINT bad = ID3D12Device_GetDescriptorHandleIncrementSize(dev, (D3D12_DESCRIPTOR_HEAP_TYPE)D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES);
-    t_note("increment for NUM_TYPES = %u", bad);
+    EXPECT_EQ(bad, 8);   /* undefined heap types report 8 */
 }
 TEST(d3d12_objects_dheap_create_matrix) {
     NEED_DEV();
@@ -33,31 +35,37 @@ TEST(d3d12_objects_dheap_create_matrix) {
         }
     }
 }
+static void dh_null_desc(void *c) { ID3D12Device *dev = c; ID3D12DescriptorHeap *h = NULL; ID3D12Device_CreateDescriptorHeap(dev, NULL, &IID_ID3D12DescriptorHeap, (void **)&h); if (h) ID3D12DescriptorHeap_Release(h); }
 TEST(d3d12_objects_dheap_invalid_type) {
     NEED_DEV();
-    D3D12_DESCRIPTOR_HEAP_DESC hd; memset(&hd, 0, sizeof hd); hd.Type = (D3D12_DESCRIPTOR_HEAP_TYPE)D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; hd.NumDescriptors = 4;
-    ID3D12DescriptorHeap *h = NULL;
-    HRESULT hr = ID3D12Device_CreateDescriptorHeap(dev, &hd, &IID_ID3D12DescriptorHeap, (void **)&h);
-    CHECKF(FAILED(hr), "heap type NUM_TYPES: %s", d3dh_hr_name(hr)); SAFE_RELEASE(h);
-    hd.Type = (D3D12_DESCRIPTOR_HEAP_TYPE)77;
-    hr = ID3D12Device_CreateDescriptorHeap(dev, &hd, &IID_ID3D12DescriptorHeap, (void **)&h);
-    CHECKF(FAILED(hr), "heap type 77: %s", d3dh_hr_name(hr)); SAFE_RELEASE(h);
-    hr = ID3D12Device_CreateDescriptorHeap(dev, NULL, &IID_ID3D12DescriptorHeap, (void **)&h);
-    CHECKF(FAILED(hr), "NULL desc: %s", d3dh_hr_name(hr)); SAFE_RELEASE(h);
+    /* Measured on Win10 22H2: the runtime does not validate the heap type. NUM_TYPES (4) and undefined values create a heap
+     * that echoes the type back and reports an 8-byte handle increment; a NULL desc raises an access violation. */
+    static const UINT types[] = { D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES, 5, 77 };
+    for (unsigned k = 0; k < 3; k++) {
+        D3D12_DESCRIPTOR_HEAP_DESC hd; memset(&hd, 0, sizeof hd); hd.Type = (D3D12_DESCRIPTOR_HEAP_TYPE)types[k]; hd.NumDescriptors = 4;
+        ID3D12DescriptorHeap *h = NULL;
+        HRESULT hr = ID3D12Device_CreateDescriptorHeap(dev, &hd, &IID_ID3D12DescriptorHeap, (void **)&h);
+        CHECKF(hr == S_OK, "heap type %u: %s", types[k], d3dh_hr_name(hr));
+        if (h) { D3D12_DESCRIPTOR_HEAP_DESC g = d12_dh_desc(h); EXPECT_EQ(g.Type, types[k]); EXPECT_EQ(g.NumDescriptors, 4); SAFE_RELEASE(h); }
+        EXPECT_EQ(ID3D12Device_GetDescriptorHandleIncrementSize(dev, (D3D12_DESCRIPTOR_HEAP_TYPE)types[k]), 8);
+    }
+    EXPECT_EQ(t_try(dh_null_desc, dev), 0xC0000005);
 }
 TEST(d3d12_objects_dheap_zero_descriptors_note) {
     NEED_DEV();
     D3D12_DESCRIPTOR_HEAP_DESC hd; memset(&hd, 0, sizeof hd); hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV; hd.NumDescriptors = 0;
     ID3D12DescriptorHeap *h = NULL;
     HRESULT hr = ID3D12Device_CreateDescriptorHeap(dev, &hd, &IID_ID3D12DescriptorHeap, (void **)&h);
-    t_note("descriptor heap with NumDescriptors=0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(h);
+    CHECKF(hr == S_OK, "descriptor heap with NumDescriptors=0: %s", d3dh_hr_name(hr));   /* accepted (Win10 22H2) */
+    if (h) { D3D12_DESCRIPTOR_HEAP_DESC g = d12_dh_desc(h); EXPECT_EQ(g.NumDescriptors, 0); }
+    SAFE_RELEASE(h);
 }
 TEST(d3d12_objects_dheap_sampler_limit) {
     NEED_DEV();
     ID3D12DescriptorHeap *h = NULL;
     EXPECT_HR(d12_make_dheap(dev, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 2048, 1, &h), S_OK); SAFE_RELEASE(h);
     HRESULT hr = d12_make_dheap(dev, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 2049, 1, &h);
-    CHECKF(FAILED(hr), "2049 shader-visible samplers: %s", d3dh_hr_name(hr)); SAFE_RELEASE(h);
+    CHECKF((hr) == E_INVALIDARG, "2049 shader-visible samplers: %s", d3dh_hr_name(hr)); SAFE_RELEASE(h);
 }
 TEST(d3d12_objects_dheap_handles) {
     NEED_DEV();
@@ -70,7 +78,8 @@ TEST(d3d12_objects_dheap_handles) {
         CHECKF(ca.ptr != 0 && cb.ptr != 0, "%s: CPU start is NULL", dh_names[i]);
         CHECKF(ca.ptr != cb.ptr, "%s: two heaps share a CPU start", dh_names[i]);
         CHECKF(ca.ptr + 8 * inc <= cb.ptr || cb.ptr + 8 * inc <= ca.ptr, "%s: CPU ranges overlap", dh_names[i]);
-        CHECKF(ga.ptr == 0, "%s: non-shader-visible heap has GPU handle 0x%llx", dh_names[i], (unsigned long long)ga.ptr);
+        /* Measured on Win10 22H2: the GPU start handle of a non-shader-visible heap is not zero (an unspecified, heap-dependent value); only logged. */
+        t_note("%s: GPU handle of a non-shader-visible heap = %s", dh_names[i], ga.ptr ? "non-zero" : "zero");
         EXPECT_EQ(d3dh_d12_heap_cpu_start(a).ptr, ca.ptr);   /* stable */
         SAFE_RELEASE(a); SAFE_RELEASE(b);
     }
@@ -198,7 +207,31 @@ TEST(d3d12_objects_dheap_copy_descriptors_ranges) {
     {
         UINT inc = ID3D12Device_GetDescriptorHandleIncrementSize(dev, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         for (int i = 0; i < 6; i++) ID3D12Device_CreateRenderTargetView(dev, rt_tex[i], NULL, d12_dh_cpu(src, i, inc));
-        /* sources: {0,1} then {4,5} -> destinations: {1,2,3} then {5}  => d1<-s0 d2<-s1 d3<-s4 d5<-s5 */
+        /* aligned ranges: sources {0,1} then {3,4} -> destinations {1,2} then {4,5}  => d1<-s0 d2<-s1 d4<-s3 d5<-s4 */
+        D3D12_CPU_DESCRIPTOR_HANDLE ss[2] = { d12_dh_cpu(src, 0, inc), d12_dh_cpu(src, 3, inc) }; UINT ssz[2] = { 2, 2 };
+        D3D12_CPU_DESCRIPTOR_HANDLE ds[2] = { d12_dh_cpu(dst, 1, inc), d12_dh_cpu(dst, 4, inc) }; UINT dsz[2] = { 2, 2 };
+        ID3D12Device_CopyDescriptors(dev, 2, ds, dsz, 2, ss, ssz, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        static const float col[4][4] = { { 1, 0, 0, 1 }, { 0, 1, 0, 1 }, { 0, 0, 1, 1 }, { 1, 1, 1, 1 } };
+        static const int slot[4] = { 1, 2, 4, 5 }, tex[4] = { 0, 1, 3, 4 };
+        for (int i = 0; i < 4; i++) ID3D12GraphicsCommandList_ClearRenderTargetView(c.cl, d12_dh_cpu(dst, slot[i], inc), col[i], 0, NULL);
+        EXPECT_HR(d12_run(&c), S_OK);
+        static const UINT32 want[4] = { PX_RED, PX_GREEN, PX_BLUE, 0xFFFFFFFF };
+        for (int i = 0; i < 4; i++) { UINT32 v = rt_first_px(dev, rt_tex[tex[i]]); CHECKF(v == want[i], "texture %d: 0x%08x want 0x%08x", tex[i], v, want[i]); }
+    }
+out:
+    d12_ctx_free(&c); free_rts(); SAFE_RELEASE(src); SAFE_RELEASE(dst);
+}
+TEST(d3d12_objects_dheap_copy_descriptors_spanning_ranges) {
+    NEED_DEV();
+    /* REAL DIVERGENCE (Win10 22H2 WARP): documented semantics are a sequential copy of the source descriptors into the destination
+     * ranges. With destination ranges {1x3, 5x1} and source ranges {0x2, 4x2} the expected map is d1<-s0 d2<-s1 d3<-s4 d5<-s5.
+     * WARP restarts the offset inside the current source range at every new destination range: it produces d5<-s4 (not s5).
+     * The check is kept; the same pattern with one destination range spanning two source ranges (d3<-s4) works. */
+    ID3D12DescriptorHeap *src = NULL, *dst = NULL; d12ctx c = {0};
+    if (!mk_rts(dev) || FAILED(d12_make_dheap(dev, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 6, 0, &src)) || FAILED(d12_make_dheap(dev, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 6, 0, &dst)) || FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("setup"); goto out; }
+    {
+        UINT inc = ID3D12Device_GetDescriptorHandleIncrementSize(dev, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        for (int i = 0; i < 6; i++) ID3D12Device_CreateRenderTargetView(dev, rt_tex[i], NULL, d12_dh_cpu(src, i, inc));
         D3D12_CPU_DESCRIPTOR_HANDLE ss[2] = { d12_dh_cpu(src, 0, inc), d12_dh_cpu(src, 4, inc) }; UINT ssz[2] = { 2, 2 };
         D3D12_CPU_DESCRIPTOR_HANDLE ds[2] = { d12_dh_cpu(dst, 1, inc), d12_dh_cpu(dst, 5, inc) }; UINT dsz[2] = { 3, 1 };
         ID3D12Device_CopyDescriptors(dev, 2, ds, dsz, 2, ss, ssz, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -262,11 +295,11 @@ TEST(d3d12_objects_rootsig_create_invalid_blob) {
     static const unsigned char junk[64] = { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
     ID3D12RootSignature *rs = (ID3D12RootSignature *)(ULONG_PTR)1;
     HRESULT hr = ID3D12Device_CreateRootSignature(dev, 0, junk, sizeof junk, &IID_ID3D12RootSignature, (void **)&rs);
-    CHECKF(FAILED(hr), "garbage blob: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "garbage blob: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(rs); else CHECK(rs == NULL);
     rs = NULL;
     hr = ID3D12Device_CreateRootSignature(dev, 0, junk, 0, &IID_ID3D12RootSignature, (void **)&rs);
-    CHECKF(FAILED(hr), "zero-length blob: %s", d3dh_hr_name(hr)); SAFE_RELEASE(rs);
+    CHECKF((hr) == E_FAIL, "zero-length blob: %s", d3dh_hr_name(hr)); SAFE_RELEASE(rs);
 }
 TEST(d3d12_objects_rootsig_node_mask_and_iid) {
     NEED_DEV();
@@ -279,14 +312,14 @@ TEST(d3d12_objects_rootsig_node_mask_and_iid) {
     if (!b) return;
     ID3D12RootSignature *rs = NULL;
     HRESULT hr = ID3D12Device_CreateRootSignature(dev, 2, ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), &IID_ID3D12RootSignature, (void **)&rs);
-    CHECKF(FAILED(hr), "node mask 2: %s", d3dh_hr_name(hr)); SAFE_RELEASE(rs);
+    CHECKF((hr) == E_INVALIDARG, "node mask 2: %s", d3dh_hr_name(hr)); SAFE_RELEASE(rs);
     void *o = (void *)1;
     hr = ID3D12Device_CreateRootSignature(dev, 0, ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), &IID_ID3D12Fence, &o);
-    CHECKF(FAILED(hr), "riid Fence: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_NOINTERFACE, "riid Fence: %s", d3dh_hr_name(hr));
     ID3D12RootSignature *r1 = NULL, *r2 = NULL;
     EXPECT_HR(ID3D12Device_CreateRootSignature(dev, 0, ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), &IID_ID3D12RootSignature, (void **)&r1), S_OK);
     EXPECT_HR(ID3D12Device_CreateRootSignature(dev, 0, ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), &IID_ID3D12RootSignature, (void **)&r2), S_OK);
-    if (r1 && r2 && r1 == r2) t_note("identical root signature blobs yield the same object");
+    CHECK(r1 != NULL && r2 != NULL && r1 == r2);   /* Win10 22H2: identical blobs yield the same (cached) object */
     SAFE_RELEASE(r1); SAFE_RELEASE(r2);
     ID3D10Blob_Release(b);
 }
@@ -315,24 +348,24 @@ TEST(d3d12_objects_pso_compute_invalid) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC d; memset(&d, 0, sizeof d);
         d.CS.pShaderBytecode = ID3D10Blob_GetBufferPointer(cs); d.CS.BytecodeLength = ID3D10Blob_GetBufferSize(cs);
         HRESULT hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "no root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
+        CHECKF((hr) == E_INVALIDARG, "no root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
         d.pRootSignature = rs_empty;
         hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "root signature without the UAV/CBV the shader uses: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
+        CHECKF((hr) == E_INVALIDARG, "root signature without the UAV/CBV the shader uses: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
         d.pRootSignature = rs; d.CS.BytecodeLength = 0;
         hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "empty bytecode: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
+        CHECKF((hr) == E_INVALIDARG, "empty bytecode: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
         static const unsigned char junk[128] = { 'N', 'O', 'T', 'D', 'X', 'B', 'C' };
         d.CS.pShaderBytecode = junk; d.CS.BytecodeLength = sizeof junk;
         hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "garbage bytecode: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
+        CHECKF((hr) == E_FAIL, "garbage bytecode: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
         d.CS.pShaderBytecode = ID3D10Blob_GetBufferPointer(cs); d.CS.BytecodeLength = ID3D10Blob_GetBufferSize(cs); d.NodeMask = 2;
         hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "node mask 2: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
+        CHECKF((hr) == E_INVALIDARG, "node mask 2: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
         d.NodeMask = 0;
         void *o = (void *)1;
         hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12Fence, &o);
-        CHECKF(FAILED(hr), "riid Fence: %s", d3dh_hr_name(hr));
+        CHECKF((hr) == E_NOINTERFACE, "riid Fence: %s", d3dh_hr_name(hr));
     }
 out:
     SAFE_RELEASE(pso); SAFE_RELEASE(rs); SAFE_RELEASE(rs_empty); if (cs) ID3D10Blob_Release(cs);
@@ -346,7 +379,7 @@ TEST(d3d12_objects_pso_compute_wrong_stage_bytecode) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC d; memset(&d, 0, sizeof d);
         d.pRootSignature = rs; d.CS.pShaderBytecode = ID3D10Blob_GetBufferPointer(ps); d.CS.BytecodeLength = ID3D10Blob_GetBufferSize(ps);
         HRESULT hr = ID3D12Device_CreateComputePipelineState(dev, &d, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "pixel shader bytecode in the CS slot: %s", d3dh_hr_name(hr));
+        CHECKF((hr) == E_INVALIDARG, "pixel shader bytecode in the CS slot: %s", d3dh_hr_name(hr));
     }
 out:
     SAFE_RELEASE(pso); SAFE_RELEASE(rs); if (ps) ID3D10Blob_Release(ps);
@@ -359,28 +392,27 @@ TEST(d3d12_objects_pso_graphics_create_and_invalid) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC g; ID3D12PipelineState *p = NULL; HRESULT hr;
     d12_fill_gfx_desc(&g, NULL, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM);
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "NULL root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF((hr) == E_INVALIDARG, "NULL root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM); g.VS.BytecodeLength = 0; g.VS.pShaderBytecode = NULL;
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "no vertex shader: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF((hr) == E_INVALIDARG, "no vertex shader: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM); g.NumRenderTargets = 1; g.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "render target count 1 with format UNKNOWN: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF(hr == S_OK, "render target count 1 with format UNKNOWN: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);   /* accepted by the runtime (Win10 22H2) */
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM); g.NumRenderTargets = 9;
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "9 render targets: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF((hr) == E_INVALIDARG, "9 render targets: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM); g.VS = g.PS;   /* pixel shader bytecode in the VS slot */
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "PS bytecode as VS: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF((hr) == E_INVALIDARG, "PS bytecode as VS: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM); g.PrimitiveTopologyType = (D3D12_PRIMITIVE_TOPOLOGY_TYPE)9;
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "topology type 9: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF((hr) == E_INVALIDARG, "topology type 9: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM); g.SampleDesc.Count = 0;
     hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-    t_note("graphics PSO with SampleDesc.Count = 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    CHECKF(hr == E_INVALIDARG, "graphics PSO with SampleDesc.Count = 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
     d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM);
-    hr = ID3D12Device_CreateGraphicsPipelineState(dev, NULL, &IID_ID3D12PipelineState, (void **)&p);
-    CHECKF(FAILED(hr), "NULL desc: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    /* a NULL desc is an access violation inside d3d12 (see d3d12_objects_null_args_matrix) */
     d12_draw_free(&dr);
 }
 TEST(d3d12_objects_pso_graphics_root_signature_mismatch) {
@@ -393,7 +425,7 @@ TEST(d3d12_objects_pso_graphics_root_signature_mismatch) {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC g; ID3D12PipelineState *p = NULL;
         d12_fill_gfx_desc(&g, dr.rs, dr.vs, ps, DXGI_FORMAT_R8G8B8A8_UNORM);   /* empty root signature, shader needs t0 and s0 */
         HRESULT hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-        CHECKF(FAILED(hr), "pixel shader needs t0/s0 but the root signature has none: %s", d3dh_hr_name(hr));
+        CHECKF((hr) == E_INVALIDARG, "pixel shader needs t0/s0 but the root signature has none: %s", d3dh_hr_name(hr));
         SAFE_RELEASE(p); ID3D10Blob_Release(ps);
     }
     d12_draw_free(&dr);
@@ -404,7 +436,7 @@ TEST(d3d12_objects_pso_cached_blob_roundtrip) {
     if (FAILED(d12_draw_init(dev, &dr))) { t_skip("setup"); d12_draw_free(&dr); return; }
     ID3DBlob *blob = NULL;
     HRESULT hr = ID3D12PipelineState_GetCachedBlob(dr.pso, &blob);
-    t_note("GetCachedBlob: %s size=%llu", d3dh_hr_name(hr), blob ? (unsigned long long)ID3D10Blob_GetBufferSize(blob) : 0ull);
+    CHECKF(hr == S_OK && blob && ID3D10Blob_GetBufferSize(blob) > 0, "GetCachedBlob: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && blob && ID3D10Blob_GetBufferSize(blob) > 0) {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC g; ID3D12PipelineState *p = NULL;
         d12_fill_gfx_desc(&g, dr.rs, dr.vs, dr.ps, DXGI_FORMAT_R8G8B8A8_UNORM);
@@ -417,7 +449,7 @@ TEST(d3d12_objects_pso_cached_blob_roundtrip) {
         for (size_t i = 0; i < n; i += 7) copy[i] ^= 0xA5;
         g.CachedPSO.pCachedBlob = copy; g.CachedPSO.CachedBlobSizeInBytes = n;
         hr = ID3D12Device_CreateGraphicsPipelineState(dev, &g, &IID_ID3D12PipelineState, (void **)&p);
-        t_note("PSO creation with a damaged cached blob: %s", d3dh_hr_name(hr));
+        CHECKF(hr == E_INVALIDARG, "PSO creation with a damaged cached blob: %s", d3dh_hr_name(hr));
         SAFE_RELEASE(p); free(copy);
     }
     if (blob) ID3D10Blob_Release(blob);
@@ -439,7 +471,7 @@ TEST(d3d12_objects_pso_stream_create) {
         SAFE_RELEASE(pso);
         st.rs = NULL;
         HRESULT hr = ID3D12Device2_CreatePipelineState(d2, &sd, &IID_ID3D12PipelineState, (void **)&pso);
-        CHECKF(FAILED(hr), "stream without root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
+        CHECKF((hr) == E_INVALIDARG, "stream without root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(pso);
     } else t_skip("setup");
     SAFE_RELEASE(rs); if (cs) ID3D10Blob_Release(cs); ID3D12Device2_Release(d2);
 }
@@ -483,7 +515,7 @@ TEST(d3d12_objects_pipeline_library_store_load) {
             }
             /* a truncated blob is rejected */
             hr = ID3D12Device1_CreatePipelineLibrary(d1, buf, sz / 2, &IID_ID3D12PipelineLibrary, (void **)&lib2);
-            CHECKF(FAILED(hr), "truncated library blob: %s", d3dh_hr_name(hr));
+            CHECKF((hr) == E_INVALIDARG, "truncated library blob: %s", d3dh_hr_name(hr));
             if (hr != D12_E_DRIVER_VERSION_MISM && hr != E_INVALIDARG && FAILED(hr)) t_note("truncated library blob -> %s", d3dh_hr_name(hr));
             SAFE_RELEASE(lib2);
             free(buf);
@@ -678,24 +710,22 @@ TEST(d3d12_objects_cmdsig_create_invalid) {
     ID3D12CommandSignature *cs = NULL; HRESULT hr;
     a[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW; d.ByteStride = 16; d.NumArgumentDescs = 0; d.pArgumentDescs = a;
     hr = ID3D12Device_CreateCommandSignature(dev, &d, NULL, &IID_ID3D12CommandSignature, (void **)&cs);
-    CHECKF(FAILED(hr), "zero arguments: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
+    CHECKF((hr) == E_INVALIDARG, "zero arguments: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
     d.NumArgumentDescs = 1; d.ByteStride = 8;
     hr = ID3D12Device_CreateCommandSignature(dev, &d, NULL, &IID_ID3D12CommandSignature, (void **)&cs);
-    CHECKF(FAILED(hr), "stride 8 < 16 bytes of draw args: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
+    CHECKF((hr) == E_INVALIDARG, "stride 8 < 16 bytes of draw args: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
     d.ByteStride = 0;
     hr = ID3D12Device_CreateCommandSignature(dev, &d, NULL, &IID_ID3D12CommandSignature, (void **)&cs);
-    CHECKF(FAILED(hr), "stride 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
+    CHECKF((hr) == E_INVALIDARG, "stride 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
     /* draw must be the last argument */
     a[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW; a[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH; d.NumArgumentDescs = 2; d.ByteStride = 64;
     hr = ID3D12Device_CreateCommandSignature(dev, &d, NULL, &IID_ID3D12CommandSignature, (void **)&cs);
-    CHECKF(FAILED(hr), "draw followed by dispatch: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
+    CHECKF((hr) == E_INVALIDARG, "draw followed by dispatch: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
     /* root-binding arguments need a root signature */
     a[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT; a[0].Constant.RootParameterIndex = 0; a[0].Constant.DestOffsetIn32BitValues = 0; a[0].Constant.Num32BitValuesToSet = 1;
     a[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH; d.ByteStride = 16;
     hr = ID3D12Device_CreateCommandSignature(dev, &d, NULL, &IID_ID3D12CommandSignature, (void **)&cs);
-    CHECKF(FAILED(hr), "constant argument without root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
-    hr = ID3D12Device_CreateCommandSignature(dev, NULL, NULL, &IID_ID3D12CommandSignature, (void **)&cs);
-    CHECKF(FAILED(hr), "NULL desc: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
+    CHECKF((hr) == E_INVALIDARG, "constant argument without root signature: %s", d3dh_hr_name(hr)); SAFE_RELEASE(cs);
 }
 TEST(d3d12_objects_execute_indirect_draw) {
     NEED_DEV();
@@ -705,7 +735,7 @@ TEST(d3d12_objects_execute_indirect_draw) {
         D3D12_INDIRECT_ARGUMENT_DESC a; memset(&a, 0, sizeof a); a.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
         D3D12_COMMAND_SIGNATURE_DESC d; memset(&d, 0, sizeof d); d.ByteStride = 16; d.NumArgumentDescs = 1; d.pArgumentDescs = &a;
         if (FAILED(ID3D12Device_CreateCommandSignature(dev, &d, NULL, &IID_ID3D12CommandSignature, (void **)&sig))) { t_skip("no signature"); goto out; }
-        UINT cmds[8] = { 3, 1, 0, 0,   3, 1, 3, 0 };   /* command 0 draws, command 1 starts at vertex 3 (off-screen) */
+        UINT cmds[8] = { 3, 1, 0, 0,   0, 1, 0, 0 };   /* command 0 draws, command 1 has no vertices (StartVertexLocation cannot move the triangle: SV_VertexID excludes it) */
         if (FAILED(buf_from_data(dev, cmds, sizeof cmds, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &args))) { t_skip("no args"); goto out; }
         d12_draw_setup(c.cl, &dr);
         d12_clear_rt(c.cl, &dr, 0, 1, 0, 1);
@@ -723,40 +753,47 @@ TEST(d3d12_objects_execute_indirect_draw) {
 out:
     SAFE_RELEASE(args); SAFE_RELEASE(sig); d12_ctx_free(&c); d12_draw_free(&dr);
 }
+/* One fresh compute context per run: 4 commands {k.x = n, k.y = 100*n, dispatch 1}; command n writes u[i] = i*n + 100*n.
+ * count < 0: no count buffer. Returns the number of the last command whose output is in the UAV (0 = none ran), -1 on setup failure. */
+static int ei_run(ID3D12Device *dev, int count, UINT maxc, UINT *first8) {
+    cstest t; ID3D12CommandSignature *sig = NULL; ID3D12Resource *args = NULL, *cnt = NULL; int last = -1;
+    if (!cs_setup(dev, &t, 4096)) { cs_free(&t); return -1; }
+    D3D12_INDIRECT_ARGUMENT_DESC a[2]; memset(a, 0, sizeof a);
+    a[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT; a[0].Constant.RootParameterIndex = 0; a[0].Constant.DestOffsetIn32BitValues = 0; a[0].Constant.Num32BitValuesToSet = 4;
+    a[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    D3D12_COMMAND_SIGNATURE_DESC d; memset(&d, 0, sizeof d); d.ByteStride = 28; d.NumArgumentDescs = 2; d.pArgumentDescs = a;
+    UINT cmds[28] = { 1, 100, 0, 0, 1, 1, 1,   2, 200, 0, 0, 1, 1, 1,   3, 300, 0, 0, 1, 1, 1,   4, 400, 0, 0, 1, 1, 1 };
+    UINT cv = (UINT)count;
+    if (SUCCEEDED(ID3D12Device_CreateCommandSignature(dev, &d, t.rs, &IID_ID3D12CommandSignature, (void **)&sig)) &&
+        SUCCEEDED(buf_from_data(dev, cmds, sizeof cmds, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &args)) &&
+        (count < 0 || SUCCEEDED(buf_from_data(dev, &cv, 4, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &cnt)))) {
+        cs_bind(&t, 0, 0);
+        ID3D12GraphicsCommandList_ExecuteIndirect(t.c.cl, sig, maxc, args, 0, cnt, 0);
+        if (SUCCEEDED(d12_run(&t.c))) {
+            UINT *rb = NULL; size_t sz = 0;
+            if (SUCCEEDED(d3dh_readback_buffer12(dev, t.buf, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, (void **)&rb, &sz)) && rb) {
+                last = 0; for (UINT n = 1; n <= 4; n++) if (rb[0] == 100 * n) last = (int)n;   /* u[0] = 0*n + 100*n */
+                for (int i = 0; i < 8; i++) first8[i] = rb[i];
+                free(rb);
+            }
+        }
+    }
+    SAFE_RELEASE(args); SAFE_RELEASE(cnt); SAFE_RELEASE(sig); cs_free(&t);
+    return last;
+}
 TEST(d3d12_objects_execute_indirect_constants_and_count) {
     NEED_DEV();
-    cstest t; ID3D12CommandSignature *sig = NULL; ID3D12Resource *args = NULL, *cnt = NULL;
-    if (!cs_setup(dev, &t, 4096)) { t_skip("setup"); goto out; }
-    {
-        D3D12_INDIRECT_ARGUMENT_DESC a[2]; memset(a, 0, sizeof a);
-        a[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT; a[0].Constant.RootParameterIndex = 0; a[0].Constant.DestOffsetIn32BitValues = 0; a[0].Constant.Num32BitValuesToSet = 4;
-        a[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
-        D3D12_COMMAND_SIGNATURE_DESC d; memset(&d, 0, sizeof d); d.ByteStride = 28; d.NumArgumentDescs = 2; d.pArgumentDescs = a;
-        HRESULT hr = ID3D12Device_CreateCommandSignature(dev, &d, t.rs, &IID_ID3D12CommandSignature, (void **)&sig);
-        if (FAILED(hr)) { t_note("signature with constants: %s", d3dh_hr_name(hr)); t_skip("unsupported"); goto out; }
-        UINT cmds[28] = { 1, 100, 0, 0, 1, 1, 1,   2, 200, 0, 0, 1, 1, 1,   3, 300, 0, 0, 1, 1, 1,   4, 400, 0, 0, 1, 1, 1 };
-        UINT count2[1] = { 2 }, count9[1] = { 9 };
-        if (FAILED(buf_from_data(dev, cmds, sizeof cmds, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &args)) || FAILED(buf_from_data(dev, count2, 4, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &cnt))) { t_skip("buffers"); goto out; }
-        cs_bind(&t, 0, 0);
-        ID3D12GraphicsCommandList_ExecuteIndirect(t.c.cl, sig, 4, args, 0, cnt, 0);   /* count buffer says 2 */
-        EXPECT_HR(d12_run(&t.c), S_OK);
-        UINT *rb = NULL; size_t sz = 0;
-        EXPECT_HR(d3dh_readback_buffer12(dev, t.buf, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, (void **)&rb, &sz), S_OK);
-        if (rb) { int ok = 1; for (UINT i = 0; i < 8; i++) if (rb[i] != i * 2 + 200) ok = 0; CHECKF(ok, "count buffer = 2: rb[3]=%u (want 206)", rb[3]); free(rb); }
-        /* a count larger than MaxCommandCount is clamped to it */
-        SAFE_RELEASE(cnt);
-        EXPECT_HR(buf_from_data(dev, count9, 4, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &cnt), S_OK);
-        EXPECT_HR(d12_rerecord(&t.c), S_OK);
-        d12_transition(t.c.cl, t.buf, 0, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);   /* the readback helper left it in COPY_SOURCE */
-        cs_bind(&t, 0, 0);
-        ID3D12GraphicsCommandList_ExecuteIndirect(t.c.cl, sig, 3, args, 0, cnt, 0);
-        EXPECT_HR(d12_run(&t.c), S_OK);
-        rb = NULL;
-        EXPECT_HR(d3dh_readback_buffer12(dev, t.buf, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, (void **)&rb, &sz), S_OK);
-        if (rb) { int ok = 1; for (UINT i = 0; i < 8; i++) if (rb[i] != i * 3 + 300) ok = 0; CHECKF(ok, "max 3 with count 9: rb[3]=%u (want 309)", rb[3]); free(rb); }
+    static const struct { int count; UINT maxc; int want_last; const char *n; } t[] = {
+        { -1, 3, 3, "no count buffer, max 3" }, { 2, 4, 2, "count 2, max 4" }, { 3, 4, 3, "count 3, max 4" },
+        { 4, 4, 4, "count 4, max 4" }, { 0, 4, 0, "count 0, max 4" }, { 9, 3, 3, "count 9 clamped to max 3" },
+    };
+    for (unsigned k = 0; k < sizeof t / sizeof *t; k++) {
+        UINT out[8] = { 0 };
+        int last = ei_run(dev, t[k].count, t[k].maxc, out);
+        if (last < 0) { t_skip("setup"); return; }
+        CHECKF(last == t[k].want_last, "%s: last executed command %d, want %d", t[k].n, last, t[k].want_last);
+        if (last > 0) { int ok = 1; for (UINT i = 0; i < 8; i++) if (out[i] != i * last + 100 * last) ok = 0; CHECKF(ok, "%s: u[3]=%u", t[k].n, out[3]); }
     }
-out:
-    SAFE_RELEASE(args); SAFE_RELEASE(cnt); SAFE_RELEASE(sig); cs_free(&t);
 }
 TEST(d3d12_objects_execute_indirect_dispatch_args) {
     NEED_DEV();
@@ -788,7 +825,7 @@ static int draw_and_count_red(ID3D12Device *dev, int variant) {
         d12_clear_rt(c.cl, &dr, 0, 0, 0, 1);
         switch (variant) {
         case 0: ID3D12GraphicsCommandList_DrawInstanced(c.cl, 3, 1, 0, 0); break;
-        case 1: ID3D12GraphicsCommandList_DrawInstanced(c.cl, 3, 1, 3, 0); break;     /* SV_VertexID starts at StartVertexLocation: off-screen triangle */
+        case 1: ID3D12GraphicsCommandList_DrawInstanced(c.cl, 3, 1, 3, 0); break;     /* StartVertexLocation 3 is not added to SV_VertexID */
         case 2: ID3D12GraphicsCommandList_DrawInstanced(c.cl, 3, 1, 0, 1); break;     /* SV_InstanceID does not include StartInstanceLocation */
         case 3: ID3D12GraphicsCommandList_DrawInstanced(c.cl, 3, 2, 0, 0); break;     /* instance 1 is off-screen, instance 0 covers */
         case 4: ID3D12GraphicsCommandList_DrawInstanced(c.cl, 0, 1, 0, 0); break;     /* no vertices */
@@ -815,7 +852,9 @@ TEST(d3d12_objects_draw_vertex_instance_ids) {
     d12draw dr;
     int ok = SUCCEEDED(d12_draw_init(dev, &dr)); d12_draw_free(&dr);
     if (!ok) { t_skip("setup"); return; }
-    static const int want[6] = { 64, -1, 64, 64, 0, 0 };   /* -1: whether SV_VertexID includes StartVertexLocation is only noted */
+    /* Measured on Win10 22H2 (WARP): SV_VertexID does not include StartVertexLocation and SV_InstanceID does not include StartInstanceLocation
+     * (D3D12 differs from D3D11 here), so case 1 still covers the target. */
+    static const int want[6] = { 64, 64, 64, 64, 0, 0 };
     static const char *nm[6] = { "plain", "StartVertexLocation 3", "StartInstanceLocation 1", "2 instances", "0 vertices", "0 instances" };
     for (int v = 0; v < 6; v++) { int n = draw_and_count_red(dev, v); if (want[v] < 0) t_note("%s: %d red pixels", nm[v], n); else CHECKF(n == want[v], "%s: %d red pixels, want %d", nm[v], n, want[v]); }
 }
@@ -826,9 +865,10 @@ TEST(d3d12_objects_draw_indexed_base_vertex) {
     if (!ok) { t_skip("setup"); return; }
     int a = draw_and_count_red(dev, 6), b = draw_and_count_red(dev, 7);
     CHECKF(a == 64, "indexed, base vertex 0: %d", a);
-    t_note("indexed, base vertex 3 (SV_VertexID semantics): %d red pixels", b);
+    if (g_d12warp) CHECKF(b == 64, "indexed, base vertex 3: %d red pixels (SV_VertexID excludes BaseVertexLocation)", b);
+    else t_note("indexed, base vertex 3 (SV_VertexID semantics): %d red pixels", b);
     int c8 = draw_and_count_red(dev, 8);
-    t_note("indexed draws with BaseVertexLocation 0 then -3: %d red pixels", c8);
+    CHECKF(c8 == 64, "indexed draws with BaseVertexLocation 0 then -3: %d red pixels", c8);
 }
 TEST(d3d12_objects_draw_with_sampled_texture) {
     NEED_DEV();
@@ -896,19 +936,17 @@ TEST(d3d12_objects_query_heap_create) {
     }
     D3D12_QUERY_HEAP_DESC d; memset(&d, 0, sizeof d); d.Type = D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP; d.Count = 2;
     ID3D12QueryHeap *q = NULL; HRESULT hr = ID3D12Device_CreateQueryHeap(dev, &d, &IID_ID3D12QueryHeap, (void **)&q);
-    t_note("COPY_QUEUE_TIMESTAMP query heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
+    CHECKF(hr == S_OK, "COPY_QUEUE_TIMESTAMP query heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
 }
 TEST(d3d12_objects_query_heap_invalid) {
     NEED_DEV();
     ID3D12QueryHeap *q = NULL; D3D12_QUERY_HEAP_DESC d; memset(&d, 0, sizeof d);
     d.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION; d.Count = 0;
     HRESULT hr = ID3D12Device_CreateQueryHeap(dev, &d, &IID_ID3D12QueryHeap, (void **)&q);
-    CHECKF(FAILED(hr), "Count 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
+    CHECKF(hr == E_INVALIDARG, "Count 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
     d.Type = (D3D12_QUERY_HEAP_TYPE)99; d.Count = 4;
     hr = ID3D12Device_CreateQueryHeap(dev, &d, &IID_ID3D12QueryHeap, (void **)&q);
-    CHECKF(FAILED(hr), "type 99: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
-    hr = ID3D12Device_CreateQueryHeap(dev, NULL, &IID_ID3D12QueryHeap, (void **)&q);
-    CHECKF(FAILED(hr), "NULL desc: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
+    CHECKF(hr == E_INVALIDARG, "type 99: %s", d3dh_hr_name(hr)); SAFE_RELEASE(q);
 }
 TEST(d3d12_objects_query_timestamps_monotonic) {
     NEED_DEV();
@@ -944,7 +982,7 @@ static int run_occlusion(ID3D12Device *dev, D3D12_QUERY_TYPE qt, int vstart, UIN
         d12_draw_setup(c.cl, &dr);
         d12_clear_rt(c.cl, &dr, 0, 0, 0, 1);
         ID3D12GraphicsCommandList_BeginQuery(c.cl, q, qt, 1);
-        ID3D12GraphicsCommandList_DrawInstanced(c.cl, 3, 1, vstart, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(c.cl, vstart < 0 ? 0 : 3, 1, vstart < 0 ? 0 : vstart, 0);
         ID3D12GraphicsCommandList_EndQuery(c.cl, q, qt, 1);
         ID3D12GraphicsCommandList_ResolveQueryData(c.cl, q, qt, 1, 1, rb, 0);
         if (SUCCEEDED(d12_run(&c))) {
@@ -960,14 +998,17 @@ TEST(d3d12_objects_query_occlusion_counts) {
     UINT64 r = 0xCD;
     if (!run_occlusion(dev, D3D12_QUERY_TYPE_OCCLUSION, 0, &r)) { t_skip("setup"); return; }
     EXPECT_EQ(r, 64);   /* every pixel of the 8x8 target passes */
-    if (run_occlusion(dev, D3D12_QUERY_TYPE_OCCLUSION, 3, &r)) EXPECT_EQ(r, 0);
+    /* vstart < 0 means: a draw with no vertices. (StartVertexLocation cannot move the triangle off-screen: SV_VertexID excludes it.) */
+    if (run_occlusion(dev, D3D12_QUERY_TYPE_OCCLUSION, -1, &r)) EXPECT_EQ(r, 0);
+    if (run_occlusion(dev, D3D12_QUERY_TYPE_OCCLUSION, 3, &r)) EXPECT_EQ(r, 64);
 }
 TEST(d3d12_objects_query_binary_occlusion) {
     NEED_DEV();
     UINT64 r = 0xCD;
     if (!run_occlusion(dev, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0, &r)) { t_skip("setup"); return; }
     EXPECT_EQ(r, 1);
-    if (run_occlusion(dev, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3, &r)) EXPECT_EQ(r, 0);
+    if (run_occlusion(dev, D3D12_QUERY_TYPE_BINARY_OCCLUSION, -1, &r)) EXPECT_EQ(r, 0);
+    if (run_occlusion(dev, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3, &r)) EXPECT_EQ(r, 1);
 }
 TEST(d3d12_objects_query_pipeline_statistics) {
     NEED_DEV();
@@ -987,7 +1028,11 @@ TEST(d3d12_objects_query_pipeline_statistics) {
         EXPECT_HR(ID3D12Resource_Map(rb, 0, &rr, (void **)&st), S_OK);
         if (st) {
             t_note("IAVertices=%llu IAPrimitives=%llu", (unsigned long long)st->IAVertices, (unsigned long long)st->IAPrimitives);
-            EXPECT_EQ(st->PSInvocations, 64);   /* instance 1 is off-screen */
+            /* WARP (Win10 22H2): PS invocations count 80 for this 64-pixel full-target triangle (helper/quad lanes are counted); never fewer than the pixels shaded */
+            CHECKF(st->PSInvocations >= 64, "PSInvocations %llu < 64 shaded pixels", (unsigned long long)st->PSInvocations);
+            if (g_d12warp) EXPECT_EQ(st->PSInvocations, 80);
+            EXPECT_EQ(st->IAVertices, 6); EXPECT_EQ(st->IAPrimitives, 2); EXPECT_EQ(st->VSInvocations, 6); EXPECT_EQ(st->CInvocations, 2);
+            if (g_d12warp) EXPECT_EQ(st->CPrimitives, 3);
             t_note("pipeline stats: VS=%llu GS=%llu CInv=%llu CPrim=%llu HS=%llu DS=%llu CS=%llu", (unsigned long long)st->VSInvocations, (unsigned long long)st->GSInvocations,
                    (unsigned long long)st->CInvocations, (unsigned long long)st->CPrimitives, (unsigned long long)st->HSInvocations, (unsigned long long)st->DSInvocations, (unsigned long long)st->CSInvocations);
             EXPECT_EQ(st->GSInvocations, 0); EXPECT_EQ(st->HSInvocations, 0); EXPECT_EQ(st->DSInvocations, 0); EXPECT_EQ(st->CSInvocations, 0);
@@ -1021,13 +1066,16 @@ static int predicated_draw(ID3D12Device *dev, UINT64 value, D3D12_PREDICATION_OP
 TEST(d3d12_objects_predication_ops) {
     NEED_DEV();
     static const struct { UINT64 v; D3D12_PREDICATION_OP op; int want; const char *n; } t[] = {
-        { 0, D3D12_PREDICATION_OP_EQUAL_ZERO, 64, "0 EQUAL_ZERO draws" },
-        { 1, D3D12_PREDICATION_OP_EQUAL_ZERO, 0, "1 EQUAL_ZERO skips" },
-        { 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 0, "0 NOT_EQUAL_ZERO skips" },
-        { 1, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 64, "1 NOT_EQUAL_ZERO draws" },
-        { 0x100000000ull, D3D12_PREDICATION_OP_EQUAL_ZERO, 0, "high word set, EQUAL_ZERO skips (64-bit compare)" },
-        { 0x100000000ull, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 64, "high word set, NOT_EQUAL_ZERO draws" },
-        { 0xFFFFFFFFFFFFFFFFull, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 64, "all ones, NOT_EQUAL_ZERO draws" },
+        /* the op names the condition under which PREDICATION IS ENABLED, i.e. the draw is skipped (Win10 22H2: all seven cases verified) */
+        { 0, D3D12_PREDICATION_OP_EQUAL_ZERO, 0, "0 EQUAL_ZERO skips" },
+        { 1, D3D12_PREDICATION_OP_EQUAL_ZERO, 64, "1 EQUAL_ZERO draws" },
+        { 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 64, "0 NOT_EQUAL_ZERO draws" },
+        { 1, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 0, "1 NOT_EQUAL_ZERO skips" },
+        { 0x100000000ull, D3D12_PREDICATION_OP_EQUAL_ZERO, 64, "high word set, EQUAL_ZERO draws (64-bit compare)" },
+        { 0x100000000ull, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 0, "high word set, NOT_EQUAL_ZERO skips" },
+        { 0xFFFFFFFFFFFFFFFFull, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 0, "all ones, NOT_EQUAL_ZERO skips" },
+        { 0x80000000ull, D3D12_PREDICATION_OP_EQUAL_ZERO, 64, "bit 31 set, EQUAL_ZERO draws" },
+        { 0x8000000000000000ull, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO, 0, "bit 63 set, NOT_EQUAL_ZERO skips" },
     };
     d12draw dr; int ok = SUCCEEDED(d12_draw_init(dev, &dr)); d12_draw_free(&dr);
     if (!ok) { t_skip("setup"); return; }
@@ -1036,19 +1084,19 @@ TEST(d3d12_objects_predication_ops) {
         CHECKF(n == t[i].want, "%s: %d red pixels", t[i].n, n);
     }
 }
-TEST(d3d12_objects_predication_clear_unaffected_note) {
+TEST(d3d12_objects_predication_affects_clear) {
     NEED_DEV();
-    d12draw dr; d12ctx c = {0}; ID3D12Resource *pb = NULL; UINT64 one = 1;
+    d12draw dr; d12ctx c = {0}; ID3D12Resource *pb = NULL; UINT64 one = 0;
     memset(&dr, 0, sizeof dr);
     if (SUCCEEDED(d12_draw_init(dev, &dr)) && SUCCEEDED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT)) && SUCCEEDED(buf_from_data(dev, &one, 8, D3D12_RESOURCE_STATE_COMMON, &pb))) {
         d12_transition(c.cl, pb, 0, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PREDICATION);
         d12_clear_rt(c.cl, &dr, 0, 1, 0, 1);
-        ID3D12GraphicsCommandList_SetPredication(c.cl, pb, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);   /* value 1: predicated work is skipped */
+        ID3D12GraphicsCommandList_SetPredication(c.cl, pb, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);   /* value 0 with EQUAL_ZERO: predication enabled, predicated work is skipped */
         d12_clear_rt(c.cl, &dr, 0, 0, 1, 1);
         ID3D12GraphicsCommandList_SetPredication(c.cl, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
         EXPECT_HR(d12_run(&c), S_OK);
         d12_sub s;
-        if (SUCCEEDED(d12_readback_sub(dev, dr.rt, 0, D3D12_RESOURCE_STATE_RENDER_TARGET, &s))) { t_note("ClearRenderTargetView under a skipping predicate left pixel 0x%08x (green = not predicated)", d12_sub_px32(&s, 0, 0, 0)); d12_sub_free(&s); }
+        if (SUCCEEDED(d12_readback_sub(dev, dr.rt, 0, D3D12_RESOURCE_STATE_RENDER_TARGET, &s))) { UINT32 px = d12_sub_px32(&s, 0, 0, 0); CHECKF(px == PX_GREEN, "ClearRenderTargetView under an enabled predicate left pixel 0x%08x (green = clear skipped)", px); d12_sub_free(&s); }
     } else t_skip("setup");
     SAFE_RELEASE(pb); d12_ctx_free(&c); d12_draw_free(&dr);
 }
@@ -1063,10 +1111,13 @@ TEST(d3d12_objects_device_check_feature_support) {
     CHECK(fl.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_11_0);
     D3D12_FEATURE_DATA_SHADER_MODEL sm; sm.HighestShaderModel = D3D_SHADER_MODEL_6_0;
     HRESULT hr = ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof sm);
-    t_note("SHADER_MODEL query (6.0 requested): %s highest=0x%x", d3dh_hr_name(hr), sm.HighestShaderModel);
+    /* WARP of Win10 22H2 supports shader model 6.0 */
+    EXPECT_HR(hr, S_OK);
+    if (g_d12warp) EXPECT_EQ(sm.HighestShaderModel, D3D_SHADER_MODEL_6_0); else t_note("SHADER_MODEL highest=0x%x", sm.HighestShaderModel);
     D3D12_FEATURE_DATA_ARCHITECTURE ar; memset(&ar, 0, sizeof ar);
     EXPECT_HR(ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_ARCHITECTURE, &ar, sizeof ar), S_OK);
-    t_note("architecture: TileBasedRenderer=%d UMA=%d CacheCoherentUMA=%d", ar.TileBasedRenderer, ar.UMA, ar.CacheCoherentUMA);
+    if (g_d12warp) { EXPECT_EQ(ar.TileBasedRenderer, 0); EXPECT_EQ(ar.UMA, 1); EXPECT_EQ(ar.CacheCoherentUMA, 1); }
+    else t_note("architecture: TileBasedRenderer=%d UMA=%d CacheCoherentUMA=%d", ar.TileBasedRenderer, ar.UMA, ar.CacheCoherentUMA);
     D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT va; memset(&va, 0, sizeof va);
     EXPECT_HR(ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT, &va, sizeof va), S_OK);
     CHECK(va.MaxGPUVirtualAddressBitsPerResource >= 32 && va.MaxGPUVirtualAddressBitsPerProcess >= va.MaxGPUVirtualAddressBitsPerResource);
@@ -1102,7 +1153,7 @@ TEST(d3d12_objects_device_node_count_and_luid_consistency) {
     CHECK(d2 == dev); if (d2) ID3D12Device_Release(d2);
     static const struct { const GUID *g; const char *n; } ext[] = { { &IID_ID3D12Device1, "Device1" }, { &IID_ID3D12Device2, "Device2" }, { &IID_ID3D12Device3, "Device3" },
         { &IID_ID3D12Device4, "Device4" }, { &IID_ID3D12Device5, "Device5" }, { &IID_ID3D12Device6, "Device6" } };
-    for (int i = 0; i < 6; i++) { void *o = NULL; HRESULT hr = ID3D12Device_QueryInterface(dev, ext[i].g, &o); t_note("QI ID3D12%s: %s", ext[i].n, d3dh_hr_name(hr)); if (o) ((IUnknown *)o)->lpVtbl->Release(o); }
+    for (int i = 0; i < 6; i++) { void *o = NULL; HRESULT hr = ID3D12Device_QueryInterface(dev, ext[i].g, &o); CHECKF(hr == S_OK, "QI ID3D12%s: %s", ext[i].n, d3dh_hr_name(hr)); if (o) ((IUnknown *)o)->lpVtbl->Release(o); }
 }
 
 /* ====== debug interfaces ================================================================================================ */
@@ -1116,13 +1167,13 @@ TEST(d3d12_objects_debug_interface_availability) {
     else CHECKF(hr == (HRESULT)0x887A002D || hr == E_NOINTERFACE || hr == E_FAIL || hr == E_INVALIDARG, "unexpected failure %s (the Graphics Tools feature is optional)", d3dh_hr_name(hr));
     void *o = NULL;
     hr = gdi(&IID_ID3D12Fence, &o);
-    CHECKF(FAILED(hr), "unrelated IID: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_NOINTERFACE, "unrelated IID: %s", d3dh_hr_name(hr));
 }
 TEST(d3d12_objects_debug_info_queue_without_layer) {
     NEED_DEV();
     ID3D12InfoQueue *iq = NULL;
     HRESULT hr = ID3D12Device_QueryInterface(dev, &IID_ID3D12InfoQueue, (void **)&iq);
-    t_note("QI ID3D12InfoQueue on a device created without the debug layer: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_NOINTERFACE, "QI ID3D12InfoQueue on a device created without the debug layer: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && iq) {
         UINT64 n = ID3D12InfoQueue_GetNumStoredMessages(iq);
         t_note("stored messages: %llu", (unsigned long long)n);
@@ -1130,6 +1181,6 @@ TEST(d3d12_objects_debug_info_queue_without_layer) {
     }
     ID3D12DebugDevice *dd = NULL;
     hr = ID3D12Device_QueryInterface(dev, &IID_ID3D12DebugDevice, (void **)&dd);
-    t_note("QI ID3D12DebugDevice: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_NOINTERFACE, "QI ID3D12DebugDevice: %s", d3dh_hr_name(hr));
     if (dd) ID3D12DebugDevice_Release(dd);
 }

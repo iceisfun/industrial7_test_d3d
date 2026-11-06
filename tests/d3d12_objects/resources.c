@@ -43,7 +43,8 @@ TEST(d3d12_objects_res_buffer_flags_valid) {
     for (unsigned i = 0; i < 4; i++) {
         ID3D12Resource *r = NULL;
         HRESULT hr = d12_make_buffer(dev, D3D12_HEAP_TYPE_DEFAULT, 1024, f[i], &r);
-        if (f[i] & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) { t_note("buffer flags 0x%x: %s", f[i], d3dh_hr_name(hr)); }
+        /* Win10 22H2: ALLOW_CROSS_ADAPTER on a committed buffer in a default heap needs the matching SHARED_CROSS_ADAPTER heap flag: E_INVALIDARG */
+        if (f[i] & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) CHECKF(hr == E_INVALIDARG, "buffer flags 0x%x: %s", f[i], d3dh_hr_name(hr));
         else CHECKF(hr == S_OK, "flags 0x%x: %s", f[i], d3dh_hr_name(hr));
         if (r) { D3D12_RESOURCE_DESC g = d12_res_desc(r); EXPECT_EQ(g.Flags, f[i]); SAFE_RELEASE(r); }
     }
@@ -79,8 +80,10 @@ TEST(d3d12_objects_res_buffer_invalid_descs) {
         buf_mutate(i, &d);
         ID3D12Resource *r = NULL;
         HRESULT hr = try_buffer(dev, D3D12_HEAP_TYPE_DEFAULT, d, D3D12_RESOURCE_STATE_COMMON, NULL, &r);
-        CHECKF(FAILED(hr), "buffer with %s: %s", buf_bad[i].n, d3dh_hr_name(hr));
-        if (FAILED(hr) && hr != E_INVALIDARG) t_note("buffer with %s -> %s (E_INVALIDARG expected)", buf_bad[i].n, d3dh_hr_name(hr));
+        /* Measured on Win10 22H2: the runtime accepts a buffer with RENDER_TARGET, DENY_SHADER_RESOURCE or RT|UAV
+         * flags (it does not validate them for buffers); every other malformed buffer desc is E_INVALIDARG. */
+        int accepted = !strcmp(buf_bad[i].n, "flag RT") || !strcmp(buf_bad[i].n, "flag DENY_SRV") || !strcmp(buf_bad[i].n, "flag RT|UAV");
+        CHECKF(hr == (accepted ? S_OK : E_INVALIDARG), "buffer with %s: %s", buf_bad[i].n, d3dh_hr_name(hr));
         SAFE_RELEASE(r);
     }
 }
@@ -124,7 +127,7 @@ TEST(d3d12_objects_res_create_ppv_null_s_false) {
     EXPECT_HR(hr, S_FALSE);
     d.Width = 0;
     hr = ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, NULL);
-    CHECKF(FAILED(hr), "invalid desc with NULL ppv: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_INVALIDARG, "invalid desc with NULL ppv: %s", d3dh_hr_name(hr));
 }
 TEST(d3d12_objects_res_create_wrong_iid) {
     NEED_DEV();
@@ -142,10 +145,9 @@ TEST(d3d12_objects_res_create_null_args) {
     D3D12_RESOURCE_DESC d = d12_buf_desc(256, 0);
     D3D12_HEAP_PROPERTIES hp = d12_heap_props(D3D12_HEAP_TYPE_DEFAULT);
     ID3D12Resource *r = NULL; HRESULT hr;
-    hr = ID3D12Device_CreateCommittedResource(dev, NULL, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
-    CHECKF(FAILED(hr), "NULL heap props: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    /* NULL heap properties: access violation (see d3d12_objects_null_args_matrix) */
     hr = ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_NONE, NULL, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
-    CHECKF(FAILED(hr), "NULL desc: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF(hr == E_INVALIDARG, "NULL desc: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
 }
 TEST(d3d12_objects_res_heap_properties_invalid) {
     NEED_DEV();
@@ -159,7 +161,7 @@ TEST(d3d12_objects_res_heap_properties_invalid) {
     for (int i = 0; i < 4; i++) {
         ID3D12Resource *r = NULL;
         HRESULT hr = ID3D12Device_CreateCommittedResource(dev, &t[i].hp, D3D12_HEAP_FLAG_NONE, &d, t[i].st, NULL, &IID_ID3D12Resource, (void **)&r);
-        CHECKF(FAILED(hr), "%s: %s", t[i].n, d3dh_hr_name(hr));
+        CHECKF((hr) == E_INVALIDARG, "%s: %s", t[i].n, d3dh_hr_name(hr));
         SAFE_RELEASE(r);
     }
 }
@@ -187,7 +189,13 @@ TEST(d3d12_objects_res_custom_heap_props_all_types) {
     for (unsigned i = 0; i < 3; i++) {
         D3D12_HEAP_PROPERTIES hp = d12_custom_heap_props(dev, ht[i]);
         t_note("custom props for heap type %d: type=%d cpu=%d pool=%d", ht[i], hp.Type, hp.CPUPageProperty, hp.MemoryPoolPreference);
-        CHECK(hp.Type == D3D12_HEAP_TYPE_CUSTOM || hp.Type == ht[i]);
+        EXPECT_EQ(hp.Type, D3D12_HEAP_TYPE_CUSTOM);
+        EXPECT_EQ(hp.CreationNodeMask, 1); EXPECT_EQ(hp.VisibleNodeMask, 1);
+        /* WARP is a UMA, cache-coherent adapter: everything lives in L0; DEFAULT is not CPU accessible, UPLOAD/READBACK are write-back */
+        if (g_d12warp) {
+            EXPECT_EQ(hp.MemoryPoolPreference, D3D12_MEMORY_POOL_L0);
+            EXPECT_EQ(hp.CPUPageProperty, ht[i] == D3D12_HEAP_TYPE_DEFAULT ? D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE : D3D12_CPU_PAGE_PROPERTY_WRITE_BACK);
+        }
     }
 }
 
@@ -213,8 +221,7 @@ TEST(d3d12_objects_res_tex2d_roundtrip) {
             EXPECT_EQ(g.Width, t[i].w); EXPECT_EQ(g.Height, t[i].h); EXPECT_EQ(g.DepthOrArraySize, t[i].arr);
             EXPECT_EQ(g.MipLevels, t[i].wantmips); EXPECT_EQ(g.Format, t[i].f);
             EXPECT_EQ(g.SampleDesc.Count, 1); EXPECT_EQ(g.Layout, D3D12_TEXTURE_LAYOUT_UNKNOWN);
-            CHECK(g.Alignment == 0 || g.Alignment == 65536 || g.Alignment == 4096);
-            if (g.Alignment != 65536) t_note("GetDesc().Alignment for tex %ux%u = %llu", t[i].w, t[i].h, (unsigned long long)g.Alignment);
+            CHECKF(g.Alignment == 65536, "GetDesc().Alignment for tex %ux%u = %llu", t[i].w, t[i].h, (unsigned long long)g.Alignment);
             SAFE_RELEASE(r);
         }
     }
@@ -255,7 +262,7 @@ TEST(d3d12_objects_res_tex3d) {
     SAFE_RELEASE(r);
     d.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL; d.Format = DXGI_FORMAT_D32_FLOAT;
     r = NULL; hr = try_tex(dev, d, D3D12_RESOURCE_STATE_COMMON, NULL, &r);
-    CHECKF(FAILED(hr), "3D depth-stencil: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "3D depth-stencil: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(r);
 }
 static void tex_bad(unsigned i, D3D12_RESOURCE_DESC *d, const char **name) {
@@ -291,8 +298,10 @@ TEST(d3d12_objects_res_tex2d_invalid_descs) {
         tex_bad(i, &d, &nm);
         ID3D12Resource *r = NULL;
         HRESULT hr = try_tex(dev, d, D3D12_RESOURCE_STATE_COMMON, NULL, &r);
-        CHECKF(FAILED(hr), "texture with %s: %s", nm, d3dh_hr_name(hr));
-        if (FAILED(hr) && hr != E_INVALIDARG) t_note("texture with %s -> %s (E_INVALIDARG expected)", nm, d3dh_hr_name(hr));
+        /* Measured on Win10 22H2: 20 mips on 64x64, width 16385 and a committed 64KB_UNDEFINED_SWIZZLE layout are accepted. */
+        int accepted = !strcmp(nm, "20 mips on 64x64") || !strcmp(nm, "width 16385") || !strcmp(nm, "committed 64KB swizzle layout");
+        CHECKF(hr == (accepted ? S_OK : E_INVALIDARG), "texture with %s: %s", nm, d3dh_hr_name(hr));
+        if (accepted && r && !strcmp(nm, "20 mips on 64x64")) { D3D12_RESOURCE_DESC g = d12_res_desc(r); EXPECT_EQ(g.MipLevels, 20); }
         SAFE_RELEASE(r);
     }
 }
@@ -301,9 +310,9 @@ TEST(d3d12_objects_res_tex_upload_readback_heaps_reject_textures) {
     D3D12_RESOURCE_DESC d = d12_tex2d_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, 0);
     ID3D12Resource *r = NULL; HRESULT hr;
     hr = d12_create_committed(dev, D3D12_HEAP_TYPE_UPLOAD, &d, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &r);
-    CHECKF(FAILED(hr), "texture in UPLOAD heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF((hr) == E_INVALIDARG, "texture in UPLOAD heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     hr = d12_create_committed(dev, D3D12_HEAP_TYPE_READBACK, &d, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &r);
-    CHECKF(FAILED(hr), "texture in READBACK heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF((hr) == E_INVALIDARG, "texture in READBACK heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
 }
 TEST(d3d12_objects_res_tex_flag_combos_valid) {
     NEED_DEV();
@@ -329,8 +338,7 @@ TEST(d3d12_objects_res_tex_flag_combos_valid) {
         D3D12_RESOURCE_STATES st = (t[i].fl & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) ? D3D12_RESOURCE_STATE_DEPTH_WRITE :
             (t[i].fl & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) ? D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_COMMON;
         HRESULT hr = try_tex(dev, d, st, t[i].clear ? &cv : NULL, &r);
-        if (t[i].fl & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) { t_note("%s: %s", t[i].n, d3dh_hr_name(hr)); }
-        else CHECKF(hr == S_OK, "%s: %s", t[i].n, d3dh_hr_name(hr));
+        CHECKF(hr == S_OK, "%s: %s", t[i].n, d3dh_hr_name(hr));   /* SIMULTANEOUS_ACCESS is accepted too (Win10 22H2) */
         if (r) { D3D12_RESOURCE_DESC g = d12_res_desc(r); EXPECT_EQ(g.Flags, t[i].fl); SAFE_RELEASE(r); }
     }
 }
@@ -344,8 +352,7 @@ TEST(d3d12_objects_res_msaa_texture) {
     if (r) {
         D3D12_RESOURCE_DESC g = d12_res_desc(r);
         EXPECT_EQ(g.SampleDesc.Count, 4);
-        CHECK(g.Alignment == 0 || g.Alignment == 65536 || g.Alignment == 4 * MB);
-        t_note("MSAA 4x 32x32 GetDesc alignment %llu", (unsigned long long)g.Alignment);
+        CHECKF(g.Alignment == 4 * MB, "MSAA 4x 32x32 GetDesc alignment %llu", (unsigned long long)g.Alignment);
         SAFE_RELEASE(r);
     }
 }
@@ -357,17 +364,17 @@ TEST(d3d12_objects_res_clear_value_validation) {
     EXPECT_HR(try_tex(dev, d, D3D12_RESOURCE_STATE_RENDER_TARGET, &cv, &r), S_OK); SAFE_RELEASE(r);
     cv.Format = DXGI_FORMAT_UNKNOWN;
     HRESULT hr = try_tex(dev, d, D3D12_RESOURCE_STATE_RENDER_TARGET, &cv, &r);
-    CHECKF(FAILED(hr), "clear value format UNKNOWN: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF((hr) == E_INVALIDARG, "clear value format UNKNOWN: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     cv.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;   /* not castable to the resource format */
     hr = try_tex(dev, d, D3D12_RESOURCE_STATE_RENDER_TARGET, &cv, &r);
-    t_note("clear value format of different bit width: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF(hr == E_INVALIDARG, "clear value format of different bit width: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     /* depth clear value: depth must be within [0,1] */
     D3D12_RESOURCE_DESC dd = d12_tex2d_desc(16, 16, DXGI_FORMAT_D32_FLOAT, 1, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
     memset(&cv, 0, sizeof cv); cv.Format = DXGI_FORMAT_D32_FLOAT; cv.DepthStencil.Depth = 0.5f;
     EXPECT_HR(try_tex(dev, dd, D3D12_RESOURCE_STATE_DEPTH_WRITE, &cv, &r), S_OK); SAFE_RELEASE(r);
     cv.DepthStencil.Depth = 2.0f;
     hr = try_tex(dev, dd, D3D12_RESOURCE_STATE_DEPTH_WRITE, &cv, &r);
-    t_note("depth clear value 2.0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF(hr == E_INVALIDARG, "depth clear value 2.0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
 }
 TEST(d3d12_objects_res_heap_flags_restrict_resource) {
     NEED_DEV();
@@ -381,17 +388,37 @@ TEST(d3d12_objects_res_heap_flags_restrict_resource) {
         { &rt, D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES, "RT texture in non-RT-only", D3D12_RESOURCE_STATE_RENDER_TARGET },
         { &t, D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES, "plain texture in RT/DS-only", D3D12_RESOURCE_STATE_COMMON },
     };
+    /* Measured on Win10 22H2: CreateCommittedResource rejects every ALLOW_ONLY_* / DENY_* heap-category flag (E_INVALIDARG),
+     * whether or not the resource would fit the category. The category is derived from the resource instead (see GetHeapProperties). */
     for (unsigned i = 0; i < 5; i++) {
         ID3D12Resource *r = NULL;
         HRESULT hr = ID3D12Device_CreateCommittedResource(dev, &hp, c[i].hf, c[i].d, c[i].st, NULL, &IID_ID3D12Resource, (void **)&r);
-        CHECKF(FAILED(hr), "%s: %s", c[i].n, d3dh_hr_name(hr));
+        CHECKF(hr == E_INVALIDARG, "%s: %s", c[i].n, d3dh_hr_name(hr));
         SAFE_RELEASE(r);
     }
-    /* positive counterparts */
     ID3D12Resource *r = NULL;
-    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &b, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), S_OK); SAFE_RELEASE(r);
-    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES, &t, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), S_OK); SAFE_RELEASE(r);
-    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES, &rt, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&r), S_OK); SAFE_RELEASE(r);
+    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &b, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), E_INVALIDARG); SAFE_RELEASE(r);
+    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES, &t, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), E_INVALIDARG); SAFE_RELEASE(r);
+    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES, &rt, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&r), E_INVALIDARG); SAFE_RELEASE(r);
+    /* flags the committed path does accept */
+    static const D3D12_HEAP_FLAGS okf[] = { D3D12_HEAP_FLAG_NONE, D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED };
+    for (unsigned k = 0; k < 4; k++) {
+        EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, okf[k], &b, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), S_OK); SAFE_RELEASE(r);
+        EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, okf[k], &t, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), S_OK); SAFE_RELEASE(r);
+    }
+    /* bits that are invalid for a committed resource: reserved 0x2, 0x10, WRITE_WATCH, SHADER_ATOMICS, undefined high bits */
+    static const UINT badf[] = { 0x2, 0x10, 0x200, 0x400, 0x2000, 0x4000 };
+    for (unsigned k = 0; k < 6; k++) {
+        HRESULT hr = ID3D12Device_CreateCommittedResource(dev, &hp, (D3D12_HEAP_FLAGS)badf[k], &b, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
+        CHECKF(hr == E_INVALIDARG, "heap flag 0x%x on a committed buffer: %s", badf[k], d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    }
+    /* ALLOW_DISPLAY: textures other than depth-stencil only */
+    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_DISPLAY, &rt, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&r), S_OK); SAFE_RELEASE(r);
+    EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_DISPLAY, &b, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), E_INVALIDARG); SAFE_RELEASE(r);
+    {
+        D3D12_RESOURCE_DESC ds = d12_tex2d_desc(16, 16, DXGI_FORMAT_D32_FLOAT, 1, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        EXPECT_HR(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_DISPLAY, &ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&r), E_INVALIDARG); SAFE_RELEASE(r);
+    }
 }
 
 /* ====== GetHeapProperties ======================================================================= */
@@ -407,7 +434,8 @@ TEST(d3d12_objects_res_get_heap_properties_committed) {
         EXPECT_HR(hr, S_OK);
         if (SUCCEEDED(hr)) {
             EXPECT_EQ(hp.Type, ht[i]);
-            EXPECT_EQ(hf, D3D12_HEAP_FLAG_NONE);
+            /* the runtime reports the category flags implied by the resource: a buffer denies both texture kinds */
+            EXPECT_EQ(hf, D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES);
             EXPECT_EQ(hp.CreationNodeMask, 1); EXPECT_EQ(hp.VisibleNodeMask, 1);
         }
         EXPECT_HR(ID3D12Resource_GetHeapProperties(r, NULL, NULL), S_OK);
@@ -418,13 +446,32 @@ TEST(d3d12_objects_res_get_heap_properties_committed) {
 }
 TEST(d3d12_objects_res_get_heap_properties_flags_roundtrip) {
     NEED_DEV();
-    D3D12_HEAP_PROPERTIES hp = d12_heap_props(D3D12_HEAP_TYPE_DEFAULT); D3D12_RESOURCE_DESC d = d12_buf_desc(256, 0);
-    ID3D12Resource *r = NULL;
-    if (FAILED(ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r))) { t_skip("create failed"); return; }
-    D3D12_HEAP_FLAGS hf = 0;
-    EXPECT_HR(ID3D12Resource_GetHeapProperties(r, NULL, &hf), S_OK);
-    EXPECT_EQ(hf, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS);
-    SAFE_RELEASE(r);
+    /* Measured on Win10 22H2: GetHeapProperties reports the category flags derived from the resource
+     * (buffer 0xC0 = DENY_RT_DS|DENY_NON_RT_DS, plain texture 0x44 = DENY_BUFFERS|DENY_RT_DS, RT or DS texture 0x84 =
+     * DENY_BUFFERS|DENY_NON_RT_DS) OR-ed with the creation flags SHARED and ALLOW_DISPLAY; CREATE_NOT_RESIDENT and CREATE_NOT_ZEROED are not reflected. */
+    D3D12_HEAP_PROPERTIES hp = d12_heap_props(D3D12_HEAP_TYPE_DEFAULT);
+    D3D12_RESOURCE_DESC buf = d12_buf_desc(256, 0), tex = d12_tex2d_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, 0);
+    D3D12_RESOURCE_DESC rt = d12_tex2d_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    D3D12_RESOURCE_DESC ds = d12_tex2d_desc(16, 16, DXGI_FORMAT_D32_FLOAT, 1, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    struct { const D3D12_RESOURCE_DESC *d; D3D12_RESOURCE_STATES st; D3D12_HEAP_FLAGS cf; D3D12_HEAP_FLAGS want; const char *n; } t[] = {
+        { &buf, D3D12_RESOURCE_STATE_COMMON, 0, 0xC0, "buffer" }, { &buf, D3D12_RESOURCE_STATE_COMMON, D3D12_HEAP_FLAG_SHARED, 0xC1, "buffer SHARED" },
+        { &buf, D3D12_RESOURCE_STATE_COMMON, D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT, 0xC0, "buffer NOT_RESIDENT" },
+        { &buf, D3D12_RESOURCE_STATE_COMMON, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, 0xC0, "buffer NOT_ZEROED" },
+        { &tex, D3D12_RESOURCE_STATE_COMMON, 0, 0x44, "texture" }, { &tex, D3D12_RESOURCE_STATE_COMMON, D3D12_HEAP_FLAG_SHARED, 0x45, "texture SHARED" },
+        { &tex, D3D12_RESOURCE_STATE_COMMON, D3D12_HEAP_FLAG_ALLOW_DISPLAY, 0x4C, "texture ALLOW_DISPLAY" },
+        { &rt, D3D12_RESOURCE_STATE_RENDER_TARGET, 0, 0x84, "RT texture" }, { &rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_HEAP_FLAG_ALLOW_DISPLAY, 0x8C, "RT texture ALLOW_DISPLAY" },
+        { &ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, 0, 0x84, "DS texture" }, { &ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_HEAP_FLAG_SHARED, 0x85, "DS texture SHARED" },
+    };
+    for (unsigned i = 0; i < sizeof t / sizeof *t; i++) {
+        ID3D12Resource *r = NULL;
+        HRESULT hr = ID3D12Device_CreateCommittedResource(dev, &hp, t[i].cf, t[i].d, t[i].st, NULL, &IID_ID3D12Resource, (void **)&r);
+        CHECKF(hr == S_OK, "%s: create %s", t[i].n, d3dh_hr_name(hr));
+        if (!r) continue;
+        D3D12_HEAP_FLAGS hf = 0;
+        EXPECT_HR(ID3D12Resource_GetHeapProperties(r, NULL, &hf), S_OK);
+        CHECKF(hf == t[i].want, "%s: heap flags 0x%x want 0x%x", t[i].n, hf, t[i].want);
+        SAFE_RELEASE(r);
+    }
 }
 
 /* ====== GPU virtual addresses ===================================================================== */
@@ -447,7 +494,7 @@ TEST(d3d12_objects_res_gpu_va_texture) {
     ID3D12Resource *r = NULL;
     if (FAILED(d12_make_tex2d(dev, 8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, 0, D3D12_RESOURCE_STATE_COMMON, NULL, &r))) { t_skip("no texture"); return; }
     D3D12_GPU_VIRTUAL_ADDRESS va = ID3D12Resource_GetGPUVirtualAddress(r);
-    t_note("GetGPUVirtualAddress of a texture: 0x%llx (documented for buffers only)", (unsigned long long)va);
+    EXPECT_EQ(va, 0);   /* documented for buffers only; textures report 0 (Win10 22H2) */
     SAFE_RELEASE(r);
 }
 
@@ -479,22 +526,26 @@ TEST(d3d12_objects_heap_alignment_zero_defaults) {
     D3D12_HEAP_DESC d = hdesc(D3D12_HEAP_TYPE_DEFAULT, 64 * KB, 0, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS);
     ID3D12Heap *h = NULL;
     EXPECT_HR(ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, (void **)&h), S_OK);
-    if (h) { D3D12_HEAP_DESC g = d12_heap_desc(h); t_note("GetDesc().Alignment after creation with 0: %llu", (unsigned long long)g.Alignment); CHECK(g.Alignment == 0 || g.Alignment == 64 * KB); SAFE_RELEASE(h); }
+    if (h) { D3D12_HEAP_DESC g = d12_heap_desc(h); EXPECT_EQ(g.Alignment, 64 * KB);   /* Alignment 0 is reported back as 64KB */ SAFE_RELEASE(h); }
 }
 TEST(d3d12_objects_heap_invalid_sizes_alignments) {
     NEED_DEV();
-    struct { UINT64 size, align; const char *n; } t[] = {
-        { 0, 64 * KB, "size 0" }, { 64 * KB + 1, 64 * KB, "size not multiple of alignment" }, { 100, 64 * KB, "size 100" },
-        { 64 * KB, 4096, "alignment 4096" }, { 64 * KB, 3, "alignment 3" }, { 64 * KB, 128 * KB, "alignment 128K" }, { 64 * KB, 32 * KB, "alignment 32K" },
-        { 4 * MB + 64 * KB, 4 * MB, "4MB alignment with size not multiple" },
+    /* Measured on Win10 22H2: only size 0 and alignments other than 0 / 64KB / 4MB are rejected (E_INVALIDARG);
+     * the runtime does not require the size to be a multiple of the alignment and GetDesc returns the size unrounded. */
+    struct { UINT64 size, align; HRESULT want; const char *n; } t[] = {
+        { 0, 64 * KB, E_INVALIDARG, "size 0" },
+        { 64 * KB, 4096, E_INVALIDARG, "alignment 4096" }, { 64 * KB, 3, E_INVALIDARG, "alignment 3" },
+        { 64 * KB, 128 * KB, E_INVALIDARG, "alignment 128K" }, { 64 * KB, 32 * KB, E_INVALIDARG, "alignment 32K" },
+        { 64 * KB, 12345, E_INVALIDARG, "alignment 12345" }, { 64 * KB, 2 * MB, E_INVALIDARG, "alignment 2MB" },
+        { 64 * KB + 1, 64 * KB, S_OK, "size not multiple of alignment" }, { 100, 64 * KB, S_OK, "size 100" },
+        { 4 * MB + 64 * KB, 4 * MB, S_OK, "4MB alignment with size not multiple" },
     };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) {
         D3D12_HEAP_DESC d = hdesc(D3D12_HEAP_TYPE_DEFAULT, t[i].size, t[i].align, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS);
         ID3D12Heap *h = NULL;
         HRESULT hr = ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, (void **)&h);
-        CHECKF(FAILED(hr), "heap %s: %s", t[i].n, d3dh_hr_name(hr));
-        if (FAILED(hr) && hr != E_INVALIDARG) t_note("heap %s -> %s (E_INVALIDARG expected)", t[i].n, d3dh_hr_name(hr));
-        if (SUCCEEDED(hr)) SAFE_RELEASE(h);
+        CHECKF(hr == t[i].want, "heap %s: %s", t[i].n, d3dh_hr_name(hr));
+        if (h) { D3D12_HEAP_DESC g = d12_heap_desc(h); EXPECT_EQ(g.SizeInBytes, t[i].size); SAFE_RELEASE(h); }
     }
 }
 TEST(d3d12_objects_heap_4mb_alignment) {
@@ -502,7 +553,7 @@ TEST(d3d12_objects_heap_4mb_alignment) {
     D3D12_HEAP_DESC d = hdesc(D3D12_HEAP_TYPE_DEFAULT, 4 * MB, 4 * MB, D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES);
     ID3D12Heap *h = NULL;
     HRESULT hr = ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, (void **)&h);
-    t_note("4MB-aligned 4MB heap: %s", d3dh_hr_name(hr));
+    CHECKF(hr == S_OK, "4MB-aligned 4MB heap: %s", d3dh_hr_name(hr));
     if (h) { D3D12_HEAP_DESC g = d12_heap_desc(h); EXPECT_EQ(g.Alignment, 4 * MB); EXPECT_EQ(g.SizeInBytes, 4 * MB); SAFE_RELEASE(h); }
 }
 TEST(d3d12_objects_heap_property_validation) {
@@ -535,7 +586,7 @@ TEST(d3d12_objects_heap_conflicting_flags) {
         D3D12_HEAP_DESC d = hdesc(D3D12_HEAP_TYPE_DEFAULT, 64 * KB, 64 * KB, bad[i]);
         ID3D12Heap *h = NULL;
         HRESULT hr = ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, (void **)&h);
-        CHECKF(FAILED(hr), "heap flags 0x%x: %s", bad[i], d3dh_hr_name(hr));
+        CHECKF((hr) == E_INVALIDARG, "heap flags 0x%x: %s", bad[i], d3dh_hr_name(hr));
         if (SUCCEEDED(hr)) SAFE_RELEASE(h);
     }
 }
@@ -546,7 +597,8 @@ TEST(d3d12_objects_heap_tier_flags) {
     EXPECT_HR(hr, S_OK);
     if (FAILED(hr)) return;
     t_note("ResourceHeapTier=%d TiledResourcesTier=%d ResourceBindingTier=%d", o.ResourceHeapTier, o.TiledResourcesTier, o.ResourceBindingTier);
-    CHECK(o.ResourceHeapTier == D3D12_RESOURCE_HEAP_TIER_1 || o.ResourceHeapTier == D3D12_RESOURCE_HEAP_TIER_2);
+    if (g_d12warp) { EXPECT_EQ(o.ResourceHeapTier, D3D12_RESOURCE_HEAP_TIER_2); EXPECT_EQ(o.TiledResourcesTier, 3); EXPECT_EQ(o.ResourceBindingTier, 3); }
+    else CHECK(o.ResourceHeapTier == D3D12_RESOURCE_HEAP_TIER_1 || o.ResourceHeapTier == D3D12_RESOURCE_HEAP_TIER_2);
     D3D12_HEAP_DESC d = hdesc(D3D12_HEAP_TYPE_DEFAULT, 1 * MB, 64 * KB, D3D12_HEAP_FLAG_NONE);   /* mixed buffers/textures */
     ID3D12Heap *h = NULL;
     hr = ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, (void **)&h);
@@ -560,8 +612,7 @@ TEST(d3d12_objects_heap_ppv_null_s_false) {
     EXPECT_HR(ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, NULL), S_FALSE);
     d.SizeInBytes = 0;
     HRESULT hr = ID3D12Device_CreateHeap(dev, &d, &IID_ID3D12Heap, NULL);
-    CHECKF(FAILED(hr), "invalid desc, NULL ppv: %s", d3dh_hr_name(hr));
-    { HRESULT nh = ID3D12Device_CreateHeap(dev, NULL, &IID_ID3D12Heap, NULL); CHECKF(FAILED(nh), "NULL desc: %s", d3dh_hr_name(nh)); }
+    CHECKF(hr == E_INVALIDARG, "invalid desc, NULL ppv: %s", d3dh_hr_name(hr));   /* NULL desc: access violation, see d3d12_objects_null_args_matrix */
 }
 TEST(d3d12_objects_heap_iids_and_device) {
     NEED_DEV();
@@ -597,7 +648,7 @@ TEST(d3d12_objects_placed_buffers_offsets) {
         ID3D12Resource *r = NULL;
         HRESULT hr = ID3D12Device_CreatePlacedResource(dev, h, t[i].off, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
         if (t[i].ok) CHECKF(hr == S_OK, "placed %s: %s", t[i].n, d3dh_hr_name(hr));
-        else { CHECKF(FAILED(hr), "placed %s: %s", t[i].n, d3dh_hr_name(hr)); if (FAILED(hr) && hr != E_INVALIDARG) t_note("placed %s -> %s", t[i].n, d3dh_hr_name(hr)); }
+        else { CHECKF((hr) == E_INVALIDARG, "placed %s: %s", t[i].n, d3dh_hr_name(hr)); if (FAILED(hr) && hr != E_INVALIDARG) t_note("placed %s -> %s", t[i].n, d3dh_hr_name(hr)); }
         SAFE_RELEASE(r);
     }
     SAFE_RELEASE(h);
@@ -628,9 +679,9 @@ TEST(d3d12_objects_placed_wrong_heap_kind) {
     D3D12_RESOURCE_DESC t = d12_tex2d_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, 0);
     ID3D12Resource *r = NULL;
     HRESULT hr = ID3D12Device_CreatePlacedResource(dev, h, 0, &t, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
-    CHECKF(FAILED(hr), "texture in a buffers-only heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF((hr) == E_INVALIDARG, "texture in a buffers-only heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     hr = ID3D12Device_CreatePlacedResource(dev, NULL, 0, &t, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
-    CHECKF(FAILED(hr), "NULL heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF((hr) == E_INVALIDARG, "NULL heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     SAFE_RELEASE(h);
 }
 TEST(d3d12_objects_placed_initial_state_rules) {
@@ -667,7 +718,7 @@ TEST(d3d12_objects_placed_textures_use_allocation_info) {
         EXPECT_HR(ID3D12Device_CreatePlacedResource(dev, h, 0, &t, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r), S_OK);
         SAFE_RELEASE(r);
         HRESULT hr = ID3D12Device_CreatePlacedResource(dev, h, 0, &rt, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&r);
-        CHECKF(FAILED(hr), "RT texture in a non-RT/DS heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+        CHECKF((hr) == E_INVALIDARG, "RT texture in a non-RT/DS heap: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
         SAFE_RELEASE(h);
     }
     hd.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
@@ -678,7 +729,8 @@ TEST(d3d12_objects_placed_textures_use_allocation_info) {
         if (r) {
             D3D12_HEAP_PROPERTIES hp; D3D12_HEAP_FLAGS hf;
             HRESULT hr = ID3D12Resource_GetHeapProperties(r, &hp, &hf);
-            t_note("GetHeapProperties on a placed resource: %s type=%d flags=0x%x", d3dh_hr_name(hr), hp.Type, hf);
+            /* Win10 22H2: a placed resource reports the heap type of its heap and the derived category flags (RT texture: 0x84) */
+            CHECKF(hr == S_OK && hp.Type == D3D12_HEAP_TYPE_DEFAULT && hf == 0x84, "GetHeapProperties on a placed resource: %s type=%d flags=0x%x", d3dh_hr_name(hr), hp.Type, hf);
         }
         SAFE_RELEASE(r);
         SAFE_RELEASE(h);
@@ -690,7 +742,8 @@ TEST(d3d12_objects_placed_ppv_null_s_false) {
     ID3D12Heap *h = NULL;
     if (FAILED(ID3D12Device_CreateHeap(dev, &hd, &IID_ID3D12Heap, (void **)&h))) { t_skip("no heap"); return; }
     D3D12_RESOURCE_DESC d = d12_buf_desc(64 * KB, 0);
-    EXPECT_HR(ID3D12Device_CreatePlacedResource(dev, h, 0, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, NULL), S_FALSE);
+    /* Measured on Win10 22H2: unlike CreateCommittedResource/CreateHeap (S_FALSE), CreatePlacedResource with a NULL ppv returns E_UNEXPECTED */
+    EXPECT_HR(ID3D12Device_CreatePlacedResource(dev, h, 0, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, NULL), E_UNEXPECTED);
     SAFE_RELEASE(h);
 }
 TEST(d3d12_objects_placed_heap_lifetime) {
@@ -752,17 +805,17 @@ TEST(d3d12_objects_allocinfo_small_texture_alignment) {
     EXPECT_EQ(a0.Alignment, 65536);
     d.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
     D3D12_RESOURCE_ALLOCATION_INFO a1 = d12_alloc_info(dev, &d, 1);
-    t_note("16x16 RGBA8 with Alignment=4096: size %llu align %llu", (unsigned long long)a1.SizeInBytes, (unsigned long long)a1.Alignment);
-    CHECK(a1.Alignment == 4096 || a1.Alignment == 65536);
+    /* Win10 22H2 WARP honours the small-resource alignment for a 16x16 RGBA8 texture: 4096 bytes at 4096 */
     CHECK(a1.SizeInBytes >= 16 * 16 * 4);
+    if (g_d12warp) { EXPECT_EQ(a1.Alignment, 4096); EXPECT_EQ(a1.SizeInBytes, 4096); } else CHECK(a1.Alignment == 4096 || a1.Alignment == 65536);
 }
 TEST(d3d12_objects_allocinfo_msaa_alignment) {
     NEED_DEV();
     D3D12_RESOURCE_DESC d = d12_tex2d_desc(256, 256, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
     d.SampleDesc.Count = 4;
     D3D12_RESOURCE_ALLOCATION_INFO a0 = d12_alloc_info(dev, &d, 1);
-    t_note("MSAA4 256x256 Alignment=0: size %llu align %llu", (unsigned long long)a0.SizeInBytes, (unsigned long long)a0.Alignment);
-    CHECK(a0.Alignment == 65536 || a0.Alignment == 4 * MB);
+    /* Win10 22H2 WARP: a 4x MSAA 256x256 RGBA8 render target is 4 MB at 4 MB alignment */
+    if (g_d12warp) { EXPECT_EQ(a0.Alignment, 4 * MB); EXPECT_EQ(a0.SizeInBytes, 4 * MB); } else CHECK(a0.Alignment == 65536 || a0.Alignment == 4 * MB);
     CHECK(a0.SizeInBytes >= 256 * 256 * 4 * 4);
     d.Alignment = 4 * MB;
     D3D12_RESOURCE_ALLOCATION_INFO a1 = d12_alloc_info(dev, &d, 1);
@@ -773,8 +826,8 @@ TEST(d3d12_objects_allocinfo_invalid_desc) {
     NEED_DEV();
     D3D12_RESOURCE_DESC d = d12_buf_desc(0, 0);
     D3D12_RESOURCE_ALLOCATION_INFO ai = d12_alloc_info(dev, &d, 1);
-    t_note("allocation info of an invalid desc: size %llx align %llx", (unsigned long long)ai.SizeInBytes, (unsigned long long)ai.Alignment);
-    CHECK(ai.SizeInBytes == ~0ull || ai.SizeInBytes == 0 || ai.SizeInBytes == 65536);
+    /* an invalid desc (zero-width buffer) yields size all-ones with the default 64KB alignment (Win10 22H2) */
+    EXPECT_EQ(ai.SizeInBytes, ~0ull); EXPECT_EQ(ai.Alignment, 65536);
 }
 TEST(d3d12_objects_allocinfo_matches_committed_requirements) {
     NEED_DEV();
@@ -841,8 +894,10 @@ TEST(d3d12_objects_footprint_formats_2d) {
     NEED_DEV();
     static const UINT dims[][2] = { { 64, 64 }, { 17, 5 }, { 1, 1 }, { 256, 1 }, { 33, 65 }, { 100, 100 } };
     for (unsigned f = 0; f < sizeof g_fmts / sizeof *g_fmts; f++) for (unsigned s = 0; s < 6; s++) {
-        D3D12_RESOURCE_DESC d = d12_tex2d_desc(dims[s][0], dims[s][1], g_fmts[f].f, 1, 1, 0);
-        char lb[64]; wsprintfA(lb, "%s %ux%u", g_fmts[f].n, dims[s][0], dims[s][1]);
+        /* block-compressed textures must have a mip-0 size that is a multiple of the 4x4 block (see footprint_bc_non_multiple_of_4_invalid) */
+        UINT w = ALIGN_UP(dims[s][0], g_fmts[f].bw), h = ALIGN_UP(dims[s][1], g_fmts[f].bh);
+        D3D12_RESOURCE_DESC d = d12_tex2d_desc(w, h, g_fmts[f].f, 1, 1, 0);
+        char lb[64]; wsprintfA(lb, "%s %ux%u", g_fmts[f].n, w, h);
         check_footprints(dev, &d, &g_fmts[f], 0, lb);
     }
 }
@@ -851,13 +906,41 @@ TEST(d3d12_objects_footprint_mip_chains) {
     static const unsigned pick[] = { 0, 3, 7, 11, 15, 17, 19 };
     for (unsigned k = 0; k < sizeof pick / sizeof *pick; k++) {
         const fmtinfo *fi = &g_fmts[pick[k]];
-        D3D12_RESOURCE_DESC d = d12_tex2d_desc(70, 45, fi->f, 0, 1, 0);
-        char lb[64]; wsprintfA(lb, "%s chain 70x45", fi->n);
+        UINT w70 = ALIGN_UP(70, fi->bw), h45 = ALIGN_UP(45, fi->bh);
+        D3D12_RESOURCE_DESC d = d12_tex2d_desc(w70, h45, fi->f, 0, 1, 0);
+        char lb[64]; wsprintfA(lb, "%s chain %ux%u", fi->n, w70, h45);
         check_footprints(dev, &d, fi, 0, lb);
         d = d12_tex2d_desc(256, 256, fi->f, 0, 1, 0);
         wsprintfA(lb, "%s chain 256x256", fi->n);
         check_footprints(dev, &d, fi, 0, lb);
     }
+}
+TEST(d3d12_objects_footprint_bc_non_multiple_of_4_invalid) {
+    NEED_DEV();
+    /* Measured on Win10 22H2: a block-compressed mip 0 whose width or height is not a multiple of 4 is invalid everywhere:
+     * CreateCommittedResource fails (E_INVALIDARG), GetResourceAllocationInfo returns size 0xFFFFFFFFFFFFFFFF, and
+     * GetCopyableFootprints fills every output with all-ones (offset, total, rows, pitch, ...). */
+    static const UINT dims[][2] = { { 5, 4 }, { 4, 5 }, { 6, 8 }, { 2, 2 }, { 1, 1 }, { 17, 5 }, { 70, 45 }, { 256, 1 }, { 3, 3 }, { 16, 2 } };
+    static const DXGI_FORMAT bc[] = { DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC2_UNORM, DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC4_UNORM, DXGI_FORMAT_BC5_UNORM, DXGI_FORMAT_BC7_UNORM };
+    D3D12_HEAP_PROPERTIES hp = d12_heap_props(D3D12_HEAP_TYPE_DEFAULT);
+    for (unsigned f = 0; f < 6; f++) for (unsigned i = 0; i < 10; i++) for (UINT mips = 0; mips < 2; mips++) {
+        D3D12_RESOURCE_DESC d = d12_tex2d_desc(dims[i][0], dims[i][1], bc[f], mips ? 0 : 1, 1, 0);
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp; UINT rows = 0; UINT64 rs = 0, total = 7;
+        memset(&fp, 0xCD, sizeof fp);
+        ID3D12Device_GetCopyableFootprints(dev, &d, 0, 1, 0, &fp, &rows, &rs, &total);
+        CHECKF(fp.Offset == ~0ull && total == ~0ull && rs == ~0ull && rows == ~0u && fp.Footprint.RowPitch == ~0u, "fmt %d %ux%u: footprints not all-ones (off %llx total %llx rows %x)", bc[f], dims[i][0], dims[i][1], (unsigned long long)fp.Offset, (unsigned long long)total, rows);
+        D3D12_RESOURCE_ALLOCATION_INFO ai = d12_alloc_info(dev, &d, 1);
+        CHECKF(ai.SizeInBytes == ~0ull, "fmt %d %ux%u: alloc size %llx", bc[f], dims[i][0], dims[i][1], (unsigned long long)ai.SizeInBytes);
+        ID3D12Resource *r = NULL;
+        HRESULT hr = ID3D12Device_CreateCommittedResource(dev, &hp, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
+        CHECKF(hr == E_INVALIDARG, "fmt %d %ux%u: create %s", bc[f], dims[i][0], dims[i][1], d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    }
+    /* the smaller mips of a valid chain may be below one block (64x64 chain down to 1x1) */
+    D3D12_RESOURCE_DESC d = d12_tex2d_desc(64, 64, DXGI_FORMAT_BC1_UNORM, 0, 1, 0);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp[8]; UINT rows[8]; UINT64 rs[8], total = 0;
+    ID3D12Device_GetCopyableFootprints(dev, &d, 0, 7, 0, fp, rows, rs, &total);
+    CHECK(total != ~0ull);
+    for (unsigned k = 0; k < 7; k++) { CHECKF(rows[k] == (mdim(64, k) + 3) / 4, "BC1 mip %u rows %u", k, rows[k]); CHECKF(rs[k] == 8ull * ((mdim(64, k) + 3) / 4), "BC1 mip %u row size %llu", k, (unsigned long long)rs[k]); }
 }
 TEST(d3d12_objects_footprint_array_slices) {
     NEED_DEV();
@@ -939,7 +1022,8 @@ TEST(d3d12_objects_footprint_buffer) {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp; UINT rows = 0; UINT64 rs = 0, total = 0;
     ID3D12Device_GetCopyableFootprints(dev, &d, 0, 1, 0, &fp, &rows, &rs, &total);
     EXPECT_EQ(rows, 1); EXPECT_EQ(rs, 1000); EXPECT_EQ(total, 1000); EXPECT_EQ(fp.Offset, 0);
-    t_note("buffer footprint: format %d width %u height %u depth %u RowPitch %u", fp.Footprint.Format, fp.Footprint.Width, fp.Footprint.Height, fp.Footprint.Depth, fp.Footprint.RowPitch);
+    /* a buffer is described as one row of Width bytes: UNKNOWN format, height/depth 1, pitch aligned to 256 */
+    EXPECT_EQ(fp.Footprint.Format, DXGI_FORMAT_UNKNOWN); EXPECT_EQ(fp.Footprint.Width, 1000); EXPECT_EQ(fp.Footprint.Height, 1); EXPECT_EQ(fp.Footprint.Depth, 1); EXPECT_EQ(fp.Footprint.RowPitch, 1024);
 }
 TEST(d3d12_objects_footprint_optional_outputs) {
     NEED_DEV();
@@ -952,7 +1036,7 @@ TEST(d3d12_objects_footprint_optional_outputs) {
     EXPECT_EQ(rows[0], 32); EXPECT_EQ(rows[1], 16); EXPECT_EQ(rs[0], 128); EXPECT_EQ(rs[1], 64);
     total = 0xABCD;
     ID3D12Device_GetCopyableFootprints(dev, &d, 0, 0, 0, NULL, NULL, NULL, &total);
-    t_note("total bytes for zero subresources: %llu", (unsigned long long)total);
+    EXPECT_EQ(total, 0);   /* zero subresources: total size 0 */
 }
 TEST(d3d12_objects_footprint_first_subresource) {
     NEED_DEV();
@@ -1039,7 +1123,7 @@ TEST(d3d12_objects_map_default_heap_rejected) {
     if (!r) return;
     void *p = NULL;
     HRESULT hr = ID3D12Resource_Map(r, 0, NULL, &p);
-    CHECKF(FAILED(hr), "Map on a DEFAULT-heap buffer: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "Map on a DEFAULT-heap buffer: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) ID3D12Resource_Unmap(r, 0, NULL);
     SAFE_RELEASE(r);
 }
@@ -1050,7 +1134,7 @@ TEST(d3d12_objects_map_bad_subresource) {
     if (!r) return;
     void *p = NULL;
     HRESULT hr = ID3D12Resource_Map(r, 1, NULL, &p);
-    t_note("Map subresource 1 of a buffer: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_INVALIDARG, "Map subresource 1 of a buffer: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) ID3D12Resource_Unmap(r, 1, NULL);
     SAFE_RELEASE(r);
 }
@@ -1061,11 +1145,11 @@ TEST(d3d12_objects_map_read_range_note) {
     if (!r) return;
     void *p = NULL; D3D12_RANGE bad = { 100, 50 };
     HRESULT hr = ID3D12Resource_Map(r, 0, &bad, &p);
-    t_note("Map with ReadRange End < Begin: %s", d3dh_hr_name(hr));
+    CHECKF(hr == S_OK, "Map with ReadRange End < Begin: %s", d3dh_hr_name(hr));   /* not validated (Win10 22H2) */
     if (SUCCEEDED(hr)) ID3D12Resource_Unmap(r, 0, NULL);
     D3D12_RANGE big = { 0, 4096 };
     hr = ID3D12Resource_Map(r, 0, &big, &p);
-    t_note("Map with ReadRange past the buffer: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_INVALIDARG, "Map with ReadRange past the buffer: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) ID3D12Resource_Unmap(r, 0, NULL);
     SAFE_RELEASE(r);
 }
@@ -1144,7 +1228,7 @@ TEST(d3d12_objects_write_subresource_invalid) {
     if (!r) return;
     UINT32 px[4] = { 0 };
     HRESULT hr = ID3D12Resource_WriteToSubresource(r, 0, NULL, px, 16, 16);
-    CHECKF(FAILED(hr), "WriteToSubresource on a DEFAULT-heap buffer: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "WriteToSubresource on a DEFAULT-heap buffer: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(r);
 }
 
@@ -1196,7 +1280,7 @@ TEST(d3d12_objects_reserved_rejects_committed_only_features) {
     D3D12_RESOURCE_DESC d = d12_tex2d_desc(256, 256, DXGI_FORMAT_R8G8B8A8_UNORM, 1, 1, 0);   /* UNKNOWN layout is a valid reserved layout? record */
     ID3D12Resource *r = NULL;
     HRESULT hr = ID3D12Device_CreateReservedResource(dev, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
-    t_note("reserved texture with layout UNKNOWN: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
+    CHECKF(hr == E_INVALIDARG, "reserved texture with layout UNKNOWN: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);
     d = d12_buf_desc(0, 0);
     hr = ID3D12Device_CreateReservedResource(dev, &d, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&r);
     CHECKF(hr == E_INVALIDARG, "reserved buffer width 0: %s", d3dh_hr_name(hr)); SAFE_RELEASE(r);

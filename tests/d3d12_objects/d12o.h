@@ -28,12 +28,12 @@ static D3D12_DESCRIPTOR_HEAP_DESC d12_dh_desc(ID3D12DescriptorHeap *h) {
 static D3D12_RESOURCE_DESC d12_res_desc(ID3D12Resource *r) { return d3dh_d12_resource_desc(r); }
 static D3D12_RESOURCE_ALLOCATION_INFO d12_alloc_info(ID3D12Device *dev, const D3D12_RESOURCE_DESC *d, UINT n) {
     D3D12_RESOURCE_ALLOCATION_INFO i; memset(&i, 0xCD, sizeof i);
-    ((void *(WINAPI *)(ID3D12Device *, UINT, UINT, const D3D12_RESOURCE_DESC *, D3D12_RESOURCE_ALLOCATION_INFO *))dev->lpVtbl->GetResourceAllocationInfo)(dev, 0, n, d, &i);
+    ((void *(WINAPI *)(ID3D12Device *, D3D12_RESOURCE_ALLOCATION_INFO *, UINT, UINT, const D3D12_RESOURCE_DESC *))dev->lpVtbl->GetResourceAllocationInfo)(dev, &i, 0, n, d);
     return i;
 }
 static D3D12_HEAP_PROPERTIES d12_custom_heap_props(ID3D12Device *dev, D3D12_HEAP_TYPE t) {
     D3D12_HEAP_PROPERTIES p; memset(&p, 0xCD, sizeof p);
-    ((void *(WINAPI *)(ID3D12Device *, UINT, D3D12_HEAP_TYPE, D3D12_HEAP_PROPERTIES *))dev->lpVtbl->GetCustomHeapProperties)(dev, 0, t, &p);
+    ((void *(WINAPI *)(ID3D12Device *, D3D12_HEAP_PROPERTIES *, UINT, D3D12_HEAP_TYPE))dev->lpVtbl->GetCustomHeapProperties)(dev, &p, 0, t);
     return p;
 }
 

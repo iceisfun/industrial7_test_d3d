@@ -381,10 +381,12 @@ TEST(d3d12_objects_clear_rtv_integer_formats) {
     d12_sub s;
     if (clear_and_read(dev, DXGI_FORMAT_R8G8B8A8_UINT, c, &s)) {
         UINT32 got = d12_sub_px32(&s, 1, 1, 0);
-        t_note("float clear values 7,3,200,9 on R8G8B8A8_UINT -> 0x%08x (0x09C80307 if converted by value)", got);
+        /* Win10 22H2 WARP converts the float clear colour to the integer format by value (7,3,200,9 -> 0x09C80307) */
+        if (g_d12warp) CHECKF(got == 0x09C80307u, "float clear values 7,3,200,9 on R8G8B8A8_UINT -> 0x%08x", got);
+        else t_note("float clear values 7,3,200,9 on R8G8B8A8_UINT -> 0x%08x (0x09C80307 if converted by value)", got);
         d12_sub_free(&s);
     } else t_skip("R8G8B8A8_UINT RT unsupported");
-    if (clear_and_read(dev, DXGI_FORMAT_R32_UINT, c, &s)) { t_note("R32_UINT cleared with 7.0f -> %u", d12_sub_px32(&s, 0, 0, 0)); d12_sub_free(&s); }
+    if (clear_and_read(dev, DXGI_FORMAT_R32_UINT, c, &s)) { if (g_d12warp) EXPECT_EQ(d12_sub_px32(&s, 0, 0, 0), 7); d12_sub_free(&s); }
 }
 TEST(d3d12_objects_clear_rtv_rects) {
     NEED_DEV();

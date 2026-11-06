@@ -35,7 +35,7 @@ TEST(d3d12_objects_list_create_null_allocator) {
     NEED_DEV();
     ID3D12GraphicsCommandList *l = NULL;
     HRESULT hr = ID3D12Device_CreateCommandList(dev, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, NULL, NULL, &IID_ID3D12GraphicsCommandList, (void **)&l);
-    CHECKF(FAILED(hr), "NULL allocator: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "NULL allocator: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(l);
 }
 TEST(d3d12_objects_list_create_invalid_type_and_node) {
@@ -44,10 +44,10 @@ TEST(d3d12_objects_list_create_invalid_type_and_node) {
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&a), S_OK);
     if (!a) return;
     HRESULT hr = ID3D12Device_CreateCommandList(dev, 0, (D3D12_COMMAND_LIST_TYPE)42, a, NULL, &IID_ID3D12GraphicsCommandList, (void **)&l);
-    CHECKF(FAILED(hr), "type 42: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "type 42: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(l);
     hr = ID3D12Device_CreateCommandList(dev, 2, D3D12_COMMAND_LIST_TYPE_DIRECT, a, NULL, &IID_ID3D12GraphicsCommandList, (void **)&l);
-    CHECKF(FAILED(hr), "node mask 2: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "node mask 2: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(l);
     SAFE_RELEASE(a);
 }
@@ -56,7 +56,7 @@ TEST(d3d12_objects_list_create_allocator_busy) {
     d12ctx c = {0}; if (FAILED(d12_ctx_init(&c, dev, D3D12_COMMAND_LIST_TYPE_DIRECT))) { t_skip("no ctx"); d12_ctx_free(&c); return; }
     ID3D12GraphicsCommandList *l2 = NULL;
     HRESULT hr = ID3D12Device_CreateCommandList(dev, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, c.al, NULL, &IID_ID3D12GraphicsCommandList, (void **)&l2);
-    CHECKF(FAILED(hr), "allocator in use by a recording list: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "allocator in use by a recording list: %s", d3dh_hr_name(hr));
     if (hr != E_INVALIDARG) t_note("busy allocator -> %s (E_INVALIDARG documented for Reset)", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(l2);
     d12_ctx_free(&c);
@@ -67,9 +67,9 @@ TEST(d3d12_objects_list_create_ppv_null_validates) {
     EXPECT_HR(ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&a), S_OK);
     if (!a) return;
     HRESULT hr = ID3D12Device_CreateCommandList(dev, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, a, NULL, &IID_ID3D12GraphicsCommandList, NULL);
-    t_note("CreateCommandList(ppv=NULL): %s", d3dh_hr_name(hr));
-    /* either way the allocator must remain usable: no list was left recording */
-    { HRESULT rh = ID3D12CommandAllocator_Reset(a); t_note("allocator Reset after CreateCommandList(ppv=NULL): %s", d3dh_hr_name(rh)); }
+    CHECKF(hr == E_UNEXPECTED, "CreateCommandList(ppv=NULL): %s", d3dh_hr_name(hr));   /* Win10 22H2 */
+    /* the allocator remains usable: no list was left recording */
+    { HRESULT rh = ID3D12CommandAllocator_Reset(a); CHECKF(rh == S_OK, "allocator Reset after CreateCommandList(ppv=NULL): %s", d3dh_hr_name(rh)); }
     SAFE_RELEASE(a);
 }
 TEST(d3d12_objects_list_create_with_initial_pso) {
@@ -98,7 +98,7 @@ TEST(d3d12_objects_list_create_initial_pso_wrong_list_type) {
         ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_COPY, &IID_ID3D12CommandAllocator, (void **)&a);
         if (a) {
             HRESULT hr = ID3D12Device_CreateCommandList(dev, 0, D3D12_COMMAND_LIST_TYPE_COPY, a, pso, &IID_ID3D12GraphicsCommandList, (void **)&l);
-            t_note("COPY list with initial compute PSO: %s", d3dh_hr_name(hr));
+            CHECKF(hr == S_OK, "COPY list with initial compute PSO: %s", d3dh_hr_name(hr));   /* not validated by the runtime (Win10 22H2) */
             SAFE_RELEASE(l); SAFE_RELEASE(a);
         }
     }
@@ -251,7 +251,7 @@ TEST(d3d12_objects_list_qi_interfaces) {
     };
     for (unsigned i = 0; i < 6; i++) {
         o = NULL; hr = ID3D12GraphicsCommandList_QueryInterface(c.cl, ext[i].g, &o);
-        t_note("QI ID3D12Graphics%s: %s", ext[i].n, d3dh_hr_name(hr));
+        CHECKF(hr == S_OK, "QI ID3D12Graphics%s: %s", ext[i].n, d3dh_hr_name(hr));
         if (o) ((IUnknown *)o)->lpVtbl->Release(o);
     }
     d12_ctx_free(&c);
@@ -273,7 +273,7 @@ TEST(d3d12_objects_list_create_closed_list1) {
     EXPECT_HR(hr, S_OK);
     if (l) {
         EXPECT_HR(ID3D12GraphicsCommandList_Close(l), E_FAIL);   /* created in the closed state */
-        { HRESULT rh = ID3D12GraphicsCommandList_Reset(l, NULL, NULL); CHECKF(FAILED(rh), "Reset(NULL allocator): %s", d3dh_hr_name(rh)); }
+        /* Reset(NULL allocator) is an access violation (child process: d3d12_objects_reset_null_allocator_av) */
         ID3D12CommandAllocator *a = NULL;
         ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&a);
         if (a) { EXPECT_HR(ID3D12GraphicsCommandList_Reset(l, a, NULL), S_OK); EXPECT_HR(ID3D12GraphicsCommandList_Close(l), S_OK); SAFE_RELEASE(a); }
@@ -497,7 +497,8 @@ TEST(d3d12_objects_barrier_same_state_note) {
     if (a) {
         d12_transition(c.cl, a, 0, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON);
         HRESULT hr = ID3D12GraphicsCommandList_Close(c.cl);
-        t_note("Close after a COMMON->COMMON transition barrier: %s", d3dh_hr_name(hr));
+        /* Win10 22H2: a transition barrier whose before and after states are equal makes Close fail */
+        CHECKF(hr == E_INVALIDARG, "Close after a COMMON->COMMON transition barrier: %s", d3dh_hr_name(hr));
     }
     SAFE_RELEASE(a); d12_ctx_free(&c);
 }
@@ -663,4 +664,23 @@ TEST(d3d12_objects_list_record_from_threads) {
     }
     for (int i = 0; i < N; i++) SAFE_RELEASE(dst[i]);
     SAFE_RELEASE(up);
+}
+
+/* Reset(NULL allocator) crashes inside d3d12 in a way a SEH/longjmp recovery cannot survive (the process dies with 0xC0000409),
+ * so the access violation is observed in a child process. */
+CHILD(d12_reset_null) {
+    SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
+    ID3D12Device *dev = d12_dev(); if (!dev) return 90;
+    ID3D12CommandAllocator *al = NULL; ID3D12GraphicsCommandList *l = NULL;
+    ID3D12Device_CreateCommandAllocator(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&al);
+    ID3D12Device_CreateCommandList(dev, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, al, NULL, &IID_ID3D12GraphicsCommandList, (void **)&l);
+    ID3D12GraphicsCommandList_Close(l);
+    ID3D12GraphicsCommandList_Reset(l, NULL, NULL);
+    return 0;   /* not reached */
+}
+TEST(d3d12_objects_reset_null_allocator_av) {
+    NEED_DEV();
+    DWORD rc = t_run_child("d12_reset_null", "", 60000);
+    if (rc == 90) { t_skip("child could not create a device"); return; }
+    EXPECT_EQ(rc, 0xC0000005);
 }

@@ -30,7 +30,8 @@ TEST(d3d12_objects_queue_create_video_types) {
         D3D12_COMMAND_QUEUE_DESC d; memset(&d, 0, sizeof d); d.Type = v[i];
         ID3D12CommandQueue *q = NULL;
         HRESULT hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
-        t_note("video queue type %d on this adapter: %s", (int)v[i], d3dh_hr_name(hr));
+        if (g_d12warp) CHECKF(hr == E_INVALIDARG, "video queue type %d on WARP (no video engines): %s", (int)v[i], d3dh_hr_name(hr));
+        else t_note("video queue type %d on this adapter: %s", (int)v[i], d3dh_hr_name(hr));
         if (SUCCEEDED(hr)) { D3D12_COMMAND_QUEUE_DESC g = d12_queue_desc(q); EXPECT_EQ(g.Type, v[i]); }
         SAFE_RELEASE(q);
     }
@@ -42,7 +43,7 @@ TEST(d3d12_objects_queue_create_invalid_type) {
         D3D12_COMMAND_QUEUE_DESC d; memset(&d, 0, sizeof d); d.Type = (D3D12_COMMAND_LIST_TYPE)bad[i];
         ID3D12CommandQueue *q = NULL;
         HRESULT hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
-        CHECKF(FAILED(hr), "type %d got %s", bad[i], d3dh_hr_name(hr));
+        CHECKF((hr) == E_INVALIDARG, "type %d got %s", bad[i], d3dh_hr_name(hr));
         if (hr != E_INVALIDARG) t_note("queue type %d -> %s (E_INVALIDARG expected)", bad[i], d3dh_hr_name(hr));
         if (SUCCEEDED(hr)) SAFE_RELEASE(q);
     }
@@ -72,7 +73,7 @@ TEST(d3d12_objects_queue_priority_invalid) {
     D3D12_COMMAND_QUEUE_DESC d; memset(&d, 0, sizeof d); d.Priority = 55;
     ID3D12CommandQueue *q = NULL;
     HRESULT hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
-    t_note("queue priority 55: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_INVALIDARG, "queue priority 55: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(q);
 }
 TEST(d3d12_objects_queue_flags) {
@@ -80,12 +81,12 @@ TEST(d3d12_objects_queue_flags) {
     D3D12_COMMAND_QUEUE_DESC d; memset(&d, 0, sizeof d); d.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
     ID3D12CommandQueue *q = NULL;
     HRESULT hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
-    t_note("DISABLE_GPU_TIMEOUT queue: %s", d3dh_hr_name(hr));
+    CHECKF(hr == S_OK, "DISABLE_GPU_TIMEOUT queue: %s", d3dh_hr_name(hr));
     if (q) { D3D12_COMMAND_QUEUE_DESC g = d12_queue_desc(q); EXPECT_EQ(g.Flags, D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT); }
     SAFE_RELEASE(q);
     d.Flags = 0x80;   /* undefined flag bit */
     hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
-    t_note("undefined queue flag 0x80: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_INVALIDARG, "undefined queue flag 0x80: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(q);
 }
 TEST(d3d12_objects_queue_node_mask) {
@@ -98,7 +99,7 @@ TEST(d3d12_objects_queue_node_mask) {
     if (q) { D3D12_COMMAND_QUEUE_DESC g = d12_queue_desc(q); EXPECT_EQ(g.NodeMask, 1); SAFE_RELEASE(q); }
     d.NodeMask = 2;
     HRESULT hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q);
-    CHECKF(FAILED(hr), "node 2 on a one-node adapter: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "node 2 on a one-node adapter: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(q);
 }
 TEST(d3d12_objects_queue_null_desc_and_ppv) {
@@ -106,11 +107,11 @@ TEST(d3d12_objects_queue_null_desc_and_ppv) {
     D3D12_COMMAND_QUEUE_DESC d; memset(&d, 0, sizeof d);
     ID3D12CommandQueue *q = NULL;
     HRESULT hr = ID3D12Device_CreateCommandQueue(dev, NULL, &IID_ID3D12CommandQueue, (void **)&q);
-    CHECKF(FAILED(hr), "NULL desc: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "NULL desc: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(q);
     /* wrong interface id */
     hr = ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12Fence, (void **)&q);
-    CHECKF(FAILED(hr), "riid=Fence: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_NOINTERFACE, "riid=Fence: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) SAFE_RELEASE(q);
 }
 TEST(d3d12_objects_queue_iids) {
@@ -180,7 +181,8 @@ TEST(d3d12_objects_queue_timestamp_frequency) {
         if (FAILED(ID3D12Device_CreateCommandQueue(dev, &d, &IID_ID3D12CommandQueue, (void **)&q))) continue;
         HRESULT hr = ID3D12CommandQueue_GetTimestampFrequency(q, &f);
         if (qtypes[i].t == D3D12_COMMAND_LIST_TYPE_COPY) {
-            t_note("COPY queue timestamp frequency: %s freq=%llu", d3dh_hr_name(hr), (unsigned long long)f);
+            CHECKF(hr == S_OK, "COPY queue timestamp frequency: %s", d3dh_hr_name(hr));
+            if (g_d12warp) CHECKF(f == 10000000ull, "COPY queue timestamp frequency %llu", (unsigned long long)f);
         } else {
             EXPECT_HR(hr, S_OK);
             CHECK(f > 0);
@@ -332,7 +334,7 @@ TEST(d3d12_objects_alloc_create_invalid_type) {
     for (unsigned i = 0; i < 3; i++) {
         ID3D12CommandAllocator *a = NULL;
         HRESULT hr = ID3D12Device_CreateCommandAllocator(dev, (D3D12_COMMAND_LIST_TYPE)bad[i], &IID_ID3D12CommandAllocator, (void **)&a);
-        CHECKF(FAILED(hr), "type %d: %s", bad[i], d3dh_hr_name(hr));
+        CHECKF((hr) == E_INVALIDARG, "type %d: %s", bad[i], d3dh_hr_name(hr));
         if (SUCCEEDED(hr)) SAFE_RELEASE(a);
     }
 }
@@ -389,13 +391,13 @@ TEST(d3d12_objects_fence_flags) {
     NEED_DEV();
     ID3D12Fence *f = NULL;
     HRESULT shr = ID3D12Device_CreateFence(dev, 3, D3D12_FENCE_FLAG_SHARED, &IID_ID3D12Fence, (void **)&f);
-    t_note("SHARED fence: %s", d3dh_hr_name(shr));
+    CHECKF(shr == S_OK, "SHARED fence: %s", d3dh_hr_name(shr));
     if (f) { EXPECT_EQ(ID3D12Fence_GetCompletedValue(f), 3); SAFE_RELEASE(f); }
     HRESULT hr = ID3D12Device_CreateFence(dev, 3, D3D12_FENCE_FLAG_SHARED | D3D12_FENCE_FLAG_SHARED_CROSS_ADAPTER, &IID_ID3D12Fence, (void **)&f);
-    t_note("SHARED|SHARED_CROSS_ADAPTER fence: %s", d3dh_hr_name(hr));
+    CHECKF(hr == S_OK, "SHARED|SHARED_CROSS_ADAPTER fence: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(f);
     hr = ID3D12Device_CreateFence(dev, 3, D3D12_FENCE_FLAG_NON_MONITORED, &IID_ID3D12Fence, (void **)&f);
-    t_note("NON_MONITORED fence: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_INVALIDARG, "NON_MONITORED fence: %s", d3dh_hr_name(hr));
     if (f) EXPECT_EQ(ID3D12Fence_GetCompletedValue(f), 3);
     SAFE_RELEASE(f);
 }
@@ -403,7 +405,7 @@ TEST(d3d12_objects_fence_create_ppv_null_and_bad_iid) {
     NEED_DEV();
     ID3D12Fence *f = NULL;
     HRESULT hr = ID3D12Device_CreateFence(dev, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Resource, (void **)&f);
-    CHECKF(FAILED(hr), "riid=Resource: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_NOINTERFACE, "riid=Resource: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) { SAFE_RELEASE(f); }
     f = NULL;
     hr = ID3D12Device_CreateFence(dev, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&f);
@@ -433,7 +435,9 @@ TEST(d3d12_objects_fence_cpu_signal_decreasing) {
     EXPECT_HR(ID3D12Device_CreateFence(dev, 10, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&f), S_OK);
     if (!f) return;
     HRESULT hr = ID3D12Fence_Signal(f, 5);
-    t_note("CPU Signal(5) after value 10: %s, completed now %llu", d3dh_hr_name(hr), (unsigned long long)ID3D12Fence_GetCompletedValue(f));
+    /* Win10 22H2: a CPU Signal may move the fence value backwards */
+    CHECKF(hr == S_OK, "CPU Signal(5) after value 10: %s", d3dh_hr_name(hr));
+    EXPECT_EQ(ID3D12Fence_GetCompletedValue(f), 5);
     SAFE_RELEASE(f);
 }
 TEST(d3d12_objects_fence_event_immediate_when_complete) {
@@ -587,7 +591,7 @@ TEST(d3d12_objects_fence_getdevice_iids) {
     o = (void *)1; EXPECT_HR(ID3D12Fence_QueryInterface(f, &IID_ID3D12CommandQueue, &o), E_NOINTERFACE); CHECK(o == NULL);
     ID3D12Fence1 *f1 = NULL;
     HRESULT hr = ID3D12Fence_QueryInterface(f, &IID_ID3D12Fence1, (void **)&f1);
-    t_note("QI ID3D12Fence1: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (f1) { D3D12_FENCE_FLAGS fl = ID3D12Fence1_GetCreationFlags(f1); EXPECT_EQ(fl, D3D12_FENCE_FLAG_NONE); ID3D12Fence1_Release(f1); }
     SAFE_RELEASE(f);
 }
@@ -644,7 +648,7 @@ TEST(d3d12_objects_fence_shared_handle_unshared_fence) {
     if (!f) return;
     HANDLE h = NULL;
     HRESULT hr = ID3D12Device_CreateSharedHandle(dev, (ID3D12DeviceChild *)f, NULL, GENERIC_ALL, NULL, &h);
-    CHECKF(FAILED(hr), "CreateSharedHandle on a non-shared fence: %s", d3dh_hr_name(hr));
+    CHECKF((hr) == E_INVALIDARG, "CreateSharedHandle on a non-shared fence: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && h) CloseHandle(h);
     SAFE_RELEASE(f);
 }
@@ -669,7 +673,7 @@ TEST(d3d12_objects_fence_shared_handle_named) {
         WCHAR bad[64]; wsprintfW(bad, L"d3dt_objfence_missing_%lu", GetCurrentProcessId());
         HANDLE h3 = NULL;
         hr = ID3D12Device_OpenSharedHandleByName(dev, bad, GENERIC_ALL, &h3);
-        CHECKF(FAILED(hr), "unknown name: %s", d3dh_hr_name(hr));
+        CHECKF(hr == HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE), "unknown name: %s", d3dh_hr_name(hr));
         if (SUCCEEDED(hr) && h3) CloseHandle(h3);
         CloseHandle(h);
     }
@@ -683,7 +687,7 @@ TEST(d3d12_objects_fence_open_shared_wrong_iid) {
     if (SUCCEEDED(ID3D12Device_CreateSharedHandle(dev, (ID3D12DeviceChild *)f, NULL, GENERIC_ALL, NULL, &h)) && h) {
         void *o = (void *)1;
         HRESULT hr = ID3D12Device_OpenSharedHandle(dev, h, &IID_ID3D12Resource, &o);
-        CHECKF(FAILED(hr), "fence handle opened as resource: %s", d3dh_hr_name(hr));
+        CHECKF((hr) == E_NOINTERFACE, "fence handle opened as resource: %s", d3dh_hr_name(hr));
         if (SUCCEEDED(hr) && o) ((IUnknown *)o)->lpVtbl->Release(o);
         CloseHandle(h);
     }
@@ -856,7 +860,7 @@ TEST(d3d12_objects_setname_wellknown_guid) {
     static const GUID WKPDID_NameW = { 0x4cca5fd8, 0x921f, 0x42c8, { 0x85, 0x66, 0x70, 0xca, 0xf2, 0xa9, 0xb7, 0x41 } };
     EXPECT_HR(ID3D12Fence_SetName(f, L"nm"), S_OK);
     UINT sz = 0; HRESULT hr = ID3D12Fence_GetPrivateData(f, &WKPDID_NameW, &sz, NULL);
-    t_note("name private data after SetName: %s size=%u", d3dh_hr_name(hr), sz);
+    CHECKF(hr == S_OK && sz == 6, "name private data after SetName: %s size=%u", d3dh_hr_name(hr), sz);   /* "nm" + NUL as WCHARs */
     SAFE_RELEASE(f);
 }
 TEST(d3d12_objects_refcount_addref_release) {
@@ -883,7 +887,11 @@ TEST(d3d12_objects_qi_identity) {
     EXPECT_HR(ID3D12Fence_QueryInterface(f, &IID_IUnknown, (void **)&u1), S_OK);
     EXPECT_HR(ID3D12Fence_QueryInterface(f, &IID_ID3D12Object, (void **)&o), S_OK);
     if (o) EXPECT_HR(ID3D12Object_QueryInterface(o, &IID_IUnknown, (void **)&u2), S_OK);
-    CHECK(u1 == u2); CHECK(u1 == (IUnknown *)f);
+    CHECK(u1 == u2);
+    /* Measured on Win10 22H2: the IUnknown identity pointer is a separate sub-object, never the interface pointer itself
+     * (fence, resource and device alike), while ID3D12Object/ID3D12DeviceChild/ID3D12Fence1 share the object pointer. */
+    CHECK(u1 != (IUnknown *)f);
+    { ID3D12DeviceChild *dc = NULL; if (SUCCEEDED(ID3D12Fence_QueryInterface(f, &IID_ID3D12DeviceChild, (void **)&dc)) && dc) { CHECK((void *)dc == (void *)f); CHECK((void *)o == (void *)f); ID3D12DeviceChild_Release(dc); } }
     if (u1) u1->lpVtbl->Release(u1);
     if (u2) u2->lpVtbl->Release(u2);
     if (o) ID3D12Object_Release(o);
