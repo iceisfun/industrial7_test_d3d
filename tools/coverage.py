@@ -12,7 +12,9 @@ src = ""
 for f in glob.glob(os.path.join(root, "tests", "**", "*.[ch]"), recursive=True):
     src += open(f, errors="replace").read() + "\n"
 names = sorted({l.strip() for p in lists for l in open(p) if l.strip()})
-called_re = lambda n: re.compile(r'\b(?:U|UIN|UN|UA|US|UC|UK|UB|UNT)\s*\(\s*(?:"[^"]*"\s*,\s*)?' + re.escape(n) + r'\s*\)|t_proc\w*\s*\(\s*(?:"[^"]*"\s*,\s*)?"' + re.escape(n) + r'"')
+# a name counts as called when it is looked up by a helper call: U(Name), UIN("dll", Name), t_proc*("Name"), any f("Name") / f("dll", "Name")
+# lookup helper (d3dh_getproc, DX(), P(), ...), or a typed loader d3dh_Name().
+called_re = lambda n: re.compile(r'\b(?:U|UIN|UN|UA|US|UC|UK|UB|UNT)\s*\(\s*(?:"[^"]*"\s*,\s*)?' + re.escape(n) + r'\s*\)|\b\w+\s*\(\s*(?:"[^"]*"\s*,\s*)?"' + re.escape(n) + r'"\s*[,)]|\bd3dh_' + re.escape(n) + r'\s*\(')
 unc, ment = [], []
 for n in names:
     if called_re(n).search(src): continue
