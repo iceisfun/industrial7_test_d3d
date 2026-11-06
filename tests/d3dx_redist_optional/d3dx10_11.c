@@ -9,7 +9,7 @@ enum { XIFF_BMP = 0, XIFF_JPG = 1, XIFF_PNG = 3, XIFF_DDS = 4 };
 #define XFROM_FILE ((UINT)-3)
 
 typedef HRESULT (WINAPI *X_GetInfoMem)(const void *, SIZE_T, void *pump, XIMAGE_INFO *, HRESULT *);
-typedef BOOL (WINAPI *X_CheckVer)(UINT, UINT);
+typedef HRESULT (WINAPI *X_CheckVer)(UINT, UINT);   /* D3DX10/11CheckVersion return S_OK / E_FAIL (probed), unlike the BOOL D3DXCheckVersion */
 typedef HRESULT (WINAPI *X10_TexMem)(ID3D10Device *, const void *, SIZE_T, XLOAD_INFO *, void *, ID3D10Resource **, HRESULT *);
 typedef HRESULT (WINAPI *X11_TexMem)(ID3D11Device *, const void *, SIZE_T, XLOAD_INFO *, void *, ID3D11Resource **, HRESULT *);
 typedef HRESULT (WINAPI *X10_SRVMem)(ID3D10Device *, const void *, SIZE_T, XLOAD_INFO *, void *, ID3D10ShaderResourceView **, HRESULT *);
@@ -31,12 +31,12 @@ static const BYTE RGBA_RGBW[16] = { 255,0,0,255, 0,255,0,255, 0,0,255,255, 255,2
 TEST(d3dx_redist_optional_x10_check_version) {
     NEED_DLL(X10);
     X_CheckVer f = P10("D3DX10CheckVersion", X_CheckVer); REQUIRE(f);
-    CHECK(f(29, 43) == TRUE); CHECK(f(29, 42) == FALSE); CHECK(f(28, 43) == FALSE); CHECK(f(0, 0) == FALSE);
+    EXPECT_HR(f(29, 43), S_OK); EXPECT_HR(f(29, 42), E_FAIL); EXPECT_HR(f(28, 43), E_FAIL); EXPECT_HR(f(0, 0), E_FAIL); EXPECT_HR(f(29, 44), E_FAIL); EXPECT_HR(f(32, 43), E_FAIL);
 }
 TEST(d3dx_redist_optional_x11_check_version) {
     NEED_DLL(X11);
     X_CheckVer f = P11("D3DX11CheckVersion", X_CheckVer); REQUIRE(f);
-    CHECK(f(7, 43) == TRUE); CHECK(f(7, 42) == FALSE); CHECK(f(6, 43) == FALSE); CHECK(f(0, 0) == FALSE);
+    EXPECT_HR(f(7, 43), S_OK); EXPECT_HR(f(7, 42), E_FAIL); EXPECT_HR(f(6, 43), E_FAIL); EXPECT_HR(f(0, 0), E_FAIL); EXPECT_HR(f(29, 43), E_FAIL); EXPECT_HR(f(7, 44), E_FAIL);
 }
 TEST(d3dx_redist_optional_x10_x11_export_presence) {
     HMODULE a = LoadLibraryA(X10), b = LoadLibraryA(X11);
@@ -441,11 +441,31 @@ TEST(d3dx_redist_optional_x10_math_matches_x9_float16) {
     static WORD h[65536], r1[65536], r2[65536]; static float f1[65536], f2[65536];
     for (int i = 0; i < 65536; i++) h[i] = (WORD)i;
     a32(f1, (const D3DXFLOAT16 *)h, 65536); b32(f2, (const D3DXFLOAT16 *)h, 65536);
-    int diff = 0; for (int i = 0; i < 65536; i++) if (memcmp(&f1[i], &f2[i], 4)) diff++;
-    CHECKF(diff == 0, "%d half->float conversions differ between the two DLLs", diff);
-    a16((D3DXFLOAT16 *)r1, f1, 65536); b16((D3DXFLOAT16 *)r2, f1, 65536);
-    diff = 0; for (int i = 0; i < 65536; i++) if (r1[i] != r2[i]) diff++;
-    CHECKF(diff == 0, "%d float->half conversions differ", diff);
+    int dfin = 0, dspec = 0, dspec_ok = 0;
+    for (int i = 0; i < 65536; i++) {
+        int special = ((i >> 10) & 0x1f) == 0x1f;
+        if (memcmp(&f1[i], &f2[i], 4)) { if (special) dspec++; else if (i != 0x8000) dfin++; }
+        if (special) {
+            unsigned m = i & 0x3ff, s = (i >> 15) & 1; unsigned u1, u2; memcpy(&u1, &f1[i], 4); memcpy(&u2, &f2[i], 4);
+            /* D3DX9 decodes exponent 31 like any other exponent (a finite value >= 65536); D3DX10 is IEEE (Inf / quiet NaN) */
+            unsigned e1 = (s << 31) | (0x8fu << 23) | (m << 13), e2 = (s << 31) | (0xffu << 23) | (m ? 0x400000u : 0) | (m << 13);
+            if (u1 == e1 && u2 == e2) dspec_ok++;
+        }
+    }
+    /* quirk (probed): D3DX10 decodes half -0.0 (0x8000) as -FLT_MIN (0x80800000) while D3DX9 gives -0.0; +0 agrees */
+    { unsigned z1, z2; memcpy(&z1, &f1[0x8000], 4); memcpy(&z2, &f2[0x8000], 4); EXPECT_EQ(z1, 0x80000000u); EXPECT_EQ(z2, 0x80800000u); }
+    CHECKF(dfin == 0, "%d finite half->float conversions differ between the two DLLs", dfin);
+    CHECKF(dspec_ok == 2048, "exponent-31 codes decoding as documented: %d of 2048 (differ %d)", dspec_ok, dspec);
+    /* float->half of every finite half value agrees (round trip through each DLL's own decoder is exact for finite halves) */
+    a16((D3DXFLOAT16 *)r1, f1, 65536); b16((D3DXFLOAT16 *)r2, f2, 65536);
+    int rt1 = 0, rt2 = 0;
+    for (int i = 0; i < 65536; i++) { if (((i >> 10) & 0x1f) == 0x1f || i == 0x8000) continue; if (r1[i] != h[i]) rt1++; if (r2[i] != h[i]) rt2++; }
+    CHECKF(rt1 == 0, "d3dx9 finite round trip diffs %d", rt1); CHECKF(rt2 == 0, "d3dx10 finite round trip diffs %d", rt2);
+    /* x10 saturates what x9 decoded from exponent 31 (>= 65536) to the largest finite half, x9 re-encodes it as exponent 31 */
+    const float big = f1[0x7c01]; WORD o1, o2; a16((D3DXFLOAT16 *)&o1, &big, 1); b16((D3DXFLOAT16 *)&o2, &big, 1);
+    EXPECT_EQ(o1, 0x7c01); EXPECT_EQ(o2, 0x7bff);
+    /* x10 keeps NaN payload bits through a round trip of its own decoder: 0x7c01 -> qNaN 0x7fc02000 -> 0x7e01 (quiet bit set) */
+    WORD q; b16((D3DXFLOAT16 *)&q, &f2[0x7c01], 1); EXPECT_EQ(q, 0x7e01);
 }
 TEST(d3dx_redist_optional_x10_math_x9_x10_sh_parity) {
     NEED_DLL(X9); NEED_DLL(X10);

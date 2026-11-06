@@ -31,6 +31,12 @@ static void dx_mat_dump(const char *what, const D3DXMATRIX *m) {
 #define CHECK_MAT(m, ...) do { static const float w_[16] = { __VA_ARGS__ }; \
     int ok_ = dx_mat_near(&(m), w_, 1e-5f); t_check(ok_, __FILE__, __LINE__, "matrix " #m " == " #__VA_ARGS__, NULL); if (!ok_) dx_mat_dump(#m, &(m)); } while (0)
 
+/* d3dx9_43.dll does not export the header-inline helpers (MatrixIdentity, Vec3Length/Cross/Dot/...): use local equivalents */
+static D3DXMATRIX *dx_matrix_identity(D3DXMATRIX *m) { memset(m, 0, sizeof *m); m->_11 = m->_22 = m->_33 = m->_44 = 1; return m; }
+static float dx_vec3_length(const D3DXVECTOR3 *v) { return sqrtf(v->x * v->x + v->y * v->y + v->z * v->z); }
+static float dx_vec3_dot(const D3DXVECTOR3 *a, const D3DXVECTOR3 *b) { return a->x * b->x + a->y * b->y + a->z * b->z; }
+static D3DXVECTOR3 *dx_vec3_cross(D3DXVECTOR3 *o, const D3DXVECTOR3 *a, const D3DXVECTOR3 *b) {
+    D3DXVECTOR3 t = { a->y * b->z - a->z * b->y, a->z * b->x - a->x * b->z, a->x * b->y - a->y * b->x }; *o = t; return o; }
 static const float DX_PI = 3.14159265358979f;
 static D3DXMATRIX dx_ident(void) { D3DXMATRIX m; memset(&m, 0, sizeof m); m._11 = m._22 = m._33 = m._44 = 1; return m; }
 

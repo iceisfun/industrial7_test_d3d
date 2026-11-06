@@ -220,7 +220,11 @@ TEST(d3dx_redist_optional_c43_disassemble) {
 TEST(d3dx_redist_optional_c43_disassemble_garbage) {
     NEED_DLL(C43); REQUIRE(F43(D3DDisassemble));
     BYTE junk[64] = { 9, 9, 9 }; ID3DBlob *d = NULL;
-    HRESULT hr = F43(D3DDisassemble)(junk, sizeof junk, 0, NULL, &d); CHECK(FAILED(hr)); CHECK(d == NULL); REL(d);
+    HRESULT hr = F43(D3DDisassemble)(junk, sizeof junk, 0, NULL, &d);
+    EXPECT_HR(hr, E_FAIL);
+    CHECK(d != NULL);   /* an empty 1-byte text blob is still returned alongside the failure (probed) */
+    if (d) { EXPECT_EQ(ID3D10Blob_GetBufferSize(d), 1); CHECK(((char *)ID3D10Blob_GetBufferPointer(d))[0] == 0); }
+    REL(d);
 }
 TEST(d3dx_redist_optional_c43_reflect) {
     NEED_DLL(C43); CompileFn f = (CompileFn)F43(D3DCompile); REQUIRE(f); REQUIRE(F43(D3DReflect));

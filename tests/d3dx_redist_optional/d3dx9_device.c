@@ -464,6 +464,8 @@ TEST(d3dx_redist_optional_x9_load_surface_color_key) {
     }
     dev9_close(&d);
 }
+struct lsarg { IDirect3DSurface9 *s; RECT *src; const void *data; };
+static void ls_call(void *p) { struct lsarg *a = p; UIN(X9, D3DXLoadSurfaceFromMemory)(a->s, NULL, NULL, a->data, D3DFMT_A8R8G8B8, 8, NULL, a->src, D3DX_FILTER_NONE, 0); }
 TEST(d3dx_redist_optional_x9_load_surface_invalid) {
     SETUP9(d); REQUIRE(F9(D3DXLoadSurfaceFromMemory)); REQUIRE(F9(D3DXCreateTexture));
     IDirect3DTexture9 *t = mk_tex(&d, 2, 2, D3DFMT_A8R8G8B8);
@@ -475,11 +477,15 @@ TEST(d3dx_redist_optional_x9_load_surface_invalid) {
         EXPECT_HR(F9(D3DXLoadSurfaceFromMemory)(s, NULL, NULL, RGBW, D3DFMT_A8R8G8B8, 8, NULL, NULL, D3DX_FILTER_NONE, 0), INVALIDCALL);   /* source rect is mandatory */
         RECT empty = { 1, 1, 1, 1 }, bad = { 0, 0, 3, 3 }, neg = { 2, 2, 1, 1 };
         HRESULT hr;
-        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, NULL, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &empty, D3DX_FILTER_NONE, 0); t_note("empty src rect -> %s", d3dh_hr_name(hr));
-        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, NULL, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &neg, D3DX_FILTER_NONE, 0); CHECK(FAILED(hr)); t_note("inverted src rect -> %s", d3dh_hr_name(hr));
+        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, NULL, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &empty, D3DX_FILTER_NONE, 0); EXPECT_HR(hr, S_OK);   /* empty source rect: nothing to copy, S_OK (probed) */
+        /* inverted / negative source rectangles are not validated: the call reads out of bounds and raises an access violation (probed) */
+        struct lsarg a = { s, &neg, RGBW }; EXPECT_EQ(t_try(ls_call, &a), 0xc0000005u);
+        RECT neg2 = { 0, 0, -1, -1 }; a.src = &neg2; EXPECT_EQ(t_try(ls_call, &a), 0xc0000005u);
+        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, NULL, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &bad, D3DX_FILTER_NONE, 0); EXPECT_HR(hr, S_OK);  /* a source rect larger than the data is not checked (probed) */
+        RECT zero = { 0, 0, 0, 0 };
+        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, NULL, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &zero, D3DX_FILTER_NONE, 0); EXPECT_HR(hr, S_OK);
         RECT dbad = { 0, 0, 3, 3 };
-        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, &dbad, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &r, D3DX_FILTER_NONE, 0); CHECK(FAILED(hr)); t_note("dest rect beyond surface -> %s", d3dh_hr_name(hr));
-        (void)bad;
+        hr = F9(D3DXLoadSurfaceFromMemory)(s, NULL, &dbad, RGBW, D3DFMT_A8R8G8B8, 8, NULL, &r, D3DX_FILTER_NONE, 0); EXPECT_HR(hr, INVALIDCALL);
         IDirect3DSurface9_Release(s); IDirect3DTexture9_Release(t);
     }
     dev9_close(&d);
@@ -595,9 +601,12 @@ TEST(d3dx_redist_optional_x9_create_mesh_invalid) {
     ID3DXMesh *m = NULL; HRESULT hr;
     EXPECT_HR(F9(D3DXCreateMeshFVF)(2, 4, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ, d.dev, NULL), INVALIDCALL);
     EXPECT_HR(F9(D3DXCreateMeshFVF)(2, 4, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ, NULL, &m), INVALIDCALL);
-    hr = F9(D3DXCreateMeshFVF)(0, 4, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ, d.dev, &m); t_note("0 faces -> %s", d3dh_hr_name(hr)); if (m) { ID3DXMesh_Release(m); m = NULL; }
-    hr = F9(D3DXCreateMeshFVF)(2, 0, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ, d.dev, &m); t_note("0 vertices -> %s", d3dh_hr_name(hr)); if (m) { ID3DXMesh_Release(m); m = NULL; }
-    hr = F9(D3DXCreateMeshFVF)(2, 4, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ | D3DFVF_XYZRHW, d.dev, &m); CHECK(FAILED(hr)); if (m) ID3DXMesh_Release(m);
+    hr = F9(D3DXCreateMeshFVF)(0, 4, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ, d.dev, &m); EXPECT_HR(hr, INVALIDCALL); if (m) { ID3DXMesh_Release(m); m = NULL; }
+    hr = F9(D3DXCreateMeshFVF)(2, 0, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ, d.dev, &m); EXPECT_HR(hr, INVALIDCALL); if (m) { ID3DXMesh_Release(m); m = NULL; }
+    /* XYZ|XYZRHW is the bit pattern of XYZB1 (valid); real invalid FVFs: 0, XYZW, XYZRHW+NORMAL, undefined top bit (probed: INVALIDCALL) */
+    hr = F9(D3DXCreateMeshFVF)(2, 4, D3DXMESH_SYSTEMMEM, D3DFVF_XYZ | D3DFVF_XYZRHW, d.dev, &m); EXPECT_HR(hr, S_OK); if (m) { ID3DXMesh_Release(m); m = NULL; }
+    static const DWORD badfvf[] = { 0, D3DFVF_XYZW, D3DFVF_XYZRHW | D3DFVF_NORMAL, 0x80000000u };
+    for (unsigned i = 0; i < 4; i++) { m = NULL; hr = F9(D3DXCreateMeshFVF)(2, 4, D3DXMESH_SYSTEMMEM, badfvf[i], d.dev, &m); CHECKF(hr == INVALIDCALL && m == NULL, "fvf 0x%lx: %s", badfvf[i], d3dh_hr_name(hr)); if (m) ID3DXMesh_Release(m); }
     dev9_close(&d);
 }
 TEST(d3dx_redist_optional_x9_create_box) {
@@ -851,7 +860,7 @@ TEST(d3dx_redist_optional_x9_effect_invalid_args) {
     ID3DXEffect *fx = NULL;
     EXPECT_HR(F9(D3DXCreateEffect)(NULL, FX_MIN, sizeof FX_MIN - 1, NULL, NULL, 0, NULL, &fx, NULL), INVALIDCALL);
     EXPECT_HR(F9(D3DXCreateEffect)(d.dev, NULL, 0, NULL, NULL, 0, NULL, &fx, NULL), INVALIDCALL);
-    EXPECT_HR(F9(D3DXCreateEffect)(d.dev, FX_MIN, sizeof FX_MIN - 1, NULL, NULL, 0, NULL, NULL, NULL), INVALIDCALL);
+    EXPECT_HR(F9(D3DXCreateEffect)(d.dev, FX_MIN, sizeof FX_MIN - 1, NULL, NULL, 0, NULL, NULL, NULL), S_OK);   /* NULL ppEffect is accepted and the effect compiled (probed) */
     dev9_close(&d);
 }
 TEST(d3dx_redist_optional_x9_effect_begin_end_no_passes_state) {

@@ -1,4 +1,4 @@
-/* d3d8.dll (shipped with Windows 10 but legacy). This file deliberately includes only the D3D8 headers
+/* d3d8.dll (NOT shipped with Windows 10 22H2: only the d3d8thk.dll kernel-thunk helper is; probed. These tests run only where d3d8.dll was installed). This file deliberately includes only the D3D8 headers
    (they clash with the D3D9 types used elsewhere in this area). */
 #define COBJMACROS
 #define CINTERFACE
@@ -12,8 +12,15 @@ static PFN_Create8 create8(void) { return (PFN_Create8)t_proc_in("d3d8.dll", "Di
 #define D3D8_SDK 220
 
 TEST(d3dx_redist_optional_d3d8_presence_and_exports) {
+    SET_ERR(0);
     HMODULE m = LoadLibraryA("d3d8.dll"); t_note("d3d8.dll %s", m ? "present" : "absent");
-    if (!m) { t_skip("d3d8.dll absent"); return; }
+    if (!m) {
+        /* stock Win10: the DLL is simply not there (126), only the d3d8thk.dll thunk helper ships */
+        EXPECT_ERR(ERROR_MOD_NOT_FOUND);
+        HMODULE th = LoadLibraryA("d3d8thk.dll"); CHECK(th != NULL);
+        if (th) { CHECK(GetProcAddress(th, "OsThunkD3dContextCreate") != NULL); FreeLibrary(th); }
+        t_skip("d3d8.dll absent"); return;
+    }
     static const char *n[] = { "Direct3DCreate8", "ValidatePixelShader", "ValidateVertexShader", "DebugSetMute", "Direct3D8EnableMaximizedWindowedModeShim" };
     for (unsigned i = 0; i < 5; i++) t_note("%s %s", n[i], GetProcAddress(m, n[i]) ? "exported" : "missing");
     CHECK(GetProcAddress(m, "Direct3DCreate8") != NULL);

@@ -5,11 +5,15 @@
 
 /* ---- identity / construction ------------------------------------------- */
 TEST(d3dx_redist_optional_x9_matrix_identity) {
-    NEED_MATH(); REQUIRE(F9(D3DXMatrixIdentity));
+    /* D3DXMatrixIdentity is header-inline in D3DX 9.43: not exported (probed); the exported D3DXMatrixIsIdentity agrees with the local helper */
+    NEED_MATH();
+    SET_ERR(0); CHECK(GetProcAddress(GetModuleHandleA(X9), "D3DXMatrixIdentity") == NULL);
     D3DXMATRIX m; memset(&m, 0x55, sizeof m);
-    D3DXMATRIX *r = F9(D3DXMatrixIdentity)(&m);
+    D3DXMATRIX *r = dx_matrix_identity(&m);
     CHECK(r == &m);
     CHECK_MAT(m, 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1);
+    BOOL (WINAPI *isid)(const D3DXMATRIX *) = (void *)GetProcAddress(GetModuleHandleA(X9), "D3DXMatrixIsIdentity");
+    if (isid) { CHECK(isid(&m) == TRUE); m._12 = 1e-3f; CHECK(isid(&m) == FALSE); }
 }
 TEST(d3dx_redist_optional_x9_matrix_translation) {
     NEED_MATH(); REQUIRE(F9(D3DXMatrixTranslation));
@@ -98,9 +102,9 @@ TEST(d3dx_redist_optional_x9_matrix_transpose) {
     CHECK(dx_mat_near(&m, (const float *)&r, 0));
 }
 TEST(d3dx_redist_optional_x9_matrix_determinant) {
-    NEED_MATH(); REQUIRE(F9(D3DXMatrixDeterminant)); REQUIRE(F9(D3DXMatrixScaling)); REQUIRE(F9(D3DXMatrixIdentity)); REQUIRE(F9(D3DXMatrixTranslation));
+    NEED_MATH(); REQUIRE(F9(D3DXMatrixDeterminant)); REQUIRE(F9(D3DXMatrixScaling)); REQUIRE(F9(D3DXMatrixTranslation));
     D3DXMATRIX m;
-    F9(D3DXMatrixIdentity)(&m); CHECKN(F9(D3DXMatrixDeterminant)(&m), 1.f);
+    dx_matrix_identity(&m); CHECKN(F9(D3DXMatrixDeterminant)(&m), 1.f);
     F9(D3DXMatrixScaling)(&m, 2, 3, 4); CHECKN(F9(D3DXMatrixDeterminant)(&m), 24.f);
     F9(D3DXMatrixScaling)(&m, 2, -3, 4); CHECKN(F9(D3DXMatrixDeterminant)(&m), -24.f);
     F9(D3DXMatrixTranslation)(&m, 5, 6, 7); CHECKN(F9(D3DXMatrixDeterminant)(&m), 1.f);
@@ -468,7 +472,10 @@ TEST(d3dx_redist_optional_x9_plane_normalize) {
     D3DXPLANE q = {3,0,4,10};
     F9(D3DXPlaneNormalize)(&q, &q); CHECKN(q.a, 0.6f); CHECKN(q.c, 0.8f); CHECKN(q.d, 2.f);
     D3DXPLANE z = {0,0,0,5};
-    F9(D3DXPlaneNormalize)(&o, &z); CHECKN(o.a, 0.f); CHECKN(o.b, 0.f); CHECKN(o.c, 0.f); CHECKN(o.d, 0.f);
+    F9(D3DXPlaneNormalize)(&o, &z); CHECKN(o.a, 0.f); CHECKN(o.b, 0.f); CHECKN(o.c, 0.f);
+    CHECK(isinf(o.d) && o.d > 0);   /* d / |n| with |n| == 0: +inf, no special case (probed) */
+    D3DXPLANE z0 = {0,0,0,0};
+    F9(D3DXPlaneNormalize)(&o, &z0); CHECKN(o.a, 0.f); CHECKN(o.b, 0.f); CHECKN(o.c, 0.f); CHECKN(o.d, 0.f);
 }
 TEST(d3dx_redist_optional_x9_plane_intersect_line) {
     NEED_MATH(); REQUIRE(F9(D3DXPlaneIntersectLine));
@@ -844,20 +851,24 @@ TEST(d3dx_redist_optional_x9_matrix_transpose_involution) {
     CHECK(dx_mat_near(&u, (const float *)&m, 0.f));
 }
 TEST(d3dx_redist_optional_x9_vec3_normalize_length) {
-    NEED_MATH(); REQUIRE(F9(D3DXVec3Normalize)); REQUIRE(F9(D3DXVec3Length));
+    NEED_MATH(); REQUIRE(F9(D3DXVec3Normalize));
     D3DXVECTOR3 v = { 3, 4, 12 }, o;
-    CHECKN(F9(D3DXVec3Length)(&v), 13.f);
+    CHECKN(dx_vec3_length(&v), 13.f);
     CHECK(F9(D3DXVec3Normalize)(&o, &v) == &o);
-    CHECKN(F9(D3DXVec3Length)(&o), 1.f);
+    CHECKN(dx_vec3_length(&o), 1.f);
     CHECKN(o.x, 3.f / 13); CHECKN(o.y, 4.f / 13); CHECKN(o.z, 12.f / 13);
 }
 TEST(d3dx_redist_optional_x9_vec3_cross_dot) {
-    NEED_MATH(); REQUIRE(F9(D3DXVec3Cross)); REQUIRE(F9(D3DXVec3Dot));
-    D3DXVECTOR3 x = {1,0,0}, y = {0,1,0}, z;
-    F9(D3DXVec3Cross)(&z, &x, &y);
+    /* Vec3Cross / Vec3Dot are header-inline in D3DX 9.43 (not exported, probed): check the local helpers against the exported Normalize */
+    NEED_MATH(); REQUIRE(F9(D3DXVec3Normalize));
+    HMODULE xm = GetModuleHandleA(X9);
+    CHECK(GetProcAddress(xm, "D3DXVec3Cross") == NULL); CHECK(GetProcAddress(xm, "D3DXVec3Dot") == NULL);
+    D3DXVECTOR3 x = {1,0,0}, y = {0,1,0}, z, n;
+    dx_vec3_cross(&z, &x, &y);
     CHECKN(z.x, 0.f); CHECKN(z.y, 0.f); CHECKN(z.z, 1.f);
-    F9(D3DXVec3Cross)(&z, &y, &x);
+    dx_vec3_cross(&z, &y, &x);
     CHECKN(z.z, -1.f);
-    CHECKN(F9(D3DXVec3Dot)(&x, &y), 0.f);
-    CHECKN(F9(D3DXVec3Dot)(&x, &x), 1.f);
+    CHECKN(dx_vec3_dot(&x, &y), 0.f);
+    CHECKN(dx_vec3_dot(&x, &x), 1.f);
+    F9(D3DXVec3Normalize)(&n, &z); CHECKN(dx_vec3_dot(&n, &n), 1.f);
 }

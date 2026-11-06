@@ -226,7 +226,7 @@ TEST(d3dx_redist_optional_x9_matrixstack_unknown_interface) {
     if (u) IUnknown_Release(u);
     void *bad = (void *)1;
     EXPECT_HR(IUnknown_QueryInterface((IUnknown *)s, &IID_IDirect3D9, &bad), E_NOINTERFACE);
-    CHECK(bad == NULL);
+    CHECK(bad == (void *)1);   /* the stack leaves *ppv untouched on failure (probed), unlike the COM convention of NULL */
     ID3DXMatrixStack_Release(s);
 }
 
@@ -240,7 +240,7 @@ TEST(d3dx_redist_optional_x9_fvf_vertex_size_table) {
         { D3DFVF_XYZ | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE4(0), 28 }, { D3DFVF_XYZB3, 24 }, { D3DFVF_XYZB1 | D3DFVF_LASTBETA_UBYTE4, 16 },
         { D3DFVF_XYZ | D3DFVF_PSIZE, 16 }, { D3DFVF_XYZ | D3DFVF_TEX8, 12 + 8 * 8 },
         { D3DFVF_XYZ | D3DFVF_TEX2 | D3DFVF_TEXCOORDSIZE2(0) | D3DFVF_TEXCOORDSIZE3(1), 12 + 8 + 12 },
-        { D3DFVF_XYZB5, 12 + 20 }, { D3DFVF_XYZW, 16 },
+        { D3DFVF_XYZB5, 12 + 20 }, { D3DFVF_XYZW, 0 } /* XYZW (0x4002) is not understood by D3DX 9.43: size 0, probed */, { D3DFVF_XYZ | D3DFVF_XYZRHW, 16 } /* == XYZB1 */, { 0, 0 },
     };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) {
         UINT got = F9(D3DXGetFVFVertexSize)(t[i].fvf);
