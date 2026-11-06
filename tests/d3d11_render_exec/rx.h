@@ -98,6 +98,18 @@ static ID3D11Texture2D *rx_tex2d(rx *r, UINT w, UINT h, UINT mips, UINT arr, DXG
     return SUCCEEDED(hr) ? t : NULL;
 }
 
+/* 1 when the device runs on a Microsoft software adapter (Basic Render Driver / WARP, vendor 0x1414). */
+static int rx_on_ms_adapter(rx *r)
+{
+    IDXGIDevice *dd = NULL; IDXGIAdapter *ad = NULL; DXGI_ADAPTER_DESC desc; int ms = 0;
+    if (SUCCEEDED(ID3D11Device_QueryInterface(r->dev, &IID_IDXGIDevice, (void **)&dd))) {
+        if (SUCCEEDED(IDXGIDevice_GetAdapter(dd, &ad)) && SUCCEEDED(IDXGIAdapter_GetDesc(ad, &desc))) ms = desc.VendorId == 0x1414;
+        if (ad) IDXGIAdapter_Release(ad);
+        IDXGIDevice_Release(dd);
+    }
+    return ms;
+}
+
 static int rx_open(rx *r)
 {
     memset(r, 0, sizeof *r);

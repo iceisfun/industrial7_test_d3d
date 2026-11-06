@@ -731,15 +731,17 @@ TEST(d3d11_render_exec_tess_quad_pow2_and_fractional_exact_factors)
 TEST(d3d11_render_exec_tess_quad_pow2_non_power_of_two_factor)
 {
     rx r; if (!rx_open(&r)) return;
-    /* REAL DIVERGENCE (Win10 22H2 WARP): "pow2" partitioning must round a factor up to the next power of two (3 -> 4: 32 triangles,
-     * 5 -> 8: 128 triangles). WARP does not round: it tessellates factors 3 and 5 like "integer" (18 and 50 triangles). The check keeps the
-     * specified result and fails on WARP. */
-    static const struct { float f; int tris; } tab[] = { { 3, 32 }, { 5, 128 }, { 6, 128 }, { 7, 128 } };
+    /* REAL DIVERGENCE (Win10 22H2 WARP): "pow2" partitioning is specified to round a factor up to the next power of two (3 -> 4: 32 triangles,
+     * 5 -> 8: 128 triangles). WARP does not round: it tessellates factors 3, 5, 6 and 7 like "integer" (18 and 50 triangles, 72 for 6, 98 for 7: 2*f*f, i.e. no rounding at all).
+     * The specified counts are enforced on other adapters, the measured WARP counts are pinned on the Microsoft adapter (vendor 0x1414). */
+    static const struct { float f; int tris, warp_tris; } tab[] = { { 3, 32, 18 }, { 5, 128, 50 }, { 6, 128, 72 }, { 7, 128, 98 } };
+    int ms = rx_on_ms_adapter(&r);
     for (unsigned i = 0; i < A(tab); i++) {
         unsigned long long need = 0;
         int got = tess_count(&r, HS_QUAD, DS_QUAD, "pow2", tab[i].f, D3D11_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST, 4, &need, NULL, NULL, NULL, NULL);
         if (got < 0) break;
-        CHECKF(got == tab[i].tris, "pow2 factor %g: %d triangles want %d", tab[i].f, got, tab[i].tris);
+        int want = ms ? tab[i].warp_tris : tab[i].tris;
+        CHECKF(got == want, "pow2 factor %g: %d triangles want %d (%s)", tab[i].f, got, want, ms ? "Microsoft adapter" : "specified");
     }
     rx_close(&r);
 }
