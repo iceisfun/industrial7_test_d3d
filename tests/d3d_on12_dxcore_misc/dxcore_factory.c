@@ -30,6 +30,9 @@ TEST(d3d_on12_dxcore_misc_dxcore_ordinal_not_exported) {
     if (!m || t_is_wine()) { t_skip("dxcore.dll missing or emulated"); return; }
     SET_ERR(0);
     CHECK(GetProcAddress(m, MAKEINTRESOURCEA(0xFFF0)) == NULL);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL); /* by-ordinal lookups fail with 182, by-name with 127 (probed) */
+    SET_ERR(0);
+    CHECK(GetProcAddress(m, "DXCoreNoSuchExport") == NULL);
     EXPECT_ERR(ERROR_PROC_NOT_FOUND);
 }
 TEST(d3d_on12_dxcore_misc_dxcore_forwarded_ordinals_are_win32u) {
@@ -51,7 +54,12 @@ TEST(d3d_on12_dxcore_misc_factory_create_ok) {
     HRESULT hr = c(&IID_IDXCoreAdapterFactory_, &f);
     EXPECT_HR(hr, S_OK);
     CHECK(f != NULL && f != (void *)1);
-    EXPECT_EQ(odm_release(f), 0);
+    /* the factory is a per-process singleton (probed): a second create returns the same pointer with one more reference */
+    void *f2 = NULL; ULONG c1 = odm_addref(f); c1 = odm_release(f);
+    EXPECT_HR(c(&IID_IDXCoreAdapterFactory_, &f2), S_OK);
+    CHECK(f2 == f);
+    EXPECT_EQ(odm_release(f2), c1);
+    EXPECT_EQ(odm_release(f), c1 - 1);
 }
 TEST(d3d_on12_dxcore_misc_factory_create_null_out) {
     DXCoreCreateAdapterFactory_t c = odm_dxc_create(); REQUIRE(c);
@@ -86,11 +94,12 @@ TEST(d3d_on12_dxcore_misc_factory_create_wrong_interface_iids) {
 }
 TEST(d3d_on12_dxcore_misc_factory_refcount_protocol) {
     NEED_FAC();
+    /* the factory is a per-process singleton, so earlier references may still be held: check the protocol relatively */
     ULONG a = odm_addref(fac), b = odm_addref(fac);
     CHECK(b == a + 1);
     EXPECT_EQ(odm_release(fac), b - 1);
     EXPECT_EQ(odm_release(fac), a - 1);
-    EXPECT_EQ(odm_release(fac), 0);
+    EXPECT_EQ(odm_release(fac), a - 2);
 }
 TEST(d3d_on12_dxcore_misc_factory_qi_self_and_iunknown) {
     NEED_FAC();

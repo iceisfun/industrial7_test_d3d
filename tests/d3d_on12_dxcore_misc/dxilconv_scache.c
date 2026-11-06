@@ -2,7 +2,7 @@
 #include "odm.h"
 
 /* ---------------- dxilconv ---------------- */
-static const GUID odm_CLSID_DxbcConverter = {0x4900391e, 0xb752, 0x4edd, {0xa8, 0x85, 0x6f, 0xb7, 0x6e, 0x25, 0xad, 0x6d}};
+static const GUID odm_CLSID_DxbcConverter = {0x4900391e, 0xb752, 0x4edd, {0xa8, 0x85, 0x6f, 0xb7, 0x6e, 0x25, 0xad, 0xdb}};
 typedef HRESULT (WINAPI *dxc_create_t)(const GUID *, const GUID *, void **);
 typedef HRESULT (WINAPI *dxc_create2_t)(IMalloc *, const GUID *, const GUID *, void **);
 
@@ -90,7 +90,7 @@ TEST(d3d_on12_dxcore_misc_dxilconv_refcount_and_qi) {
     ODM_REL(p);
     p = (void *)1;
     EXPECT_HR(odm_qi(o, &DXC_ATTR_BOGUS, &p), E_NOIFACE);
-    CHECK(p == NULL);
+    CHECKF(p == (void *)1, "out pointer after failed QI: %p", p);   /* the converter leaves *ppv untouched on E_NOINTERFACE (probed) */
     odm_release(o);
     FreeLibrary(m);
 }

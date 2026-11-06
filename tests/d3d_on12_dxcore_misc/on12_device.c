@@ -117,6 +117,7 @@ TEST(d3d_on12_dxcore_misc_on12_nodemask_unavailable_node) {
     HRESULT hr = create((IUnknown *)d12, 0, NULL, 0, NULL, 0, 2, &dev, NULL, NULL);
     EXPECT_HR_FAILED(hr);
     CHECK(dev == NULL);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("node mask 2 on single-node device: %s", d3dh_hr_name(hr));
     END_ON12();
 }
@@ -205,6 +206,7 @@ TEST(d3d_on12_dxcore_misc_on12_disable_gpu_timeout_with_flagged_queue) {
     IUnknown *arr[1] = {(IUnknown *)q};
     ID3D11Device *dev = NULL;
     HRESULT hr = create((IUnknown *)d12, D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT, NULL, 0, arr, 1, 0, &dev, NULL, NULL);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("DISABLE_GPU_TIMEOUT + flagged queue: %s", d3dh_hr_name(hr));
     CHECK(hr != E_INVARG || dev == NULL);
     SAFE_RELEASE(dev); SAFE_RELEASE(q); END_ON12();
@@ -225,6 +227,7 @@ TEST(d3d_on12_dxcore_misc_on12_chosen_level_just_outside_array_not_overlap) {
     D3D_FEATURE_LEVEL buf[5]; memcpy(buf, g_fl_all, sizeof g_fl_all); buf[4] = (D3D_FEATURE_LEVEL)0;
     ID3D11Device *dev = NULL;
     HRESULT hr = create((IUnknown *)d12, 0, buf, 4, NULL, 0, 0, &dev, NULL, &buf[4]);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("chosen level adjacent to input array: %s", d3dh_hr_name(hr));
     CHECK(hr != E_INVARG);
     SAFE_RELEASE(dev); END_ON12();
@@ -352,6 +355,7 @@ TEST(d3d_on12_dxcore_misc_on12_debug_flag_without_layers) {
     NEED_ON12();
     ID3D11Device *dev = NULL;
     HRESULT hr = create((IUnknown *)d12, D3D11_CREATE_DEVICE_DEBUG, NULL, 0, NULL, 0, 0, &dev, NULL, NULL);
+    CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D, "debug flag: %s", d3dh_hr_name(hr)); /* S_OK with the Graphics Tools feature (oracle image), SDK_COMPONENT_MISSING without */
     t_note("create with DEBUG flag: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) CHECK(dev != NULL); else CHECK(dev == NULL);
     SAFE_RELEASE(dev); END_ON12();
@@ -365,10 +369,12 @@ TEST(d3d_on12_dxcore_misc_on12_device_exposes_on12_interfaces) {
     SAFE_RELEASE(o);
     ID3D11On12Device1 *o1 = NULL;
     HRESULT h1 = ID3D11Device_QueryInterface(dev, &IID_ID3D11On12Device1, (void **)&o1);
+    EXPECT_HR(h1, S_OK); /* Win10: probed */
     t_note("ID3D11On12Device1: %s", d3dh_hr_name(h1));
     SAFE_RELEASE(o1);
     ID3D11On12Device2 *o2 = NULL;
     HRESULT h2 = ID3D11Device_QueryInterface(dev, &IID_ID3D11On12Device2, (void **)&o2);
+    EXPECT_HR(h2, S_OK); /* Win10: probed */
     t_note("ID3D11On12Device2: %s", d3dh_hr_name(h2));
     SAFE_RELEASE(o2);
     SAFE_RELEASE(ctx); SAFE_RELEASE(dev); END_ON12();

@@ -335,6 +335,14 @@ TEST(d3d_on12_dxcore_misc_d3d10core_ordinal_layout) {
 
 /* ---- d3d10warp.dll ---- */
 static HMODULE hwarp(void) { return t_is_wine() ? NULL : LoadLibraryA("d3d10warp.dll"); }
+/* D3DLayerGetInterface dereferences layer state that only exists once a WARP device has been created in the process: before that it
+ * raises an access violation (probed, see the child test below). Create one device and keep it for the life of the exe. */
+static HMODULE hwarp_init(void) {
+    static ID3D11Device *keep; static ID3D11DeviceContext *kc;
+    HMODULE m = hwarp(); if (!m) return NULL;
+    if (!keep) { D3D_FEATURE_LEVEL fl; D3D_DRIVER_TYPE dt; if (FAILED(d3dh_make_device11(&keep, &kc, &fl, &dt, 0))) keep = NULL; }
+    return keep ? m : (FreeLibrary(m), NULL);
+}
 TEST(d3d_on12_dxcore_misc_warp_exports) {
     HMODULE m = hwarp(); if (!m) { t_skip("d3d10warp unavailable"); return; }
     static const char *n[] = {"VSD3DDebugConnectionBuffer", "D3D11RefGetLastCreation", "D3DLayerGetInterface", "OpenAdapter", "OpenAdapter10_2", "OpenAdapter12", "OpenDisplayAdapter1", "QueryDListForApplication1"};
@@ -382,7 +390,7 @@ TEST(d3d_on12_dxcore_misc_warp_last_creation_tracks_warp_device) {
     FreeLibrary(m);
 }
 TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_unknown_iid) {
-    HMODULE m = hwarp(); if (!m) { t_skip("d3d10warp unavailable"); return; }
+    HMODULE m = hwarp_init(); if (!m) { t_skip("d3d10warp unavailable"); return; }
     typedef HRESULT (WINAPI *f_t)(void *, const GUID *, void **);
     f_t f = (f_t)GetProcAddress(m, "D3DLayerGetInterface"); REQUIRE(f);
     void *out = (void *)1;
@@ -391,7 +399,7 @@ TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_unknown_iid) {
     FreeLibrary(m);
 }
 TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_null_adapter_ok_iids) {
-    HMODULE m = hwarp(); if (!m) { t_skip("d3d10warp unavailable"); return; }
+    HMODULE m = hwarp_init(); if (!m) { t_skip("d3d10warp unavailable"); return; }
     typedef HRESULT (WINAPI *f_t)(void *, const GUID *, void **);
     f_t f = (f_t)GetProcAddress(m, "D3DLayerGetInterface"); REQUIRE(f);
     static const GUID iids[3] = {
@@ -403,7 +411,7 @@ TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_null_adapter_ok_iids) {
     FreeLibrary(m);
 }
 TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_identity_iid) {
-    HMODULE m = hwarp(); if (!m) { t_skip("d3d10warp unavailable"); return; }
+    HMODULE m = hwarp_init(); if (!m) { t_skip("d3d10warp unavailable"); return; }
     typedef HRESULT (WINAPI *f_t)(void *, const GUID *, void **);
     f_t f = (f_t)GetProcAddress(m, "D3DLayerGetInterface"); REQUIRE(f);
     static const GUID iid = {0x8458d731, 0x21e7, 0x438d, {0x8e, 0xda, 0xd0, 0x4e, 0xfc, 0x25, 0xcf, 0xcd}};
@@ -416,7 +424,7 @@ TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_identity_iid) {
     FreeLibrary(m);
 }
 TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_with_adapter_object) {
-    HMODULE m = hwarp(); if (!m) { t_skip("d3d10warp unavailable"); return; }
+    HMODULE m = hwarp_init(); if (!m) { t_skip("d3d10warp unavailable"); return; }
     typedef HRESULT (WINAPI *f_t)(void *, const GUID *, void **);
     f_t f = (f_t)GetProcAddress(m, "D3DLayerGetInterface"); REQUIRE(f);
     static const GUID iid = {0x0e9952c3, 0xd228, 0x4c1a, {0x81, 0xfc, 0x36, 0x21, 0xe7, 0x17, 0xc4, 0xe2}};
@@ -544,4 +552,18 @@ TEST(d3d_on12_dxcore_misc_kmt_gdi32_open_luid_roundtrip_query_close) {
         st = qf(&q);
         CHECKF(st < 0, "query after close 0x%08lx", (unsigned long)st);
     }
+}
+
+/* in a fresh process, before any WARP device exists, D3DLayerGetInterface raises an access violation for every argument shape (probed) */
+static void layer_call_null(void *c) { typedef HRESULT (WINAPI *f_t)(void *, const GUID *, void **); void *out = NULL; ((f_t)c)(NULL, &DXC_ATTR_BOGUS, &out); }
+CHILD(warp_layer_uninit) {
+    HMODULE m = LoadLibraryA("d3d10warp.dll"); if (!m) return 77;
+    void *f = (void *)GetProcAddress(m, "D3DLayerGetInterface"); if (!f) return 78;
+    return t_try(layer_call_null, f) == 0xc0000005 ? 0 : 1;
+}
+TEST(d3d_on12_dxcore_misc_warp_layer_get_interface_before_any_device_faults) {
+    if (t_is_wine()) { t_skip("emulated d3d10warp"); return; }
+    DWORD rc = t_run_child("warp_layer_uninit", "", 30000);
+    if (rc == 77) { t_skip("d3d10warp unavailable"); return; }
+    EXPECT_EQ(rc, 0);
 }

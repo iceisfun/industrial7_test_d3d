@@ -177,6 +177,7 @@ TEST(d3d_on12_dxcore_misc_wrap_misc_flags_passthrough) {
     f.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
     ID3D11Texture2D *t = NULL;
     HRESULT hr = ID3D11On12Device_CreateWrappedResource(c.o, (IUnknown *)r, &f, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON, &IID_ID3D11Texture2D, (void **)&t);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("wrap with MISC_SHARED: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(t); SAFE_RELEASE(r); on12_free(&c);
 }
@@ -334,6 +335,7 @@ TEST(d3d_on12_dxcore_misc_return_underlying_on_non_unwrapped_resource) {
         SAFE_RELEASE(r); SAFE_RELEASE(o2); on12_free(&c); t_skip("wrap failed"); return;
     }
     HRESULT hr = ID3D11On12Device2_ReturnUnderlyingResource(o2, (ID3D11Resource *)t, 0, NULL, NULL);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("ReturnUnderlyingResource on an acquired wrapped (not unwrapped) resource: %s", d3dh_hr_name(hr));
     EXPECT_HR_FAILED(hr);
     SAFE_RELEASE(t); SAFE_RELEASE(r); SAFE_RELEASE(o2); on12_free(&c);
@@ -348,6 +350,7 @@ TEST(d3d_on12_dxcore_misc_return_underlying_on_plain_d3d11_resource) {
     if (FAILED(ID3D11Device_CreateTexture2D(c.dev, &td, NULL, &t)) || !t) { SAFE_RELEASE(o2); on12_free(&c); t_skip("no texture"); return; }
     HRESULT hr = ID3D11On12Device2_ReturnUnderlyingResource(o2, (ID3D11Resource *)t, 0, NULL, NULL);
     EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: probed */
     t_note("ReturnUnderlyingResource on a plain texture: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(t); SAFE_RELEASE(o2); on12_free(&c);
 }
@@ -361,7 +364,8 @@ TEST(d3d_on12_dxcore_misc_unwrap_requires_queue_and_wrapped_resource) {
     if (FAILED(ID3D11Device_CreateTexture2D(c.dev, &td, NULL, &t)) || !t) { SAFE_RELEASE(o2); on12_free(&c); t_skip("no texture"); return; }
     void *out = (void *)1;
     HRESULT hr = ID3D11On12Device2_UnwrapUnderlyingResource(o2, (ID3D11Resource *)t, c.q, &IID_ID3D12Resource, &out);
-    EXPECT_HR_FAILED(hr);
-    t_note("UnwrapUnderlyingResource on a plain texture: %s", d3dh_hr_name(hr));
+    /* a texture created through the 11On12 device is itself backed by a D3D12 resource, so unwrapping it works (probed) */
+    EXPECT_HR(hr, S_OK);
+    if (SUCCEEDED(hr)) { CHECK(out != NULL && out != (void *)1); if (out && out != (void *)1) { ID3D11On12Device2_ReturnUnderlyingResource(o2, (ID3D11Resource *)t, 0, NULL, NULL); IUnknown_Release((IUnknown *)out); } }
     SAFE_RELEASE(t); SAFE_RELEASE(o2); on12_free(&c);
 }

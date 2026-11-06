@@ -93,6 +93,7 @@ TEST(d3d_on12_dxcore_misc_sc12_zero_buffers_rejected) {
     DXGI_SWAP_CHAIN_DESC1 d = desc1(0, DXGI_SWAP_EFFECT_FLIP_DISCARD);
     IDXGISwapChain1 *sw = (IDXGISwapChain1 *)1;
     HRESULT hr = CREATE(&s, s.q, s.hwnd, &d, &sw);
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); /* Win10: probed */
     t_note("BufferCount 0 with flip model: %s", d3dh_hr_name(hr));
     CHECK(hr == DXGI_INVALID_CALL || SUCCEEDED(hr));
     if (SUCCEEDED(hr)) { DXGI_SWAP_CHAIN_DESC1 got; IDXGISwapChain1_GetDesc1(sw, &got); CHECK(got.BufferCount >= 2); SAFE_RELEASE(sw); }
@@ -182,7 +183,9 @@ TEST(d3d_on12_dxcore_misc_sc12_get_device_returns_queue) {
     HRESULT hq = IDXGISwapChain1_GetDevice(sw, &IID_ID3D12CommandQueue, (void **)&q);
     HRESULT hd = IDXGISwapChain1_GetDevice(sw, &IID_ID3D12Device, (void **)&dv);
     t_note("GetDevice(ID3D12CommandQueue)=%s GetDevice(ID3D12Device)=%s", d3dh_hr_name(hq), d3dh_hr_name(hd));
-    CHECK(hq == S_OK); if (q) CHECK(q == s.q);
+    /* Win10 (probed): GetDevice answers ID3D12Device but not ID3D12CommandQueue */
+    EXPECT_HR(hq, E_NOINTERFACE); CHECK(q == NULL);
+    EXPECT_HR(hd, S_OK); if (dv) CHECK(dv == s.dev);
     SAFE_RELEASE(q); SAFE_RELEASE(dv);
     SAFE_RELEASE(sw);
     sc12_free(&s);
@@ -229,7 +232,7 @@ TEST(d3d_on12_dxcore_misc_sc12_two_swapchains_one_hwnd) {
     IDXGISwapChain1 *a = NULL, *b = (IDXGISwapChain1 *)1;
     if (FAILED(CREATE(&s, s.q, s.hwnd, &d, &a)) || !a) { sc12_free(&s); t_skip("cannot create swap chain here"); return; }
     HRESULT hr = CREATE(&s, s.q, s.hwnd, &d, &b);
-    EXPECT_HR(hr, DXGI_INVALID_CALL);
+    EXPECT_HR(hr, E_ACCESSDENIED); /* Win10 (probed): the window already owns a swap chain */
     if (SUCCEEDED(hr)) SAFE_RELEASE(b);
     SAFE_RELEASE(a);
     sc12_free(&s);
@@ -253,6 +256,7 @@ TEST(d3d_on12_dxcore_misc_sc12_legacy_createswapchain_with_queue) {
     dd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; dd.BufferCount = 2; dd.OutputWindow = s.hwnd; dd.Windowed = TRUE; dd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     IDXGISwapChain *sw = NULL;
     HRESULT hr = IDXGIFactory2_CreateSwapChain(s.fac, (IUnknown *)s.q, &dd, &sw);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("IDXGIFactory::CreateSwapChain with a command queue: %s", d3dh_hr_name(hr));
     CHECK(SUCCEEDED(hr) || hr == DXGI_INVALID_CALL || hr == (HRESULT)0x887A0022);
     SAFE_RELEASE(sw);
@@ -278,6 +282,7 @@ TEST(d3d_on12_dxcore_misc_sc12_d3d11on12_device_not_valid_swapchain_source) {
     DXGI_SWAP_CHAIN_DESC1 d = desc1(2, DXGI_SWAP_EFFECT_FLIP_DISCARD);
     IDXGISwapChain1 *sw = NULL;
     HRESULT hr = CREATE(&s, dev, s.hwnd, &d, &sw);
+    EXPECT_HR(hr, S_OK); /* Win10: probed */
     t_note("D3D11On12 device as swap chain device: %s", d3dh_hr_name(hr));
     SAFE_RELEASE(sw); SAFE_RELEASE(dev);
     sc12_free(&s);

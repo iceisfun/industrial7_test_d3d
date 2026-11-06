@@ -24,7 +24,7 @@ TEST(d3d_on12_dxcore_misc_d3d9on12_exports_by_ordinal) {
     CHECK(GetProcAddress(m, MAKEINTRESOURCEA(3)) == GetProcAddress(m, "SetAppCompatData"));
     SET_ERR(0);
     CHECK(GetProcAddress(m, MAKEINTRESOURCEA(4)) == NULL);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL); /* by ordinal: 182 (probed) */
     FreeLibrary(m);
 }
 TEST(d3d_on12_dxcore_misc_d3d9on12_no_other_names) {
@@ -125,13 +125,14 @@ TEST(d3d_on12_dxcore_misc_d3d9on12_create_null_args_zero_count) {
     CHECK(d != NULL);
     if (d) IDirect3D9Ex_Release(d);
 }
-TEST(d3d_on12_dxcore_misc_d3d9on12_create_returns_ex_interface) {
+TEST(d3d_on12_dxcore_misc_d3d9on12_create_returns_plain_interface) {
+    /* Direct3DCreate9On12 returns a plain IDirect3D9 (the Ex object comes from Direct3DCreate9On12Ex): QI for the Ex interface fails (probed) */
     c9on12_t c = get9on12(); REQUIRE(c);
     IDirect3D9Ex *d = c(D3D_SDK_VERSION, NULL, 0);
     if (!d) { t_skip("no d3d9"); return; }
-    IDirect3D9 *p = NULL; IDirect3D9Ex *x = NULL;
+    IDirect3D9 *p = NULL; IDirect3D9Ex *x = (void *)1;
     EXPECT_HR(IDirect3D9Ex_QueryInterface(d, &IID_IDirect3D9, (void **)&p), S_OK);
-    EXPECT_HR(IDirect3D9Ex_QueryInterface(d, &IID_IDirect3D9Ex, (void **)&x), S_OK);
+    EXPECT_HR(IDirect3D9Ex_QueryInterface(d, &IID_IDirect3D9Ex, (void **)&x), E_NOINTERFACE); CHECK(x == NULL);
     SAFE_RELEASE(p); SAFE_RELEASE(x);
     IDirect3D9Ex_Release(d);
 }
