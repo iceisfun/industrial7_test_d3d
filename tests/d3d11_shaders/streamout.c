@@ -13,12 +13,12 @@ static HRESULT so_run(const char *shname, const char *target, const SOE *d, UINT
     ID3D11GeometryShader *gs = (ID3D11GeometryShader *)(ULONG_PTR)0;
     HRESULT hr = ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), d, n, st, ns, rast, NULL, &gs);
     if (mode == M_OK) { t_check(hr == S_OK && gs, __FILE__, __LINE__, "SO shader created", "%s: %s", what, d3dh_hr_name(hr)); }
-    else if (mode == M_FAIL) { t_check(FAILED(hr) && !gs, __FILE__, __LINE__, "SO shader rejected", "%s: %s", what, d3dh_hr_name(hr)); t_note("%s -> %s", what, d3dh_hr_name(hr)); }
+    else if (mode == M_FAIL) { t_check(hr == E_INVALIDARG && !gs, __FILE__, __LINE__, "SO shader rejected", "%s: %s", what, d3dh_hr_name(hr)); t_note("%s -> %s", what, d3dh_hr_name(hr)); }
     else { t_note("%s -> %s", what, d3dh_hr_name(hr)); }
     /* NULL ppGeometryShader must agree with the real path */
     HRESULT hv = ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), d, n, st, ns, rast, NULL, NULL);
     if (mode == M_OK) t_check(hv == S_FALSE, __FILE__, __LINE__, "NULL out validates", "%s: %s", what, d3dh_hr_name(hv));
-    else if (mode == M_FAIL) t_check(FAILED(hv), __FILE__, __LINE__, "NULL out validation fails", "%s: %s", what, d3dh_hr_name(hv));
+    else if (mode == M_FAIL) t_check(hv == E_INVALIDARG, __FILE__, __LINE__, "NULL out validation fails", "%s: %s", what, d3dh_hr_name(hv));
     SH_REL(gs); sh_env_free(&e);
     return hr;
 }
@@ -46,32 +46,32 @@ SO_CASE(gap_entry_over_four_components, M_OK, "gs_so_src", NRS, 1, 48, 0, 0, 0, 
 SO_CASE(stride_with_padding, M_OK, "gs_so_src", NRS, 1, 64, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(stride_max_2048, M_OK, "gs_so_src", NRS, 1, 2048, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(stride_over_max, M_FAIL, "gs_so_src", NRS, 1, 2052, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(stride_too_small, M_NOTE, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(stride_zero_for_used_slot, M_NOTE, "gs_so_src", NRS, 1, 0, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(stride_one_short_of_data, M_NOTE, "gs_so_src", NRS, 1, 12, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(stride_not_multiple_of_four, M_NOTE, "gs_so_src", NRS, 1, 18, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(too_many_strides, M_NOTE, "gs_so_src", NRS, 5, 16, 16, 16, 16, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(strides_without_entries_for_slot, M_NOTE, "gs_so_src", NRS, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(slot_without_stride, M_NOTE, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 0, "COLOR", 0, 0, 4, 1 })
+SO_CASE(stride_too_small, M_FAIL, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(stride_zero_for_used_slot, M_FAIL, "gs_so_src", NRS, 1, 0, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(stride_one_short_of_data, M_FAIL, "gs_so_src", NRS, 1, 12, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(stride_not_multiple_of_four, M_FAIL, "gs_so_src", NRS, 1, 18, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(too_many_strides, M_FAIL, "gs_so_src", NRS, 5, 16, 16, 16, 16, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(strides_without_entries_for_slot, M_OK, "gs_so_src", NRS, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(slot_without_stride, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 0, "COLOR", 0, 0, 4, 1 })
 SO_CASE(output_slot_4, M_FAIL, "gs_so_src", NRS, 4, 16, 16, 16, 16, { 0, "SV_Position", 0, 0, 4, 4 })
 SO_CASE(output_slot_large, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0xff })
 SO_CASE(component_count_zero, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 0, 0 })
 SO_CASE(component_count_five, M_FAIL, "gs_so_src", NRS, 1, 20, 0, 0, 0, { 0, "SV_Position", 0, 0, 5, 0 })
 SO_CASE(start_plus_count_overflow, M_FAIL, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "SV_Position", 0, 3, 2, 0 })
-SO_CASE(start_component_4, M_NOTE, "gs_so_src", NRS, 1, 4, 0, 0, 0, { 0, "SV_Position", 0, 4, 1, 0 })
-SO_CASE(unknown_semantic, M_NOTE, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "NOSUCHSEMANTIC", 0, 0, 4, 0 })
-SO_CASE(wrong_semantic_index, M_NOTE, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "TEXCOORD", 1, 0, 2, 0 })
-SO_CASE(empty_semantic_name, M_NOTE, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "", 0, 0, 4, 0 })
-SO_CASE(lowercase_semantic_name, M_NOTE, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "texcoord", 0, 0, 2, 0 })
-SO_CASE(semantic_with_digit_suffix, M_NOTE, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "TEXCOORD0", 0, 0, 2, 0 })
-SO_CASE(components_beyond_signature_mask, M_NOTE, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "NORMAL", 0, 0, 4, 0 })
-SO_CASE(duplicate_entry, M_NOTE, "gs_so_src", NRS, 1, 32, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(stream_1_in_gs_4_0, M_NOTE, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 1, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(start_component_4, M_FAIL, "gs_so_src", NRS, 1, 4, 0, 0, 0, { 0, "SV_Position", 0, 4, 1, 0 })
+SO_CASE(unknown_semantic, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "NOSUCHSEMANTIC", 0, 0, 4, 0 })
+SO_CASE(wrong_semantic_index, M_FAIL, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "TEXCOORD", 1, 0, 2, 0 })
+SO_CASE(empty_semantic_name, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "", 0, 0, 4, 0 })
+SO_CASE(lowercase_semantic_name, M_OK, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "texcoord", 0, 0, 2, 0 })
+SO_CASE(semantic_with_digit_suffix, M_FAIL, "gs_so_src", NRS, 1, 8, 0, 0, 0, { 0, "TEXCOORD0", 0, 0, 2, 0 })
+SO_CASE(components_beyond_signature_mask, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0, "NORMAL", 0, 0, 4, 0 })
+SO_CASE(duplicate_entry, M_FAIL, "gs_so_src", NRS, 1, 32, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(stream_1_in_gs_4_0, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 1, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(stream_4, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 4, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(stream_huge, M_FAIL, "gs_so_src", NRS, 1, 16, 0, 0, 0, { 0xffffffff, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(rasterized_stream_4, M_FAIL, "gs_so_src", 4, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(rasterized_stream_0xfffffffe, M_FAIL, "gs_so_src", 0xfffffffe, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(rasterized_stream_1_in_gs_4_0, M_NOTE, "gs_so_src", 1, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
+SO_CASE(rasterized_stream_1_in_gs_4_0, M_OK, "gs_so_src", 1, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(from_vertex_shader_bytecode, M_OK, "vs_so_src", NRS, 1, 52, 0, 0, 0,
         { 0, "SV_Position", 0, 0, 4, 0 }, { 0, "NORMAL", 0, 0, 3, 0 }, { 0, "TEXCOORD", 0, 0, 2, 0 }, { 0, "COLOR", 0, 0, 4, 0 })
 SO_CASE(from_vertex_shader_rasterized_0, M_OK, "vs_so_src", 0, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
@@ -79,11 +79,11 @@ SO_CASE(from_geometry_shader_5_0, M_OK, "gs_tri_50", NRS, 1, 16, 0, 0, 0, { 0, "
 SO_CASE(from_domain_shader_bytecode, M_OK, "ds_tri", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(from_pixel_shader_bytecode, M_FAIL, "ps_const", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
 SO_CASE(from_compute_shader_bytecode, M_FAIL, "cs_basic", NRS, 1, 16, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 })
-SO_CASE(from_hull_shader_bytecode, M_NOTE, "hs_tri_int", NRS, 1, 12, 0, 0, 0, { 0, "POSITION", 0, 0, 3, 0 })
+SO_CASE(from_hull_shader_bytecode, M_FAIL, "hs_tri_int", NRS, 1, 12, 0, 0, 0, { 0, "POSITION", 0, 0, 3, 0 })
 SO_CASE(multi_stream_two_streams, M_OK, "gs_stream", 0, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 1, "COLOR", 0, 0, 4, 1 })
 SO_CASE(multi_stream_no_raster, M_OK, "gs_stream", NRS, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 1, "COLOR", 0, 0, 4, 1 })
-SO_CASE(multi_stream_raster_stream_1, M_NOTE, "gs_stream", 1, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 1, "COLOR", 0, 0, 4, 1 })
-SO_CASE(multi_stream_same_slot, M_NOTE, "gs_stream", NRS, 1, 32, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 1, "COLOR", 0, 0, 4, 0 })
+SO_CASE(multi_stream_raster_stream_1, M_OK, "gs_stream", 1, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 1, "COLOR", 0, 0, 4, 1 })
+SO_CASE(multi_stream_same_slot, M_FAIL, "gs_stream", NRS, 1, 32, 0, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 1, "COLOR", 0, 0, 4, 0 })
 SO_CASE(multi_stream_semantic_in_wrong_stream, M_FAIL, "gs_stream", NRS, 2, 16, 16, 0, 0, { 1, "SV_Position", 0, 0, 4, 0 }, { 0, "COLOR", 0, 0, 4, 1 })
 SO_CASE(multi_stream_stream_2_missing, M_FAIL, "gs_stream", NRS, 2, 16, 16, 0, 0, { 0, "SV_Position", 0, 0, 4, 0 }, { 2, "COLOR", 0, 0, 4, 1 })
 
@@ -99,12 +99,29 @@ TEST(d3d11_shaders_so_zero_entries_rasterized_0)
 TEST(d3d11_shaders_so_zero_entries_with_strides)
 {
     UINT s[1] = { 16 };
-    so_run("gs_so_src", NULL, NULL, 0, s, 1, NRS, M_NOTE, 0xa000, "0 entries with 1 stride");
+    so_run("gs_so_src", NULL, NULL, 0, s, 1, NRS, M_OK, 0xa000, "0 entries with 1 stride");
+}
+/* A NULL declaration array with a non-zero entry count is not validated by Win10 22H2 d3d11.dll (access violation). Child process:
+ * an implementation must not report success. */
+CHILD(so_null_decl_with_entries)
+{
+    SHENV e; if (!sh_env(&e, 0xa000)) return 3;
+    ID3DBlob *b = sh_blob("gs_so_src"); if (!b) return 3;
+    UINT s[1] = { 16 }; ID3D11GeometryShader *gs = NULL;
+    HRESULT hr = ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), NULL, 1, s, 1, NRS, NULL, &gs);
+    return SUCCEEDED(hr) ? 1 : 0;
 }
 TEST(d3d11_shaders_so_null_decl_with_entries)
 {
+    DWORD rc = t_run_child("so_null_decl_with_entries", NULL, 60000);
+    t_note("NULL decl with 1 entry child exit %#lx (Win10: 0xc0000005)", rc);
+    t_check(rc == 0 || rc == 0xC0000005, __FILE__, __LINE__, "NULL decl with entries fails or faults", "child exit %#lx", rc);
+}
+/* A NULL declaration with zero entries but a stride is accepted (11_0 and above). */
+TEST(d3d11_shaders_so_null_decl_zero_entries_with_stride)
+{
     UINT s[1] = { 16 };
-    so_run("gs_so_src", NULL, NULL, 1, s, 1, NRS, M_FAIL, 0xa000, "NULL decl with 1 entry");
+    so_run("gs_so_src", NULL, NULL, 0, s, 1, 0, M_OK, 0xb000, "NULL decl, 0 entries, stride 16, rasterized stream 0");
 }
 TEST(d3d11_shaders_so_entry_count_over_limit)
 {
@@ -119,7 +136,7 @@ TEST(d3d11_shaders_so_many_gap_entries)
 {
     SOE d[64]; UINT s[1] = { 64 * 4 };
     for (int i = 0; i < 64; i++) { d[i].Stream = 0; d[i].SemanticName = NULL; d[i].SemanticIndex = 0; d[i].StartComponent = 0; d[i].ComponentCount = 1; d[i].OutputSlot = 0; }
-    so_run("gs_so_src", NULL, d, 64, s, 1, NRS, M_NOTE, 0xa000, "64 one-component gap entries");
+    so_run("gs_so_src", NULL, d, 64, s, 1, NRS, M_FAIL, 0xa000, "64 one-component gap entries");
 }
 TEST(d3d11_shaders_so_null_and_empty_bytecode)
 {
@@ -162,7 +179,10 @@ TEST(d3d11_shaders_so_decl_not_modified_and_copied)
     memset(name, 'x', strlen(name)); /* declaration strings are not retained */
     memset(d, 0, sizeof d);
     EXPECT_EQ(d3dh_refcount(g1), 1);
-    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), d, 0, NULL, 0, NRS, NULL, &g2), S_OK);
+    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), NULL, 0, NULL, 0, NRS, NULL, &g2), S_OK);
+    /* a non-NULL declaration array with zero entries is rejected (Win10 22H2), with or without strides */
+    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), d, 0, NULL, 0, NRS, NULL, NULL), E_INVALIDARG);
+    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), d, 0, &s, 1, 0, NULL, NULL), E_INVALIDARG);
     free(name); SH_REL(g1); SH_REL(g2); sh_env_free(&e);
 }
 TEST(d3d11_shaders_so_object_is_geometry_shader)
@@ -196,7 +216,8 @@ TEST(d3d11_shaders_so_blob_from_getblobpart_output_signature)
     if (FAILED(hr)) { t_skip("D3DGetBlobPart: %s", d3dh_hr_name(hr)); return; }
     SOE d = { 0, "SV_Position", 0, 0, 4, 0 }; UINT s = 16; ID3D11GeometryShader *gs = NULL;
     hr = ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(sig), SH_BN(sig), &d, 1, &s, 1, NRS, NULL, &gs);
-    t_note("signature-only blob (D3D_BLOB_OUTPUT_SIGNATURE_BLOB part) accepted as SO source: %s", d3dh_hr_name(hr));
+    /* a bare signature part is not a container: Win10 22H2 returns E_OUTOFMEMORY (the container parser's failure path) */
+    EXPECT_HR(hr, E_OUTOFMEMORY); CHECK(gs == NULL);
     SH_REL(gs); ID3D10Blob_Release(sig); sh_env_free(&e);
 }
 

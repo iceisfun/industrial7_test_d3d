@@ -82,6 +82,10 @@ static unsigned char *sh_dup(ID3DBlob *b, size_t extra)
     return p;
 }
 
+/* Table entries that declare HLSL interface slots (ps_interface) can only be created together with a class linkage:
+ * with a NULL linkage CreatePixelShader fails with E_INVALIDARG, on the validation path as well (Win10 22H2). */
+static int sh_needs_linkage(const sh_ent *t) { return !strcmp(t->name, "ps_interface"); }
+
 /* Stage-generic creation / binding. */
 static HRESULT sh_create(ID3D11Device *d, int st, const void *p, SIZE_T n, ID3D11ClassLinkage *cl, void **out)
 {

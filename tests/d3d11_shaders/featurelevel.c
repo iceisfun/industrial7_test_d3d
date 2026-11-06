@@ -14,10 +14,9 @@ static void run_rows(D3D_FEATURE_LEVEL fl, const flrow *rows, int n)
         HRESULT hr = sh_create(e.dev, rows[i].stage, SH_BP(b), SH_BN(b), NULL, &sh);
         if (rows[i].expect_ok) t_check(hr == S_OK && sh, __FILE__, __LINE__, "creation succeeds", "FL 0x%x %s as %s: %s", (UINT)fl, rows[i].shader, rows[i].target, d3dh_hr_name(hr));
         else {
-            t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "creation fails", "FL 0x%x %s as %s: %s", (UINT)fl, rows[i].shader, rows[i].target, d3dh_hr_name(hr));
-            t_note("FL 0x%x %s as %s -> %s", (UINT)fl, rows[i].shader, rows[i].target, d3dh_hr_name(hr));
+            t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "creation fails", "FL 0x%x %s as %s: %s", (UINT)fl, rows[i].shader, rows[i].target, d3dh_hr_name(hr));
             HRESULT hv = sh_create(e.dev, rows[i].stage, SH_BP(b), SH_BN(b), NULL, NULL);
-            t_check(FAILED(hv), __FILE__, __LINE__, "validation path fails too", "FL 0x%x %s as %s: %s", (UINT)fl, rows[i].shader, rows[i].target, d3dh_hr_name(hv));
+            t_check(hv == E_INVALIDARG, __FILE__, __LINE__, "validation path fails too", "FL 0x%x %s as %s: %s", (UINT)fl, rows[i].shader, rows[i].target, d3dh_hr_name(hv));
         }
         SH_REL(sh);
     }
@@ -55,9 +54,9 @@ TEST(d3d11_shaders_fl10_0_rejects_tessellation_stages)
     SH_BLOB(hs, "hs_tri_int"); SH_BLOB(ds, "ds_tri");
     void *sh = NULL;
     HRESULT hr = sh_create(e.dev, ST_HS, SH_BP(hs), SH_BN(hs), NULL, &sh);
-    t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "hull on 10_0", "%s", d3dh_hr_name(hr)); SH_REL(sh);
+    t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "hull on 10_0", "%s", d3dh_hr_name(hr)); SH_REL(sh);
     hr = sh_create(e.dev, ST_DS, SH_BP(ds), SH_BN(ds), NULL, &sh);
-    t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "domain on 10_0", "%s", d3dh_hr_name(hr)); SH_REL(sh);
+    t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "domain on 10_0", "%s", d3dh_hr_name(hr)); SH_REL(sh);
     sh_env_free(&e);
 }
 TEST(d3d11_shaders_fl10_0_rejects_cs_5_0)
@@ -66,8 +65,7 @@ TEST(d3d11_shaders_fl10_0_rejects_cs_5_0)
     SH_BLOB(cs, "cs_basic");
     void *sh = NULL;
     HRESULT hr = sh_create(e.dev, ST_CS, SH_BP(cs), SH_BN(cs), NULL, &sh);
-    t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "cs_5_0 on 10_0", "%s", d3dh_hr_name(hr));
-    t_note("cs_5_0 on FL10_0 -> %s", d3dh_hr_name(hr));
+    t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "cs_5_0 on 10_0", "%s", d3dh_hr_name(hr));
     SH_REL(sh); sh_env_free(&e);
 }
 
@@ -81,9 +79,10 @@ static void cs4x_follows_option(D3D_FEATURE_LEVEL fl, const char *name, const ch
     (void)target;
     void *sh = NULL;
     HRESULT hr = sh_create(e.dev, ST_CS, SH_BP(cs), SH_BN(cs), NULL, &sh);
-    t_note("FL 0x%x option ComputeShaders_Plus_RawAndStructured_Via_Shader_4_x=%d; %s -> %s", (UINT)fl, (int)opt.ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x, name, d3dh_hr_name(hr));
+    /* WARP reports ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x = TRUE on 10_x, and cs_4_x then creates */
+    EXPECT_EQ(opt.ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x, 1);
     if (opt.ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x) EXPECT_HR(hr, S_OK);
-    else { CHECK(FAILED(hr)); CHECK(sh == NULL); }
+    else { EXPECT_HR(hr, E_INVALIDARG); CHECK(sh == NULL); }
     SH_REL(sh); sh_env_free(&e);
 }
 TEST(d3d11_shaders_fl10_0_cs_4_0_follows_hardware_option) { cs4x_follows_option(D3D_FEATURE_LEVEL_10_0, "cs_40", "cs_4_0"); }
@@ -97,7 +96,7 @@ TEST(d3d11_shaders_fl10_0_cs_4_1_rejected)
     SH_BLOB(cs, "cs_41");
     void *sh = NULL;
     HRESULT hr = sh_create(e.dev, ST_CS, SH_BP(cs), SH_BN(cs), NULL, &sh);
-    t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "cs_4_1 on 10_0", "%s", d3dh_hr_name(hr));
+    t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "cs_4_1 on 10_0", "%s", d3dh_hr_name(hr));
     SH_REL(sh); sh_env_free(&e);
 }
 
@@ -125,7 +124,7 @@ TEST(d3d11_shaders_fl10_1_rejects_tessellation_and_cs_5_0)
     for (int i = 0; i < 3; i++) {
         ID3DBlob *b = sh_blob(names[i]); if (!b) continue;
         void *sh = NULL; HRESULT hr = sh_create(e.dev, stages[i], SH_BP(b), SH_BN(b), NULL, &sh);
-        t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "5_0 only stage rejected on 10_1", "%s: %s", names[i], d3dh_hr_name(hr)); SH_REL(sh);
+        t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "5_0 only stage rejected on 10_1", "%s: %s", names[i], d3dh_hr_name(hr)); SH_REL(sh);
     }
     sh_env_free(&e);
 }
@@ -178,7 +177,7 @@ TEST(d3d11_shaders_fl9_x_rejects_gs_hs_ds_cs)
         for (int i = 0; i < 4; i++) {
             ID3DBlob *b = sh_blob(names[i]); if (!b) continue;
             void *sh = NULL; HRESULT hr = sh_create(e.dev, stages[i], SH_BP(b), SH_BN(b), NULL, &sh);
-            t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "stage unavailable at level 9", "FL 0x%x %s: %s", (UINT)lv[l], names[i], d3dh_hr_name(hr)); SH_REL(sh);
+            t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "stage unavailable at level 9", "FL 0x%x %s: %s", (UINT)lv[l], names[i], d3dh_hr_name(hr)); SH_REL(sh);
         }
         sh_env_free(&e);
     }
@@ -190,8 +189,9 @@ TEST(d3d11_shaders_fl9_x_sm4_0_bytecode_observed)
         SHENV e; if (!sh_env_exact(&e, lv[l])) return;
         SH_BLOB(v, "vs_pass"); SH_BLOB(p, "ps_noinput");
         void *sh = NULL;
-        HRESULT hr = sh_create(e.dev, ST_VS, SH_BP(v), SH_BN(v), NULL, &sh); t_note("FL 0x%x plain vs_4_0 -> %s", (UINT)lv[l], d3dh_hr_name(hr)); SH_REL(sh);
-        hr = sh_create(e.dev, ST_PS, SH_BP(p), SH_BN(p), NULL, &sh); t_note("FL 0x%x plain ps_4_0 -> %s", (UINT)lv[l], d3dh_hr_name(hr)); SH_REL(sh);
+        /* plain vs_4_0 / ps_4_0 bytecode (no level-9 profile) is rejected on a 9_x device */
+        HRESULT hr = sh_create(e.dev, ST_VS, SH_BP(v), SH_BN(v), NULL, &sh); t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "plain vs_4_0 at 9_x", "FL 0x%x: %s", (UINT)lv[l], d3dh_hr_name(hr)); SH_REL(sh);
+        hr = sh_create(e.dev, ST_PS, SH_BP(p), SH_BN(p), NULL, &sh); t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "plain ps_4_0 at 9_x", "FL 0x%x: %s", (UINT)lv[l], d3dh_hr_name(hr)); SH_REL(sh);
         sh_env_free(&e);
     }
 }
@@ -202,7 +202,8 @@ TEST(d3d11_shaders_fl9_1_level9_3_pixel_shader_observed)
     ID3DBlob *p93 = sh_blob_target("ps_noinput", "ps_4_0_level_9_3"); if (!p93) return;
     void *sh = NULL;
     HRESULT hr = sh_create(e.dev, ST_PS, SH_BP(p93), SH_BN(p93), NULL, &sh);
-    t_note("ps_4_0_level_9_3 on a 9_1 device -> %s", d3dh_hr_name(hr)); SH_REL(sh);
+    /* a level-9_3 profile is accepted by a 9_1 device (the runtime validates the encoding, not the sub-level) */
+    EXPECT_HR(hr, S_OK); SH_REL(sh);
     sh_env_free(&e);
 }
 
@@ -219,7 +220,7 @@ TEST(d3d11_shaders_level_matrix_sm_vs_fl)
         ID3DBlob *b = sh_blob_target("vs_pass", m[i].target); if (!b) { sh_env_free(&e); return; }
         void *sh = NULL; HRESULT hr = sh_create(e.dev, ST_VS, SH_BP(b), SH_BN(b), NULL, &sh);
         if (m[i].ok) t_check(hr == S_OK, __FILE__, __LINE__, "vs matrix ok", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
-        else t_check(FAILED(hr), __FILE__, __LINE__, "vs matrix fail", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
+        else t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "vs matrix fail", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
         SH_REL(sh); sh_env_free(&e);
     }
 }
@@ -235,7 +236,7 @@ TEST(d3d11_shaders_level_matrix_sm_ps_fl)
         ID3DBlob *b = sh_blob_target("ps_const", m[i].target); if (!b) { sh_env_free(&e); return; }
         void *sh = NULL; HRESULT hr = sh_create(e.dev, ST_PS, SH_BP(b), SH_BN(b), NULL, &sh);
         if (m[i].ok) t_check(hr == S_OK, __FILE__, __LINE__, "ps matrix ok", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
-        else t_check(FAILED(hr), __FILE__, __LINE__, "ps matrix fail", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
+        else t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "ps matrix fail", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
         SH_REL(sh); sh_env_free(&e);
     }
 }
@@ -251,7 +252,7 @@ TEST(d3d11_shaders_level_matrix_sm_gs_fl)
         ID3DBlob *b = sh_blob_target("gs_41", m[i].target); if (!b) { sh_env_free(&e); return; }
         void *sh = NULL; HRESULT hr = sh_create(e.dev, ST_GS, SH_BP(b), SH_BN(b), NULL, &sh);
         if (m[i].ok) t_check(hr == S_OK, __FILE__, __LINE__, "gs matrix ok", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
-        else t_check(FAILED(hr), __FILE__, __LINE__, "gs matrix fail", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
+        else t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "gs matrix fail", "FL 0x%x %s: %s", (UINT)m[i].fl, m[i].target, d3dh_hr_name(hr));
         SH_REL(sh); sh_env_free(&e);
     }
 }
@@ -277,7 +278,7 @@ TEST(d3d11_shaders_fl9_x_rejects_stream_output)
     SH_BLOB(b, "gs_so_src");
     D3D11_SO_DECLARATION_ENTRY d = { 0, "SV_Position", 0, 0, 4, 0 }; UINT stride = 16; ID3D11GeometryShader *gs = NULL;
     HRESULT hr = ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), &d, 1, &stride, 1, 0, NULL, &gs);
-    t_check(FAILED(hr) && !gs, __FILE__, __LINE__, "SO at level 9", "%s", d3dh_hr_name(hr)); SH_REL(gs);
+    t_check(hr == E_INVALIDARG && !gs, __FILE__, __LINE__, "SO at level 9", "%s", d3dh_hr_name(hr)); SH_REL(gs);
     sh_env_free(&e);
 }
 TEST(d3d11_shaders_fl10_0_stream_output_ok)
@@ -285,8 +286,13 @@ TEST(d3d11_shaders_fl10_0_stream_output_ok)
     SH_ENV_EXACT(e, D3D_FEATURE_LEVEL_10_0);
     SH_BLOB(b, "gs_so_src");
     D3D11_SO_DECLARATION_ENTRY d = { 0, "SV_Position", 0, 0, 4, 0 }; UINT stride = 16; ID3D11GeometryShader *gs = NULL;
-    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), &d, 1, &stride, 1, D3D11_SO_NO_RASTERIZED_STREAM, NULL, &gs), S_OK);
-    SH_REL(gs); sh_env_free(&e);
+    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), &d, 1, &stride, 1, 0, NULL, &gs), S_OK);
+    SH_REL(gs);
+    /* the 'no rasterized stream' value is a feature-level 11 feature: rejected on a 10_0 device (Win10 22H2) */
+    gs = NULL;
+    EXPECT_HR(ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), &d, 1, &stride, 1, D3D11_SO_NO_RASTERIZED_STREAM, NULL, &gs), E_INVALIDARG);
+    CHECK(gs == NULL); SH_REL(gs);
+    sh_env_free(&e);
 }
 TEST(d3d11_shaders_fl10_x_multi_stream_rejected)
 {
@@ -294,6 +300,6 @@ TEST(d3d11_shaders_fl10_x_multi_stream_rejected)
     SH_BLOB(b, "gs_so_src");
     D3D11_SO_DECLARATION_ENTRY d = { 1, "SV_Position", 0, 0, 4, 0 }; UINT stride = 16; ID3D11GeometryShader *gs = NULL;
     HRESULT hr = ID3D11Device_CreateGeometryShaderWithStreamOutput(e.dev, SH_BP(b), SH_BN(b), &d, 1, &stride, 1, D3D11_SO_NO_RASTERIZED_STREAM, NULL, &gs);
-    t_check(FAILED(hr) && !gs, __FILE__, __LINE__, "stream 1 on 10_1", "%s", d3dh_hr_name(hr)); SH_REL(gs);
+    t_check(hr == E_INVALIDARG && !gs, __FILE__, __LINE__, "stream 1 on 10_1", "%s", d3dh_hr_name(hr)); SH_REL(gs);
     sh_env_free(&e);
 }

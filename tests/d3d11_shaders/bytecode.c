@@ -82,7 +82,7 @@ TEST(d3d11_shaders_bytecode_stale_checksum_after_payload_edit_observed)
     /* flip one byte inside the private data chunk (last 8 bytes of the container) without fixing the checksum */
     p[SH_BN(pb) - 2] ^= 0x55;
     hr = sh_create(e.dev, ST_PS, p, SH_BN(pb), NULL, &sh);
-    t_note("container whose private-data payload no longer matches its checksum -> %s", d3dh_hr_name(hr)); SH_REL(sh);
+    EXPECT_HR(hr, E_INVALIDARG); CHECK(sh == NULL); SH_REL(sh);   /* the checksum covers the private-data chunk */
     dxbc_rehash(p, SH_BN(pb));
     EXPECT_HR(sh_create(e.dev, ST_PS, p, SH_BN(pb), NULL, &sh), S_OK); SH_REL(sh);
     free(p); ID3D10Blob_Release(pb); sh_env_free(&e);
@@ -92,7 +92,7 @@ TEST(d3d11_shaders_bytecode_zero_checksum_observed)
     SH_ENV(e, 0); SH_BLOB(b, "vs_pass"); unsigned char *p = sh_dup(b, 0); void *sh = NULL;
     memset(p + 4, 0, 16);
     HRESULT hr = sh_create(e.dev, ST_VS, p, SH_BN(b), NULL, &sh);
-    t_note("container with an all-zero checksum -> %s", d3dh_hr_name(hr)); CHECK(hr == S_OK || hr == E_INVALIDARG); SH_REL(sh);
+    EXPECT_HR(hr, E_INVALIDARG); CHECK(sh == NULL); SH_REL(sh);
     free(p); sh_env_free(&e);
 }
 TEST(d3d11_shaders_bytecode_skip_validation_flag_observed)
@@ -101,7 +101,7 @@ TEST(d3d11_shaders_bytecode_skip_validation_flag_observed)
     HRESULT hr = d3dh_compile(sh_find("vs_pass")->src, "main", "vs_4_0", D3DCOMPILE_SKIP_VALIDATION, &b);
     if (FAILED(hr)) { t_skip("compile: %s", d3dh_hr_name(hr)); return; }
     void *sh = NULL; hr = sh_create(e.dev, ST_VS, SH_BP(b), SH_BN(b), NULL, &sh);
-    t_note("unvalidated container (D3DCOMPILE_SKIP_VALIDATION) -> %s", d3dh_hr_name(hr)); SH_REL(sh);
+    EXPECT_HR(hr, S_OK); SH_REL(sh);   /* the runtime accepts an unsigned container without the validator's signature */
     ID3D10Blob_Release(b); sh_env_free(&e);
 }
 TEST(d3d11_shaders_bytecode_debug_compile_flags_accepted)
@@ -224,9 +224,9 @@ TEST(d3d11_shaders_bytecode_version_token_edit_changes_stage)
         if (!memcmp(p + off, "SHDR", 4) || !memcmp(p + off, "SHEX", 4)) *(DWORD *)(p + off + 8) = 0x00000040; }
     dxbc_rehash(p, SH_BN(b));
     HRESULT hr = sh_create(e.dev, ST_VS, p, SH_BN(b), NULL, &sh);
-    t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "vertex creator rejects a retagged container", "%s", d3dh_hr_name(hr)); SH_REL(sh);
+    t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "vertex creator rejects a retagged container", "%s", d3dh_hr_name(hr)); SH_REL(sh);
     hr = sh_create(e.dev, ST_PS, p, SH_BN(b), NULL, &sh);
-    t_note("retagged vs body as ps_4_0 in the pixel creator -> %s", d3dh_hr_name(hr)); SH_REL(sh);
+    EXPECT_HR(hr, S_OK); SH_REL(sh);   /* Win10 22H2: the pixel creator accepts the retagged body (the program-type token is not cross-checked here) */
     free(p); sh_env_free(&e);
 }
 TEST(d3d11_shaders_bytecode_unsupported_version_token_rejected)
@@ -239,7 +239,7 @@ TEST(d3d11_shaders_bytecode_unsupported_version_token_rejected)
             if (!memcmp(p + off, "SHDR", 4) || !memcmp(p + off, "SHEX", 4)) *(DWORD *)(p + off + 8) = toks[i]; }
         dxbc_rehash(p, SH_BN(b));
         HRESULT hr = sh_create(e.dev, ST_VS, p, SH_BN(b), NULL, &sh);
-        t_check(FAILED(hr) && !sh, __FILE__, __LINE__, "unknown shader model rejected", "token 0x%08lx: %s", toks[i], d3dh_hr_name(hr)); SH_REL(sh); free(p);
+        t_check(hr == E_INVALIDARG && !sh, __FILE__, __LINE__, "unknown shader model rejected", "token 0x%08lx: %s", toks[i], d3dh_hr_name(hr)); SH_REL(sh); free(p);
     }
     sh_env_free(&e);
 }
@@ -262,7 +262,7 @@ TEST(d3d11_shaders_bytecode_trailing_garbage_observed)
     SH_ENV(e, 0); SH_BLOB(b, "ps_const"); unsigned char *p = sh_dup(b, 64); void *sh = NULL;
     memset(p + SH_BN(b), 0xcd, 64);
     HRESULT hr = sh_create(e.dev, ST_PS, p, SH_BN(b) + 64, NULL, &sh);
-    t_note("BytecodeLength 64 bytes larger than the container's total-size field -> %s", d3dh_hr_name(hr)); SH_REL(sh);
+    EXPECT_HR(hr, E_INVALIDARG); SH_REL(sh);
     free(p); sh_env_free(&e);
 }
 TEST(d3d11_shaders_bytecode_unaligned_pointer_accepted)
@@ -270,5 +270,5 @@ TEST(d3d11_shaders_bytecode_unaligned_pointer_accepted)
     SH_ENV(e, 0); SH_BLOB(b, "ps_const"); unsigned char *raw = malloc(SH_BN(b) + 8); void *sh = NULL;
     memcpy(raw + 1, SH_BP(b), SH_BN(b));
     HRESULT hr = sh_create(e.dev, ST_PS, raw + 1, SH_BN(b), NULL, &sh);
-    t_note("bytecode at an odd address -> %s", d3dh_hr_name(hr)); CHECK(hr == S_OK); SH_REL(sh); free(raw); sh_env_free(&e);
+    EXPECT_HR(hr, S_OK); SH_REL(sh); free(raw); sh_env_free(&e);
 }

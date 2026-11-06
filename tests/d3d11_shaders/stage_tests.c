@@ -49,9 +49,9 @@ TEST(d3d11_shaders_##tag##_bad_total_size_field) { \
     SH_ENV(e, MINFL); SH_BLOB(b, SHNAME); unsigned char *p = sh_dup(b, 0); void *sh = NULL; \
     DWORD orig = *(DWORD *)(p + 24); \
     *(DWORD *)(p + 24) = orig + 4; HRESULT hr = sh_create(e.dev, ST, p, SH_BN(b), NULL, &sh); \
-    t_note(#tag ": container size field larger than buffer -> %s", d3dh_hr_name(hr)); EXPECT_HR(hr, E_INVALIDARG); SH_REL(sh); \
+    EXPECT_HR(hr, E_INVALIDARG); SH_REL(sh); \
     *(DWORD *)(p + 24) = orig - 4; sh = NULL; hr = sh_create(e.dev, ST, p, SH_BN(b), NULL, &sh); \
-    t_note(#tag ": container size field smaller than buffer -> %s", d3dh_hr_name(hr)); SH_REL(sh); \
+    EXPECT_HR(hr, E_INVALIDARG); CHECK(sh == NULL); SH_REL(sh); \
     free(p); sh_env_free(&e); } \
 TEST(d3d11_shaders_##tag##_bad_chunk_offset) { \
     SH_ENV(e, MINFL); SH_BLOB(b, SHNAME); unsigned char *p = sh_dup(b, 0); void *sh = NULL; \
@@ -63,8 +63,7 @@ TEST(d3d11_shaders_##tag##_checksum_corruption_observed) { \
     SH_ENV(e, MINFL); SH_BLOB(b, SHNAME); unsigned char *p = sh_dup(b, 0); void *sh = NULL; \
     for (int i = 4; i < 20; i++) p[i] ^= 0xA5; \
     HRESULT hr = sh_create(e.dev, ST, p, SH_BN(b), NULL, &sh); \
-    t_note(#tag ": corrupted container checksum -> %s", d3dh_hr_name(hr)); \
-    CHECK(hr == S_OK || hr == E_INVALIDARG); SH_REL(sh); free(p); sh_env_free(&e); } \
+    EXPECT_HR(hr, E_INVALIDARG); CHECK(sh == NULL); SH_REL(sh); free(p); sh_env_free(&e); } \
 TEST(d3d11_shaders_##tag##_empty_container) { \
     SH_ENV(e, MINFL); unsigned char buf[64]; size_t n = sh_empty_dxbc(buf); void *sh = NULL; \
     EXPECT_HR(sh_create(e.dev, ST, buf, n, NULL, &sh), E_INVALIDARG); CHECK(sh == NULL); \
@@ -84,7 +83,11 @@ TEST(d3d11_shaders_##tag##_queryinterface) { \
     IUnknown *u = (IUnknown *)sh; void *q = NULL; \
     EXPECT_HR(IUnknown_QueryInterface(u, sh_iid(ST), &q), S_OK); EXPECT_EQ(q, sh); SH_REL(q); \
     EXPECT_HR(IUnknown_QueryInterface(u, &IID_ID3D11DeviceChild, &q), S_OK); EXPECT_EQ(q, sh); SH_REL(q); \
-    EXPECT_HR(IUnknown_QueryInterface(u, &IID_IUnknown, &q), S_OK); EXPECT_EQ(q, sh); SH_REL(q); \
+    { /* IUnknown identity is a distinct sub-object pointer (Win10 22H2), stable across queries and across interfaces */ \
+      void *u1 = NULL, *u2 = NULL; \
+      EXPECT_HR(IUnknown_QueryInterface(u, &IID_IUnknown, &u1), S_OK); \
+      EXPECT_HR(IUnknown_QueryInterface((IUnknown *)u1, &IID_ID3D11DeviceChild, &q), S_OK); EXPECT_EQ(q, sh); SH_REL(q); \
+      EXPECT_HR(IUnknown_QueryInterface(u, &IID_IUnknown, &u2), S_OK); EXPECT_EQ(u1, u2); SH_REL(u1); SH_REL(u2); } \
     for (int o = 0; o < ST_COUNT; o++) { if (o == ST) continue; q = (void *)(ULONG_PTR)1; \
         HRESULT hr = IUnknown_QueryInterface(u, sh_iid(o), &q); \
         t_check(hr == E_NOINTERFACE && q == NULL, __FILE__, __LINE__, "QI to other stage interface", "%s -> %s", sh_stage_name[o], d3dh_hr_name(hr)); SH_REL(q); } \
@@ -115,7 +118,7 @@ TEST(d3d11_shaders_##tag##_private_data) { \
     UINT sz = 99; char buf[16] = ""; \
     EXPECT_HR(ID3D11DeviceChild_GetPrivateData(dc, &g, &sz, buf), DXGI_ERROR_NOT_FOUND); EXPECT_EQ(sz, 0); \
     EXPECT_HR(ID3D11DeviceChild_SetPrivateData(dc, &g, 6, "hello"), S_OK); \
-    sz = 0; { HRESULT hq = ID3D11DeviceChild_GetPrivateData(dc, &g, &sz, NULL); t_note("size query with NULL buffer -> %s size %u", d3dh_hr_name(hq), sz); CHECK(hq == S_OK || hq == DXGI_ERROR_MORE_DATA); EXPECT_EQ(sz, 6); } \
+    sz = 0; { HRESULT hq = ID3D11DeviceChild_GetPrivateData(dc, &g, &sz, NULL); EXPECT_HR(hq, S_OK); EXPECT_EQ(sz, 6); } \
     sz = 3; EXPECT_HR(ID3D11DeviceChild_GetPrivateData(dc, &g, &sz, buf), DXGI_ERROR_MORE_DATA); EXPECT_EQ(sz, 6); \
     sz = 16; EXPECT_HR(ID3D11DeviceChild_GetPrivateData(dc, &g, &sz, buf), S_OK); EXPECT_EQ(sz, 6); EXPECT_STR(buf, "hello"); \
     EXPECT_HR(ID3D11DeviceChild_SetPrivateData(dc, &g, 3, "ab"), S_OK); /* replace */ \
@@ -135,7 +138,7 @@ TEST(d3d11_shaders_##tag##_private_data_interface) { \
     EXPECT_EQ(d3dh_refcount(q), rc + 1); \
     UINT sz = sizeof(void *); void *got = NULL; \
     EXPECT_HR(ID3D11DeviceChild_GetPrivateData(dc, &g, &sz, &got), S_OK); CHECK(got == q); EXPECT_EQ(sz, sizeof(void *)); \
-    { ULONG rc2 = d3dh_refcount(q); t_note("GetPrivateData of an interface entry changes refcount by %ld", (long)rc2 - (long)(rc + 1)); if (rc2 > rc + 1) { IUnknown_Release((IUnknown *)q); } } \
+    { ULONG rc2 = d3dh_refcount(q); EXPECT_EQ(rc2, rc + 2); /* GetPrivateData on an interface entry AddRefs the returned pointer */ IUnknown_Release((IUnknown *)q); } \
     SH_REL(sh); EXPECT_EQ(d3dh_refcount(q), rc); SH_REL(q); sh_env_free(&e); } \
 TEST(d3d11_shaders_##tag##_debug_object_name) { \
     SH_ENV(e, MINFL); SH_BLOB(b, SHNAME); void *sh = NULL; \

@@ -45,10 +45,12 @@ TEST(d3d11_shaders_table_create_all)
         ID3DBlob *b = sh_blob(t->name);
         if (!b) continue;
         int st = sh_stage_of_target(t->target);
-        void *sh = NULL;
-        HRESULT hr = sh_create(e.dev, st, SH_BP(b), SH_BN(b), NULL, &sh);
+        void *sh = NULL; ID3D11ClassLinkage *cl = NULL;
+        if (sh_needs_linkage(t)) ID3D11Device_CreateClassLinkage(e.dev, &cl);
+        HRESULT hr = sh_create(e.dev, st, SH_BP(b), SH_BN(b), cl, &sh);
         t_check(hr == S_OK && sh, __FILE__, __LINE__, "table shader creates", "%s (%s): %s", t->name, t->target, d3dh_hr_name(hr));
         if (sh) { made++; SH_REL(sh); }
+        SH_REL(cl);
     }
     t_note("created %d table shaders at feature level 0x%x", made, (UINT)e.fl);
     CHECK(made >= 40 || t_is_wine());
@@ -100,10 +102,11 @@ TEST(d3d11_shaders_table_validate_matches_create)
         if ((UINT)e.fl < t->minfl || !strcmp(t->name, "gs_stream")) continue;
         ID3DBlob *b = sh_blob(t->name); if (!b) continue;
         int st = sh_stage_of_target(t->target);
-        HRESULT hv = sh_create(e.dev, st, SH_BP(b), SH_BN(b), NULL, NULL);
-        void *sh = NULL; HRESULT hc = sh_create(e.dev, st, SH_BP(b), SH_BN(b), NULL, &sh);
+        ID3D11ClassLinkage *cl = NULL; if (sh_needs_linkage(t)) ID3D11Device_CreateClassLinkage(e.dev, &cl);
+        HRESULT hv = sh_create(e.dev, st, SH_BP(b), SH_BN(b), cl, NULL);
+        void *sh = NULL; HRESULT hc = sh_create(e.dev, st, SH_BP(b), SH_BN(b), cl, &sh);
         t_check(hv == S_FALSE && hc == S_OK, __FILE__, __LINE__, "validate/create pair", "%s: validate %s create %s", t->name, d3dh_hr_name(hv), d3dh_hr_name(hc));
-        SH_REL(sh);
+        SH_REL(sh); SH_REL(cl);
     }
     sh_env_free(&e);
 }
@@ -117,14 +120,15 @@ TEST(d3d11_shaders_table_bind_all)
         if ((UINT)e.fl < t->minfl || !strcmp(t->name, "gs_stream")) continue;
         ID3DBlob *b = sh_blob(t->name); if (!b) continue;
         int st = sh_stage_of_target(t->target);
-        void *sh = NULL, *got = NULL;
-        if (FAILED(sh_create(e.dev, st, SH_BP(b), SH_BN(b), NULL, &sh))) { CHECKF(0, "create %s", t->name); continue; }
+        void *sh = NULL, *got = NULL; ID3D11ClassLinkage *cl = NULL;
+        if (sh_needs_linkage(t)) continue; /* bound with class instances in the linkage tests */
+        if (FAILED(sh_create(e.dev, st, SH_BP(b), SH_BN(b), cl, &sh))) { CHECKF(0, "create %s", t->name); continue; }
         sh_set(e.ctx, st, sh, NULL, 0);
         sh_get(e.ctx, st, &got, NULL, NULL);
         t_check(got == sh, __FILE__, __LINE__, "bound shader read back", "%s", t->name);
         SH_REL(got);
         sh_set(e.ctx, st, NULL, NULL, 0);
-        SH_REL(sh);
+        SH_REL(sh); SH_REL(cl);
     }
     sh_env_free(&e);
 }

@@ -72,7 +72,7 @@ TEST(d3d11_shaders_command_list_records_shader_binding)
     EXPECT_HR(ID3D11DeviceContext_FinishCommandList(dc, FALSE, &cl), S_OK);
     ID3D11DeviceContext_ExecuteCommandList(e.ctx, cl, FALSE);
     ID3D11DeviceContext_PSGetShader(e.ctx, &got, NULL, NULL);
-    t_note("PS binding recorded in a command list is %s after ExecuteCommandList(FALSE)", got == ps ? "visible" : "reset");
+    CHECK(got == NULL);   /* Win10 22H2: ExecuteCommandList(FALSE) leaves the immediate context's PS binding reset */
     SH_REL(got); ID3D11DeviceContext_ClearState(e.ctx);
     SH_REL(cl); SH_REL(ps); SH_REL(dc); sh_env_free(&e);
 }
@@ -83,7 +83,7 @@ TEST(d3d11_shaders_release_shader_after_command_list_recorded)
     EXPECT_HR(ID3D11Device_CreateVertexShader(e.dev, SH_BP(b), SH_BN(b), NULL, &vs), S_OK);
     ID3D11DeviceContext_VSSetShader(dc, vs, NULL, 0);
     EXPECT_HR(ID3D11DeviceContext_FinishCommandList(dc, FALSE, &cl), S_OK);
-    t_note("public refcount of a shader recorded into a command list: %lu", (unsigned long)d3dh_refcount(vs));
+    EXPECT_EQ(d3dh_refcount(vs), 1);   /* the command list holds an internal reference only */
     SH_REL(vs); /* command list keeps it alive internally */
     ID3D11DeviceContext_ExecuteCommandList(e.ctx, cl, FALSE); /* must not crash */
     SH_REL(cl); SH_REL(dc); sh_env_free(&e);
@@ -120,7 +120,7 @@ TEST(d3d11_shaders_context_release_before_shader)
     ID3D11DeviceContext_VSSetShader(e.ctx, vs, NULL, 0);
     ID3D11DeviceContext_ClearState(e.ctx);
     SH_REL(e.ctx);
-    t_note("public refcount of a bound shader after the context is released: %lu", (unsigned long)d3dh_refcount(vs));
+    EXPECT_EQ(d3dh_refcount(vs), 1);
     SH_REL(vs); SH_REL(e.dev);
 }
 TEST(d3d11_shaders_shader_outlives_app_device_reference)
@@ -143,7 +143,7 @@ TEST(d3d11_shaders_device_refcount_after_shader_creation_observed)
     ULONG before = d3dh_refcount(e.dev);
     EXPECT_HR(ID3D11Device_CreateVertexShader(e.dev, SH_BP(b), SH_BN(b), NULL, &vs), S_OK);
     ULONG after = d3dh_refcount(e.dev);
-    t_note("device refcount before/after creating a shader: %lu/%lu", before, after);
+    EXPECT_EQ(after, before + 1);   /* a device child holds one public reference on its device */
     SH_REL(vs);
     sh_env_free(&e);
 }

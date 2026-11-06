@@ -96,7 +96,7 @@ static const sh_ent sh_table[] = {
         "float4 main(float4 p : SV_Position) : SV_Target { uint n; InterlockedAdd(outbuf[0], 1, n); return float4(1, 1, 1, 1); }\n", 0xb000 },
   { "ps_depthge", "ps_5_0",
         "struct O { float4 c : SV_Target; float d : SV_DepthGreaterEqual; };\n"
-        "O main(float4 p : SV_Position) { O o; o.c = 1; o.d = p.z + 0.25f; return o; }\n", 0xb000 },
+        "O main(noperspective centroid float4 p : SV_Position) { O o; o.c = 1; o.d = p.z + 0.25f; return o; }\n", 0xb000 },
   { "ps_bufinfo", "ps_5_0",
         "Texture2D<float4> tex : register(t0);\n"
         "float4 main(float4 p : SV_Position) : SV_Target { uint w, h, m; tex.GetDimensions(0, w, h, m); return float4((float)w, (float)h, (float)m, 1); }\n", 0xb000 },
