@@ -289,21 +289,24 @@ TEST(d3d12_rootsig_cpu_hlsl_set_blob_part_root_signature) {
 }
 
 /* ---------------- compile failures ---------------- */
-#define HE(name, text, target) TEST(d3d12_rootsig_cpu_hlsl_error_##name) { REQUIRE(d3dh_D3DCompile()); ID3DBlob *code = NULL; HRESULT hr = compile_rs(text, target, &code); \
-    if (rs_unsup(hr)) return; CHECKF(FAILED(hr), "compile of \"%s\" unexpectedly succeeded", text); t_note("%s -> hr=%08lx text=%s", #name, (unsigned long)hr, d3dh_compile_errors()); SAFE_RELEASE(code); }
-HE(syntax_garbage, "this is not a root signature", "rootsig_1_0")
-HE(unknown_token, "NoSuchThing(b0)", "rootsig_1_0")
-HE(overlap_cbv, "CBV(b0), CBV(b0)", "rootsig_1_0")
-HE(overlap_constants_cbv, "RootConstants(num32BitConstants=1, b2), CBV(b2)", "rootsig_1_0")
-HE(overlap_table_root, "DescriptorTable(SRV(t0, numDescriptors=4)), SRV(t3)", "rootsig_1_0")
-HE(sampler_mixed_in_table, "DescriptorTable(SRV(t0), Sampler(s0))", "rootsig_1_0")
-HE(zero_descriptors, "DescriptorTable(SRV(t0, numDescriptors=0))", "rootsig_1_0")
-HE(append_after_unbounded, "DescriptorTable(SRV(t0, numDescriptors=unbounded), UAV(u0))", "rootsig_1_0")
-HE(sampler_dup, "StaticSampler(s0), StaticSampler(s0)", "rootsig_1_0")
-HE(bad_aniso, "StaticSampler(s0, maxAnisotropy=17)", "rootsig_1_0")
-HE(missing_register, "CBV()", "rootsig_1_0")
-HE(unterminated, "CBV(b0", "rootsig_1_0")
-HE(v10_rejects_flags_keyword, "CBV(b0, flags=DATA_STATIC)", "rootsig_1_0")
-HE(v11_double_data_flags, "CBV(b0, flags=DATA_VOLATILE | DATA_STATIC)", "rootsig_1_1")
-HE(v11_volatile_with_data_static, "DescriptorTable(SRV(t0, flags=DESCRIPTORS_VOLATILE | DATA_STATIC))", "rootsig_1_1")
-HE(v11_sampler_data_flag, "DescriptorTable(Sampler(s0, flags=DATA_VOLATILE))", "rootsig_1_1")
+#define HE(name, text, target, want) TEST(d3d12_rootsig_cpu_hlsl_error_##name) { REQUIRE(d3dh_D3DCompile()); ID3DBlob *code = NULL; HRESULT hr = compile_rs(text, target, &code); \
+    if (rs_unsup(hr)) return; CHECKF(FAILED(hr), "compile of \"%s\" unexpectedly succeeded", text); EXPECT_HR(hr, E_FAIL); \
+    CHECKF(strstr(d3dh_compile_errors(), want) != NULL, "%s: error text \"%s\" lacks \"%s\"", #name, d3dh_compile_errors(), want); SAFE_RELEASE(code); }
+#define X4612(tok) "error X4612: Unexpected token '" tok "'"
+#define X4614 "error X4614: RootSignature creation failed: "
+HE(syntax_garbage, "this is not a root signature", "rootsig_1_0", X4612("this") " when parsing root signature")
+HE(unknown_token, "NoSuchThing(b0)", "rootsig_1_0", X4612("NoSuchThing") " when parsing root signature")
+HE(overlap_cbv, "CBV(b0), CBV(b0)", "rootsig_1_0", X4614 "Shader register range of type CBV (root parameter [1], visibility ALL) overlaps with another shader register range (root parameter [0], visibility ALL)")
+HE(overlap_constants_cbv, "RootConstants(num32BitConstants=1, b2), CBV(b2)", "rootsig_1_0", X4614 "Shader register range of type CBV (root parameter [1], visibility ALL) overlaps with another shader register range (root parameter [0], vis")
+HE(overlap_table_root, "DescriptorTable(SRV(t0, numDescriptors=4)), SRV(t3)", "rootsig_1_0", X4614 "Shader register range of type SRV (root parameter [1], visibility ALL) overlaps with another shader register range (root parameter[0], visibil")
+HE(sampler_mixed_in_table, "DescriptorTable(SRV(t0), Sampler(s0))", "rootsig_1_0", X4614 "Samplers cannot be mixed with other resource types in a descriptor table (root parameter [0]).")
+HE(zero_descriptors, "DescriptorTable(SRV(t0, numDescriptors=0))", "rootsig_1_0", X4614 "NumDescriptors cannot be 0 (descriptor table slot [0], root parameter [0]).")
+HE(append_after_unbounded, "DescriptorTable(SRV(t0, numDescriptors=unbounded), UAV(u0))", "rootsig_1_0", X4614 "Cannot append range with implicit lower bound after an unbounded range (descriptor table slot [1], root parameter [0]).")
+HE(sampler_dup, "StaticSampler(s0), StaticSampler(s0)", "rootsig_1_0", X4614 "Shader register range of type SAMPLER (static sampler [1], visibility ALL) overlaps with another shader register range (static sampler [0], visibility ALL)")
+HE(bad_aniso, "StaticSampler(s0, maxAnisotropy=17)", "rootsig_1_0", X4614 "Static sampler: MaxAnisotropy must be in the range [0 to 16].  17 specified.")
+HE(missing_register, "CBV()", "rootsig_1_0", X4612(")"))
+HE(unterminated, "CBV(b0", "rootsig_1_0", X4612(""))
+HE(v10_rejects_flags_keyword, "CBV(b0, flags=DATA_STATIC)", "rootsig_1_0", "error X4619: Root descriptor flags cannot be specified for root_sig_1_0")
+HE(v11_double_data_flags, "CBV(b0, flags=DATA_VOLATILE | DATA_STATIC)", "rootsig_1_1", X4614 "Root descriptor flags cannot specify more than one DATA_* flag at a time (root descriptor flags a).")
+HE(v11_volatile_with_data_static, "DescriptorTable(SRV(t0, flags=DESCRIPTORS_VOLATILE | DATA_STATIC))", "rootsig_1_1", X4614 "Descriptor range flags cannot specify DESCRIPTORS_VOLATILE with the DATA_STATIC flag at the same time (descriptor range flags 9).")
+HE(v11_sampler_data_flag, "DescriptorTable(Sampler(s0, flags=DATA_VOLATILE))", "rootsig_1_1", X4614 "Sampler descriptor ranges can't specify DATA_* flags since there is no data pointed to by samplers (descriptor range flags 2).")

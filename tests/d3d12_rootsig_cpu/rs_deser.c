@@ -222,40 +222,84 @@ TEST(d3d12_rootsig_cpu_des_container_gap_between_parts_rejected) {
     hr = crv(&bl, bl.n, &IID_ID3D12VersionedRootSignatureDeserializer, &p); \
     if (okexpect) { EXPECT_HR(hr, S_OK); if (p) ID3D12VersionedRootSignatureDeserializer_Release((ID3D12VersionedRootSignatureDeserializer *)p); } \
     else { EXPECT_HR(hr, E_INVALID); CHECK(p == NULL); } }
-PAY(version_0, 0, w[0] = 0, (void)0)
-PAY(version_4, 0, w[0] = 4, (void)0)
-PAY(version_99, 0, w[0] = 99, (void)0)
-PAY(version_ffffffff, 0, w[0] = 0xffffffffu, (void)0)
-PAY(shorter_than_header, 0, n = 23, (void)0)
-PAY(only_version, 0, n = 4, (void)0)
 PAY(header_only_empty_ok, 1, w[1] = 0; w[3] = 0; w[4] = 24; n = 24, CHECK(g->NumParameters == 0 && g->NumStaticSamplers == 0))
 /* Win10 22H2: the parameter count and offset are not range checked against the payload. Counts/offsets that run off the buffer fault inside the
    deserializer (access violation, 3/3 fresh VMs); a count one past the real table just reads the next bytes as a parameter and succeeds. */
-typedef struct { const CBUF *bl; HRESULT hr; void *p; int versioned; } payf_args;
-static void payf_call(void *x) {
-    payf_args *a = x; a->p = (void *)(ULONG_PTR)1;
-    a->hr = a->versioned ? CRVDES()(a->bl->d, a->bl->n, &IID_ID3D12VersionedRootSignatureDeserializer, &a->p) : CRDES()(a->bl->d, a->bl->n, &IID_ID3D12RootSignatureDeserializer, &a->p);
+/* run in a child process: the fault leaves the deserializer's heap state undefined, which would show up as heap corruption in a later,
+   unrelated test of this process */
+CHILD(rs_payload_fault)
+{
+    int which = argc > 0 ? atoi(argv[0]) : 0; RS0 b; RSBUF m; CBUF bl; size_t n; uint32_t w[64]; void *p = NULL;
+    if (!CRDES()) return 77;
+    n = rs_model0(sample0(&b), &m); memcpy(w, m.w, n);
+    if (which == 0) w[1] = 100; else if (which == 1) w[1] = 0xffffffffu; else w[2] = 4000;
+    mk_blob(&bl, w, n, 1);
+    CRDES()(bl.d, bl.n, &IID_ID3D12RootSignatureDeserializer, &p);
+    return 0;
 }
-#define PAYF(name, code) TEST(d3d12_rootsig_cpu_des_payload_##name##_faults) { RS_REQUIRE_ALL(); RS0 b; RSBUF m; CBUF bl; size_t n; uint32_t w[64]; \
-    n = rs_model0(sample0(&b), &m); memcpy(w, m.w, n); { code; } mk_blob(&bl, w, n, 1); \
-    payf_args a = { &bl, S_OK, NULL, 0 }; \
-    EXPECT_EQ(t_try(payf_call, &a), 0xC0000005u); }
-PAYF(params_count_overruns, w[1] = 100)
-PAYF(params_count_huge, w[1] = 0xffffffffu)
-PAYF(params_offset_beyond, w[2] = 4000)
+#define PAYF(name, which) TEST(d3d12_rootsig_cpu_des_payload_##name##_faults) { RS_REQUIRE_ALL(); \
+    EXPECT_EQ(t_run_child("rs_payload_fault", #which, 60000), 0xC0000005u); }
+PAYF(params_count_overruns, 0)
+PAYF(params_count_huge, 1)
+PAYF(params_offset_beyond, 2)
+/* Offsets and counts that run past the end of the RTS0 payload. Win10 22H2 answers E_INVALIDARG with a NULL output for them, but it first
+   reads the bytes behind the payload and in this process family the heap occasionally comes back damaged (0xc0000374 / 0xc0000005 in a
+   later, unrelated allocation, seen in 5 of 8 in-process runs). They therefore run in a child process: the only acceptable outcomes are a clean
+   E_INVALIDARG on every iteration (exit 0) or the process dying with a heap/access-violation exception; any other HRESULT (exit 1) fails. */
+CHILD(rs_payload_bounds)
+{
+    int which = argc > 0 ? atoi(argv[0]) : 0, k, bad = 0; RS0 b; RSBUF m; CBUF bl; size_t n; uint32_t w[64];
+    if (!CRDES() || !CRVDES()) return 77;
+    n = rs_model0(sample0(&b), &m); memcpy(w, m.w, n);
+    switch (which) {
+    case 0: w[3] = 2; break;
+    case 1: w[3] = 0x7fffffffu; break;
+    case 2: w[4] = 1000; break;
+    case 3: w[4] = 180 - 51; break;
+    case 4: w[3] = 0; w[4] = 400; break;
+    case 5: w[8] = 4000; break;
+    case 6: w[8] = 180 - 8; break;
+    case 7: w[11] = 180 - 4; break;
+    case 8: w[14] = 180 - 4; break;
+    case 9: w[0] = 0; break;
+    case 10: w[0] = 4; break;
+    case 11: w[0] = 99; break;
+    case 12: w[0] = 0xffffffffu; break;
+    case 13: n = 23; break;
+    case 14: n = 4; break;
+    case 15: w[6] = 5; break;
+    case 16: w[9] = 0xffffffffu; break;
+    }
+    mk_blob(&bl, w, n, 1);
+    for (k = 0; k < 4; k++) {
+        void *p = (void *)(ULONG_PTR)1; HRESULT hr = CRDES()(bl.d, bl.n, &IID_ID3D12RootSignatureDeserializer, &p);
+        if (hr != E_INVALID || p != NULL) bad = 1;
+        p = (void *)(ULONG_PTR)1; hr = CRVDES()(bl.d, bl.n, &IID_ID3D12VersionedRootSignatureDeserializer, &p);
+        if (hr != E_INVALID || p != NULL) bad = 1;
+    }
+    return bad;
+}
+#define PAYB(name, which) TEST(d3d12_rootsig_cpu_des_payload_##name) { RS_REQUIRE_ALL(); DWORD rc = t_run_child("rs_payload_bounds", #which, 60000); \
+    CHECKF(rc == 0 || rc == 0xC0000374u || rc == 0xC0000005u, "child exit 0x%08lx (want 0, or a heap/AV crash)", (unsigned long)rc); }
+PAYB(sampler_count_overruns, 0)
+PAYB(sampler_count_huge, 1)
+PAYB(sampler_offset_beyond, 2)
+PAYB(sampler_offset_end_minus_1, 3)
+PAYB(sampler_count_zero_offset_far_ok, 4)
+PAYB(constants_payload_beyond, 5)
+PAYB(constants_payload_crosses_end, 6)
+PAYB(cbv_payload_crosses_end, 7)
+PAYB(table_header_crosses_end, 8)
+PAYB(version_0, 9)
+PAYB(version_4, 10)
+PAYB(version_99, 11)
+PAYB(version_ffffffff, 12)
+PAYB(shorter_than_header, 13)
+PAYB(only_version, 14)
+PAYB(param_type_5, 15)
+PAYB(param_type_ffffffff, 16)
 PAY(params_count_one_too_many, 1, w[1] = 4, (void)0)
-PAY(sampler_count_overruns, 0, w[3] = 2, (void)0)
-PAY(sampler_count_huge, 0, w[3] = 0x7fffffffu, (void)0)
-PAY(sampler_offset_beyond, 0, w[4] = 1000, (void)0)
-PAY(sampler_offset_end_minus_1, 0, w[4] = 180 - 51, (void)0)
 PAY(sampler_count_zero_offset_at_end, 1, w[3] = 0; w[4] = 180, CHECK(g->NumStaticSamplers == 0))
-PAY(sampler_count_zero_offset_far_ok, 0, w[3] = 0; w[4] = 400, (void)0)
-PAY(param_type_5, 0, w[6] = 5, (void)0)
-PAY(param_type_ffffffff, 0, w[9] = 0xffffffffu, (void)0)
-PAY(constants_payload_beyond, 0, w[8] = 4000, (void)0)
-PAY(constants_payload_crosses_end, 0, w[8] = 180 - 8, (void)0)
-PAY(cbv_payload_crosses_end, 0, w[11] = 180 - 4, (void)0)
-PAY(table_header_crosses_end, 0, w[14] = 180 - 4, (void)0)
 /* table_header_beyond (table header offset 100000 bytes past a 16 KiB buffer) is deliberately not run: Win10 22H2 reads and writes through the
    unchecked offset and dies with heap corruption (0xc0000374) at an unpredictable later point, so no stable outcome can be pinned in-process. */
 PAY(flags_top_bit_dropped, 1, w[5] = 0x80000001u, EXPECT_EQ(g->Flags, 1))
