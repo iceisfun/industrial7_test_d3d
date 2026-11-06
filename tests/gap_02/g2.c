@@ -22,6 +22,10 @@ static DWORD raw_vcp(HANDLE h, BYTE code, DWORD v, BOOL *ok)
     SET_ERR(0); *ok = f(h, code, v); return GetLastError();
 }
 static int need_gle(void) { return !t_is_wine(); }
+/* Win10 (probed, identical for every invalid handle value): every failing high-level monitor call leaves the NTSTATUS-style code
+ * 0xC026258C in GetLastError, while gdi32!DDCCISaveCurrentSettings itself returns the status 0xC01E058C. */
+#define DDCCI_INVALID_HANDLE 0xC026258Cu
+#define DDCCI_SAVE_STATUS 0xC01E058Cu
 
 static void set_vs_raw(const char *nm, set_fn f, BYTE code)
 {
@@ -34,7 +38,7 @@ static void set_vs_raw(const char *nm, set_fn f, BYTE code)
             CHECKF(r == rok, "%s h=%p v=%lu", nm, kH[i], kV[k]);
             CHECKF(r == FALSE, "%s h=%p v=%lu succeeded", nm, kH[i], kV[k]);
             CHECKF(e == re, "%s h=%p v=%lu gle %lu raw %lu", nm, kH[i], kV[k], e, re);
-            if (need_gle()) CHECKF(e != 0, "%s h=%p v=%lu gle 0", nm, kH[i], kV[k]);
+            if (need_gle()) CHECKF(e == DDCCI_INVALID_HANDLE, "%s h=%p v=%lu gle 0x%lx", nm, kH[i], kV[k], e);
         }
 }
 TEST(gap2_brightness_set_matches_vcp10_table) { set_vs_raw("brightness", U(SetMonitorBrightness), 0x10); }
@@ -48,6 +52,7 @@ static void act_vs_raw(const char *nm, act_fn f, BYTE code)
         SET_ERR(0); BOOL r = f(kH[i]); DWORD e = GetLastError();
         CHECKF(r == FALSE, "%s h=%p", nm, kH[i]);
         CHECKF(e == re, "%s h=%p gle %lu raw %lu", nm, kH[i], e, re);
+        if (need_gle()) CHECKF(e == DDCCI_INVALID_HANDLE, "%s h=%p gle 0x%lx", nm, kH[i], e);
     }
 }
 TEST(gap2_restore_factory_defaults_matches_vcp04_table) { act_vs_raw("restore", U(RestoreMonitorFactoryDefaults), 0x04); }
@@ -92,7 +97,7 @@ TEST(gap2_save_aliases_table) {
         SET_ERR(0); BOOL rb = b(kH[i]); DWORD eb = GetLastError();
         CHECKF(ra == FALSE && rb == FALSE, "h=%p", kH[i]);
         CHECKF(ea == eb, "h=%p %lu vs %lu", kH[i], ea, eb);
-        if (need_gle()) CHECKF(ea != 0, "h=%p", kH[i]);
+        if (need_gle()) CHECKF(ea == DDCCI_INVALID_HANDLE, "h=%p gle 0x%lx", kH[i], ea);
     }
 }
 TEST(gap2_save_matches_gdi32_ddcci) {
@@ -105,7 +110,7 @@ TEST(gap2_save_matches_gdi32_ddcci) {
         LONG st = raw(kH[i]);
         SET_ERR(0); BOOL r = a(kH[i]); DWORD e = GetLastError();
         CHECKF((st >= 0) == (r != FALSE), "h=%p status 0x%lx ret %d", kH[i], (unsigned long)st, r);
-        t_note("h=%p DDCCISaveCurrentSettings=0x%lx gle=%lu", kH[i], (unsigned long)st, e);
+        if (need_gle()) { EXPECT_EQ((ULONG_PTR)(DWORD)st, DDCCI_SAVE_STATUS); EXPECT_EQ(e, DDCCI_INVALID_HANDLE); }
     }
 }
 TEST(gap2_save_does_not_touch_other_errors_when_called_twice) {
