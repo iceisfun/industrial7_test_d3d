@@ -59,17 +59,24 @@ T(threads_refcount_hammer_dxgi_factory)
     SAFE_RELEASE(f);
 }
 
+typedef struct { ID3D11Device *d; IUnknown *id; } qishared;
 static DWORD WINAPI qi_hammer(cts_job *j)
 {
-    ID3D11Device *d = j->shared;
+    qishared *qs = j->shared; ID3D11Device *d = qs->d;
     for (int i = 0; i < j->ops; i++) {
         IDXGIDevice *dd = NULL; ID3D11Device *d2 = NULL; IUnknown *u = NULL; ID3D11Debug *dbg = NULL;
         HRESULT h = ID3D11Device_QueryInterface(d, &IID_IDXGIDevice, (void **)&dd);
-        if (FAILED(h)) CTS_FAIL(j, h); else IDXGIDevice_Release(dd);
+        if (FAILED(h)) CTS_FAIL(j, h);
+        else {
+            /* COM identity: IUnknown from any interface is the same pointer.  On Windows 10 it is NOT the ID3D11Device pointer. */
+            h = IDXGIDevice_QueryInterface(dd, &IID_IUnknown, (void **)&u);
+            if (FAILED(h)) CTS_FAIL(j, h); else { if (u != qs->id) CTS_FAIL(j, E_FAIL); u->lpVtbl->Release(u); }
+            IDXGIDevice_Release(dd);
+        }
         h = ID3D11Device_QueryInterface(d, &IID_ID3D11Device, (void **)&d2);
         if (FAILED(h)) CTS_FAIL(j, h); else { if ((void *)d2 != (void *)d) CTS_FAIL(j, E_FAIL); ID3D11Device_Release(d2); }
         h = ID3D11Device_QueryInterface(d, &IID_IUnknown, (void **)&u);
-        if (FAILED(h)) CTS_FAIL(j, h); else { if (u != (IUnknown *)d) CTS_FAIL(j, E_FAIL); u->lpVtbl->Release(u); }
+        if (FAILED(h)) CTS_FAIL(j, h); else { if (u != qs->id) CTS_FAIL(j, E_FAIL); u->lpVtbl->Release(u); }
         h = ID3D11Device_QueryInterface(d, &IID_IDXGISurface, (void **)&dbg);   /* unsupported interface */
         if (h != E_NOINTERFACE || dbg) CTS_FAIL(j, h);
         j->done++;
@@ -82,8 +89,13 @@ T(threads_queryinterface_concurrent_device)
     REQUIRE(d3dh_D3D11CreateDevice());
     if (FAILED(cts_dev11(0, &d, &c))) { t_skip("no 11 device"); return; }
     before = d3dh_refcount(d);
+    qishared qs; qs.d = d; qs.id = NULL;
+    EXPECT_HR_OK(ID3D11Device_QueryInterface(d, &IID_IUnknown, (void **)&qs.id));
+    CHECK(qs.id != NULL);
+    if (qs.id) { CHECK((void *)qs.id != (void *)d); }      /* Windows 10: the identity IUnknown differs from the ID3D11Device interface pointer */
+    if (qs.id) qs.id->lpVtbl->Release(qs.id);
     memset(j, 0, sizeof j);
-    for (int i = 0; i < NT; i++) { j[i].shared = d; j[i].ops = 300; }
+    for (int i = 0; i < NT; i++) { j[i].shared = &qs; j[i].ops = 300; }
     CHECK(cts_run(NT, j, qi_hammer, 60000));
     EXPECT_EQ(cts_total_fails(NT, j), 0);
     EXPECT_EQ(cts_total_done(NT, j), NT * 300);
@@ -331,7 +343,9 @@ T(threads_protected_immediate_context_roundtrip_4x50)
     REQUIRE(d3dh_D3D11CreateDevice());
     if (FAILED(cts_dev11(0, &d, &c))) { t_skip("no 11 device"); return; }
     if (FAILED(ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11Multithread, (void **)&mt))) { t_skip("no ID3D11Multithread"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
-    if (!ID3D11Multithread_GetMultithreadProtected(mt)) { t_skip("context not protected"); SAFE_RELEASE(mt); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
+    /* Windows 10: a default device is NOT multithread protected; enable protection explicitly (it was returning "previous == FALSE") */
+    EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt, TRUE), FALSE);
+    EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), TRUE);
     s.c = c; s.d = d;
     memset(j, 0, sizeof j);
     for (int i = 0; i < 4; i++) { j[i].shared = &s; j[i].ops = 50; }
@@ -349,10 +363,13 @@ T(threads_multithread_default_protected)
     if (FAILED(cts_dev11(0, &d, &c))) { t_skip("no 11 device"); return; }
     EXPECT_HR_OK(ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11Multithread, (void **)&mt));
     if (mt) {
-        EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), TRUE);
+        /* Windows 10: a device created with default flags (WARP or hardware, debug layer on or off) is NOT multithread protected */
+        EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), FALSE);
         /* the interface is also reachable from the device and is the same object state */
         if (SUCCEEDED(ID3D11Device_QueryInterface(d, &IID_ID3D11Multithread, (void **)&mt2))) {
-            EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt2), TRUE);
+            EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt2), FALSE);
+            EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt2, TRUE), FALSE);
+            EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), TRUE);        /* same state seen through the context's interface */
             SAFE_RELEASE(mt2);
         } else t_note("device QI(ID3D11Multithread) failed");
     }
@@ -364,6 +381,8 @@ T(threads_multithread_set_returns_previous)
     REQUIRE(d3dh_D3D11CreateDevice());
     if (FAILED(cts_dev11(0, &d, &c))) { t_skip("no 11 device"); return; }
     if (FAILED(ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11Multithread, (void **)&mt))) { t_skip("no ID3D11Multithread"); SAFE_RELEASE(c); SAFE_RELEASE(d); return; }
+    EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt, TRUE), FALSE);      /* default is unprotected */
+    EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), TRUE);
     EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt, FALSE), TRUE);
     EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), FALSE);
     EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt, FALSE), FALSE);

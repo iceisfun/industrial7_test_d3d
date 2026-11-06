@@ -195,6 +195,9 @@ T(lifecycle_resource_create_destroy_loop_no_growth)
         cts_make_buffer(d, 65536, D3D11_BIND_VERTEX_BUFFER, &b);
         cts_make_tex(d, 64, 64, &t);
         SAFE_RELEASE(t); SAFE_RELEASE(b);
+        /* Windows 10: the runtime defers the destruction of released resources until the immediate context is flushed,
+           so an unflushed loop grows by ~80 KiB per pair (289 MB over 3500 pairs measured); Flush every 64 iterations. */
+        if ((i & 63) == 63) ID3D11DeviceContext_Flush(c);
         if (i == 499) base = cts_private_bytes();
     }
     ID3D11DeviceContext_Flush(c);

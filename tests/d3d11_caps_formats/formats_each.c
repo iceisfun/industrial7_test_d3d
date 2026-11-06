@@ -14,7 +14,8 @@ static void fmt_rules(UINT f)
     if (hr != S_OK) s = 0;
     /* repeated query is stable */
     { UINT again; HRESULT h2 = cf_support(d, f, &again); EXPECT_HR(h2, hr); if (SUCCEEDED(h2)) EXPECT_EQ(again, s); }
-    CHECKF((s & 0x80000000u) == 0, "undefined top bit set: %#x", s);
+    if (f == DXGI_FORMAT_NV12) EXPECT_EQ(s & 0xc0000000u, 0xc0000000u);   /* Windows 10 WARP: NV12 alone sets the two undocumented top bits */
+    else CHECKF((s & 0x80000000u) == 0, "undefined top bit set: %#x", s);
     /* feature-query path returns exactly the same word */
     { D3D11_FEATURE_DATA_FORMAT_SUPPORT fd; fd.InFormat = (DXGI_FORMAT)f; fd.OutFormatSupport = 0xdeadbeef;
       HRESULT h3 = ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_FORMAT_SUPPORT, &fd, sizeof(fd));

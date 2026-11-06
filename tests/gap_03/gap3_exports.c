@@ -80,10 +80,29 @@ static void lookup_errors(const char *dll) {
         if (!GetProcAddress(m, buf)) { SetLastError(0); CHECK(GetProcAddress(m, buf) == NULL); EXPECT_ERR(ERROR_PROC_NOT_FOUND); }
         break; /* the table-wide loop is done by the other tests; one name per module is enough here */
     }
+    /* Windows 10: ordinal 0 is an invalid parameter; an ordinal outside the export table (or in a hole of it) is ERROR_INVALID_ORDINAL; names are PROC_NOT_FOUND */
     SetLastError(0);
-    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0xFFFF) == NULL); EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0) == NULL); EXPECT_ERR(ERROR_INVALID_PARAMETER);
+    IMAGE_EXPORT_DIRECTORY *ed = g3_expdir(m, NULL);
+    if (ed) {
+        unsigned top = (unsigned)(ed->Base + ed->NumberOfFunctions);
+        SetLastError(0);
+        CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)top) == NULL); EXPECT_ERR(ERROR_INVALID_ORDINAL);
+        SetLastError(0);
+        CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)(top + 1)) == NULL); EXPECT_ERR(ERROR_INVALID_ORDINAL);
+        if (ed->Base > 1) {
+            SetLastError(0);
+            CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)(ed->Base - 1)) == NULL); EXPECT_ERR(ERROR_INVALID_ORDINAL);
+        }
+        SetLastError(0);
+        CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)(ed->Base)) != NULL); EXPECT_EQ(GetLastError(), 0);
+    }
     SetLastError(0);
-    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0) == NULL); EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0xFFFF) == NULL); EXPECT_ERR(ERROR_INVALID_ORDINAL);
+    SetLastError(0);
+    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0x8000) == NULL); EXPECT_ERR(ERROR_INVALID_ORDINAL);
+    SetLastError(0);
+    CHECK(GetProcAddress(m, "") == NULL); EXPECT_ERR(ERROR_PROC_NOT_FOUND);
 }
 static void in_image(const char *dll) {
     HMODULE m = g3_mod(dll); if (!m) return;

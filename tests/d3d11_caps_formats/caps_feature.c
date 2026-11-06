@@ -43,6 +43,7 @@ static void feat_bad_sizes(int feat, UINT sz)
         unsigned char ref[512];
         memset(buf, 0xef, sizeof(buf)); memcpy(ref, buf, sizeof(buf));
         if (sizes[i] == sz) continue;
+        if (feat == 14 && sizes[i] == 36) continue;      /* Windows 10 accepts 36 for D3D11_OPTIONS2 */
         HRESULT hr = cf_chk(d, feat, buf, sizes[i]);
         t_check(hr == E_INVALIDARG, __FILE__, __LINE__, "bad size", "feature %d size %u got %s", feat, sizes[i], d3dh_hr_name(hr));
         t_check(!memcmp(buf, ref, sizeof(buf)), __FILE__, __LINE__, "buffer untouched", "feature %d size %u modified the buffer", feat, sizes[i]);
@@ -159,7 +160,9 @@ TEST(d3d11_caps_formats_feat_enum_values)
 /* Unknown feature ids are rejected. */
 TEST(d3d11_caps_formats_feat_unknown_ids)
 {
-    static const int ids[] = { 64, 100, 255, 256, 0x10000, 0x7fffffff, -1, (int)0x80000000 };
+    /* ids with the high bit other than -1 (0x80000000, 0x80000001, 0xc0000000) are NOT rejected by Windows 10 d3d11 (S_OK, 4 bytes written;
+       the result varied between calls: an unvalidated table index), so they are deliberately left out. */
+    static const int ids[] = { 64, 100, 255, 256, 0x10000, 0x7fffffff, -1 };
     ID3D11Device *d = cf_shared(NULL);
     unsigned char buf[64]; size_t i; UINT sz;
     if (!d) { t_skip("no D3D11 device"); return; }
@@ -338,7 +341,8 @@ static void level_features(D3D_FEATURE_LEVEL want)
         HRESULT hr = cf_chk(d, feat, buf, sz);
         if (hr != S_OK) t_note("fl %s feature %d: %s", cf_fl_name(want), feat, d3dh_hr_name(hr));
         /* a wrong size never succeeds at any level */
-        EXPECT_HR(cf_chk(d, feat, buf, sz + 4), E_INVALIDARG);
+        /* (Windows 10: D3D11_OPTIONS2 also accepts 36 bytes, the size of a later revision of the struct) */
+        EXPECT_HR(cf_chk(d, feat, buf, sz + 4), feat == 14 ? S_OK : E_INVALIDARG);
     }
     SAFE_RELEASE(d);
 }

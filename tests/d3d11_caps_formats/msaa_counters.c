@@ -97,7 +97,7 @@ TEST(d3d11_caps_formats_msaa_bc_has_no_levels)
     ID3D11Device *d = cf_shared(NULL); UINT q; UINT f;
     if (!d) { t_skip("no D3D11 device"); return; }
     for (f = DXGI_FORMAT_BC1_TYPELESS; f <= DXGI_FORMAT_BC7_UNORM_SRGB; f++) {
-        if (!cf_is_defined(f)) continue;
+        if (!cf_is_defined(f) || !cf_is_bc(f)) continue;     /* 85..93 (B5G6R5, B8G8R8A8...) sit between BC5 and BC6H and are multisample capable */
         q = 0xdeadbeef;
         HRESULT hr = msq(d, f, 2, &q);
         CHECKF(FAILED(hr) || q == 0, "%s x2 has %u levels", cf_fmt_name(f), q);
@@ -328,11 +328,18 @@ static void limits_at(D3D_FEATURE_LEVEL fl, UINT max2d, UINT maxcube, UINT max3d
 {
     ID3D11Device *d = cf_make(fl);
     if (!d) { t_skip("feature level %s unavailable", cf_fl_name(fl)); return; }
-    if (max2d <= 8192 || fl >= D3D_FEATURE_LEVEL_10_0) {
-        EXPECT_HR(mk2d(d, max2d, 16, 1, 0), S_OK);
-        EXPECT_HR(mk2d(d, 16, max2d, 1, 0), S_OK);
+    EXPECT_HR(mk2d(d, max2d, 16, 1, 0), S_OK);
+    EXPECT_HR(mk2d(d, 16, max2d, 1, 0), S_OK);
+    if (fl < D3D_FEATURE_LEVEL_10_0) {
+        /* Windows 10: 9_x devices reject anything above 4096 (also at 9_1/9_2, whose documented limit is 2048) */
         EXPECT_HR(mk2d(d, max2d + 1, 16, 1, 0), E_INVALIDARG);
         EXPECT_HR(mk2d(d, 16, max2d + 1, 1, 0), E_INVALIDARG);
+    } else {
+        /* Windows 10 (WARP and the basic render driver): the per-dimension 2D limit is not enforced for a 16-wide R8 texture
+           (1M wide succeeds); only the total size limits it.  Tex1D, cube and arrays are enforced. */
+        HRESULT hr = mk2d(d, max2d + 1, 16, 1, 0);
+        if (hr != S_OK) t_note("2D width %u above the %s limit: %s (Win10 oracle: S_OK)", max2d + 1, cf_fl_name(fl), d3dh_hr_name(hr));
+        EXPECT_HR(mk2d(d, 1u << 20, 16, 1, 0), S_OK);
     }
     EXPECT_HR(mk2d(d, 0, 16, 1, 0), E_INVALIDARG);
     EXPECT_HR(mk2d(d, 16, 0, 1, 0), E_INVALIDARG);
@@ -350,6 +357,10 @@ static void limits_at(D3D_FEATURE_LEVEL fl, UINT max2d, UINT maxcube, UINT max3d
     EXPECT_HR(mk3d(d, 1, 1, max3d), S_OK);
     EXPECT_HR(mk3d(d, max3d + 1, 1, 1), E_INVALIDARG);
     EXPECT_HR(mk3d(d, 1, 1, max3d + 1), E_INVALIDARG);
+    if (fl >= D3D_FEATURE_LEVEL_10_0 && maxcube > 2048) {
+        if (maxcube <= 8192) EXPECT_HR(mk2d(d, maxcube, maxcube, 6, D3D11_RESOURCE_MISC_TEXTURECUBE), S_OK);
+        EXPECT_HR(mk2d(d, maxcube + 1, maxcube + 1, 6, D3D11_RESOURCE_MISC_TEXTURECUBE), E_INVALIDARG);
+    }
     if (maxcube <= 2048) {
         EXPECT_HR(mk2d(d, maxcube, maxcube, 6, D3D11_RESOURCE_MISC_TEXTURECUBE), S_OK);
         EXPECT_HR(mk2d(d, maxcube + 1, maxcube + 1, 6, D3D11_RESOURCE_MISC_TEXTURECUBE), E_INVALIDARG);
@@ -360,11 +371,11 @@ static void limits_at(D3D_FEATURE_LEVEL fl, UINT max2d, UINT maxcube, UINT max3d
     SAFE_RELEASE(d);
 }
 /* 9_x arrays are not available; pass maxarr 1 there (array tests are skipped below 10_0) */
-TEST(d3d11_caps_formats_limits_fl9_1)  { limits_at(D3D_FEATURE_LEVEL_9_1, 2048, 512, 256, 1); }
-TEST(d3d11_caps_formats_limits_fl9_2)  { limits_at(D3D_FEATURE_LEVEL_9_2, 2048, 512, 256, 1); }
+TEST(d3d11_caps_formats_limits_fl9_1)  { limits_at(D3D_FEATURE_LEVEL_9_1, 4096, 512, 256, 1); }
+TEST(d3d11_caps_formats_limits_fl9_2)  { limits_at(D3D_FEATURE_LEVEL_9_2, 4096, 512, 256, 1); }
 TEST(d3d11_caps_formats_limits_fl9_3)  { limits_at(D3D_FEATURE_LEVEL_9_3, 4096, 4096, 256, 1); }
-TEST(d3d11_caps_formats_limits_fl10_0) { limits_at(D3D_FEATURE_LEVEL_10_0, 8192, 8192, 2048, 2048); }
-TEST(d3d11_caps_formats_limits_fl10_1) { limits_at(D3D_FEATURE_LEVEL_10_1, 8192, 8192, 2048, 2048); }
+TEST(d3d11_caps_formats_limits_fl10_0) { limits_at(D3D_FEATURE_LEVEL_10_0, 8192, 8192, 2048, 512); }
+TEST(d3d11_caps_formats_limits_fl10_1) { limits_at(D3D_FEATURE_LEVEL_10_1, 8192, 8192, 2048, 512); }
 TEST(d3d11_caps_formats_limits_fl11_0) { limits_at(D3D_FEATURE_LEVEL_11_0, 16384, 16384, 2048, 2048); }
 TEST(d3d11_caps_formats_limits_fl11_1) { limits_at(D3D_FEATURE_LEVEL_11_1, 16384, 16384, 2048, 2048); }
 
