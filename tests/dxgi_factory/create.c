@@ -206,8 +206,8 @@ TEST(dxgi_factory_cf2_debug_flag) {
     void *p = POISON;
     HRESULT hr = fh_cf2()(DXGI_CREATE_FACTORY_DEBUG, &IID_IDXGIFactory3, &p);
     /* With the Graphics Tools feature installed the debug factory is created and reports the flag back; without it the
-     * debug DLL is absent and the call fails with DXGI_ERROR_SDK_COMPONENT_MISSING (0x887a002d). */
-    CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D, "CreateDXGIFactory2(DEBUG) = %s", d3dh_hr_name(hr));
+     * debug DLL is absent and the call fails: DXGI_ERROR_INVALID_CALL measured on the plain 19045 image (0x887a002d is also accepted). */
+    CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D || hr == DXGI_ERROR_INVALID_CALL, "CreateDXGIFactory2(DEBUG) = %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) {
         CHECK(p != NULL && p != POISON);
         IDXGIFactory3 *f3 = p;

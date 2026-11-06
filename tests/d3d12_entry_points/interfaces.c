@@ -53,7 +53,8 @@ TEST(d3d12_entry_points_debug_interface_unrelated_iid) {
     REQUIRE(U(D3D12GetDebugInterface));
     void *p = NULL;
     HRESULT hr = U(D3D12GetDebugInterface)(&EP_RANDOM_GUID, &p);
-    EXPECT_HR(hr, E_NOINTERFACE);
+    /* E_NOINTERFACE with the Graphics Tools feature installed; DXGI_ERROR_SDK_COMPONENT_MISSING (0x887a002d) without it */
+    CHECKF(hr == E_NOINTERFACE || hr == (HRESULT)0x887A002D, "unrelated IID: %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr) && p) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
 }
 
@@ -61,7 +62,8 @@ TEST(d3d12_entry_points_debug_interface_not_a_device) {
     REQUIRE(U(D3D12GetDebugInterface));
     void *p = NULL;
     HRESULT hr = U(D3D12GetDebugInterface)(&IID_ID3D12Device, &p);
-    EXPECT_HR(hr, E_NOINTERFACE); CHECK(p == NULL);
+    CHECKF(hr == E_NOINTERFACE || hr == (HRESULT)0x887A002D, "device IID: %s", d3dh_hr_name(hr));   /* 0x887a002d without Graphics Tools */
+    CHECK(p == NULL);
 }
 
 TEST(d3d12_entry_points_debug_interface_repeatable) {

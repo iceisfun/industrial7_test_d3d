@@ -195,7 +195,8 @@ TEST(gap1_dxgi_debug_interface_unknown_iid) {
     HRESULT hr = U(DXGIGetDebugInterface1)(0, &IID_ID3D11Device, &p);
     EXPECT_HR_FAILED(hr);
     CHECK(p == NULL);
-    EXPECT_HR(hr, G1_E_NOINTERFACE);   /* unknown IID: measured on Win10 */
+    /* unknown IID: E_NOINTERFACE with the Graphics Tools feature installed, DXGI_ERROR_SDK_COMPONENT_MISSING (0x887a002d) without it */
+    CHECKF(hr == G1_E_NOINTERFACE || hr == (HRESULT)0x887A002D, "unknown IID: %s", d3dh_hr_name(hr));
 }
 
 /* ======================= D3D12CreateDevice ======================= */

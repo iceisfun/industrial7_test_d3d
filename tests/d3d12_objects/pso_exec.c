@@ -1167,7 +1167,7 @@ TEST(d3d12_objects_debug_interface_availability) {
     else CHECKF(hr == (HRESULT)0x887A002D || hr == E_NOINTERFACE || hr == E_FAIL || hr == E_INVALIDARG, "unexpected failure %s (the Graphics Tools feature is optional)", d3dh_hr_name(hr));
     void *o = NULL;
     hr = gdi(&IID_ID3D12Fence, &o);
-    CHECKF((hr) == E_NOINTERFACE, "unrelated IID: %s", d3dh_hr_name(hr));
+    CHECKF(hr == E_NOINTERFACE || hr == (HRESULT)0x887A002D, "unrelated IID: %s", d3dh_hr_name(hr));   /* 0x887a002d (SDK component missing) without Graphics Tools */
 }
 TEST(d3d12_objects_debug_info_queue_without_layer) {
     NEED_DEV();
