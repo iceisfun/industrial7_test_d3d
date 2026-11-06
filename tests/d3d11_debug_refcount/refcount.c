@@ -30,7 +30,8 @@ TEST(d3d11_debug_refcount_create_device_with_context_outputs)
     ID3D11DeviceContext_GetDevice(ctx, &d2);
     CHECK(d2 == dev);
     SAFE_RELEASE(d2);
-    t_note("device refcount with immediate context out-param held: %lu, context: %lu", d3dh_refcount(dev), d3dh_refcount(ctx));
+    EXPECT_EQ(d3dh_refcount(dev), 2);                     /* Win10: the immediate context holds one reference to its device */
+    EXPECT_EQ(d3dh_refcount(ctx), 1);
     RC_DEVICE_END(dev, ctx);
 }
 
@@ -187,12 +188,11 @@ TEST(d3d11_debug_refcount_device_qi_newer_interfaces_optional)
     RC_DEVICE(dev, ctx, 0);
     void *p = NULL;
     HRESULT hr = RC_QI(dev, IID_ID3D11Device4, &p);
-    t_note("ID3D11Device4 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);                                  /* Win10 22H2 d3d11 exposes Device4 and Device5 */
     if (SUCCEEDED(hr)) RC_RELEASE(p);
-    if (hr != S_OK) CHECK(hr == E_NOINTERFACE);
     p = NULL;
     hr = RC_QI(dev, IID_ID3D11Device5, &p);
-    t_note("ID3D11Device5 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) RC_RELEASE(p);
     if (hr != S_OK) CHECK(hr == E_NOINTERFACE);
     RC_DEVICE_END(dev, ctx);
@@ -225,7 +225,7 @@ TEST(d3d11_debug_refcount_device_dxgi_identity_note)
     EXPECT_HR(RC_QI(dev, IID_IUnknown, &u0), S_OK);
     if (dxgi) {
         EXPECT_HR(RC_QI(dxgi, IID_IUnknown, &u1), S_OK);
-        t_note("QI(IUnknown) via IDXGIDevice %s the device's own IUnknown", u0 == u1 ? "equals" : "differs from");
+        CHECK(u0 == u1);                                  /* one identity for the D3D11 and DXGI faces of the device */
         IDXGIDevice_Release(dxgi);
     }
     SAFE_RELEASE(u0); SAFE_RELEASE(u1);
@@ -286,11 +286,12 @@ TEST(d3d11_debug_refcount_context_annotation_identity_note)
     EXPECT_HR(RC_QI(ctx, IID_IUnknown, &u0), S_OK);
     if (a) {
         EXPECT_HR(RC_QI(a, IID_IUnknown, &u1), S_OK);
-        t_note("annotation interface IUnknown %s the context's", u0 == u1 ? "equals" : "differs from");
+        CHECK(u0 == u1);
         /* the annotation interface works on the immediate context */
         INT lvl = ID3DUserDefinedAnnotation_BeginEvent(a, L"refcount");
         INT end = ID3DUserDefinedAnnotation_EndEvent(a);
-        t_note("BeginEvent -> %d, EndEvent -> %d", (int)lvl, (int)end);
+        EXPECT_EQ(lvl, -1);                               /* Win10: no profiler attached */
+        EXPECT_EQ(end, -1);
         ID3DUserDefinedAnnotation_Release(a);
     }
     SAFE_RELEASE(u0); SAFE_RELEASE(u1);
@@ -449,8 +450,7 @@ TEST(d3d11_debug_refcount_state_validate_only_note)
     RC_DEVICE(dev, ctx, 0);
     D3D11_SAMPLER_DESC d = samp_desc();
     HRESULT hr = ID3D11Device_CreateSamplerState(dev, &d, NULL);
-    t_note("CreateSamplerState(valid desc, NULL out) -> %s", d3dh_hr_name(hr));
-    CHECK(SUCCEEDED(hr));
+    EXPECT_HR(hr, S_FALSE);                               /* validate-only call: success code, no object*/
     d.AddressU = (D3D11_TEXTURE_ADDRESS_MODE)99;
     hr = ID3D11Device_CreateSamplerState(dev, &d, NULL);
     EXPECT_HR(hr, E_INVALIDARG);
@@ -469,11 +469,8 @@ TEST(d3d11_debug_refcount_state_too_many_unique_sampler_objects)
         hr = ID3D11Device_CreateSamplerState(dev, &d, &v[n]);
         if (FAILED(hr)) break;
     }
-    if (n == MAXN) t_note("%d unique sampler states created without hitting a limit", n);
-    else {
-        t_note("unique sampler state creation failed at index %d with %s", n, d3dh_hr_name(hr));
-        EXPECT_HR(hr, HR_TOO_MANY_STATES);
-    }
+    EXPECT_EQ(n, 4095);                                   /* Win10 22H2: the 4096th unique sampler state is refused */
+    EXPECT_HR(hr, HR_TOO_MANY_STATES);
     for (int i = 0; i < n; i++) RC_RELEASE(v[i]);
     /* after releasing them all, a new state can be created again */
     ID3D11SamplerState *s = NULL;
@@ -494,7 +491,7 @@ TEST(d3d11_debug_refcount_srv_keeps_texture_alive)
     if (!tex) { RC_DEVICE_END(dev, ctx); return; }
     ULONG before = d3dh_refcount(tex);
     EXPECT_HR(ID3D11Device_CreateShaderResourceView(dev, (ID3D11Resource *)tex, NULL, &srv), S_OK);
-    t_note("texture refcount %lu -> %lu after creating an SRV", before, d3dh_refcount(tex));
+    EXPECT_EQ(d3dh_refcount(tex), before);                /* views hold internal, not external, references to their resource */
     ID3D11Resource *saved = (ID3D11Resource *)tex;
     RC_RELEASE(tex);
     tex = NULL;
@@ -667,7 +664,7 @@ TEST(d3d11_debug_refcount_clearstate_releases_getters_to_null_for_all_stages)
     ID3D11DeviceContext_PSSetShader(ctx, (ID3D11PixelShader *)ps, NULL, 0);
     ID3D11DeviceContext_PSSetSamplers(ctx, 0, 1, &s);
     ULONG v0 = d3dh_refcount(vs);
-    t_note("vs refcount while bound with app ref held: %lu", v0);
+    EXPECT_EQ(v0, 1);                                     /* the pipeline's reference is internal */
     ID3D11DeviceContext_ClearState(ctx);
     EXPECT_EQ(d3dh_refcount(vs), 1);
     EXPECT_EQ(d3dh_refcount(ps), 1);
@@ -787,7 +784,8 @@ TEST(d3d11_debug_refcount_device_count_vs_children_note)
     ULONG base = d3dh_refcount(dev);
     ID3D11DeviceChild *o[8]; int n = 0;
     for (int k = 0; k < 8; k++) if (SUCCEEDED(rc_make(k, dev, &o[n]))) n++;
-    t_note("device refcount %lu -> %lu with %d live children", base, d3dh_refcount(dev), n);
+    EXPECT_EQ(n, 8);
+    EXPECT_EQ(d3dh_refcount(dev), base + n);              /* every child holds one external reference on its device */
     for (int i = 0; i < n; i++) RC_RELEASE(o[i]);
     EXPECT_EQ(d3dh_refcount(dev), base);
     RC_DEVICE_END(dev, ctx);

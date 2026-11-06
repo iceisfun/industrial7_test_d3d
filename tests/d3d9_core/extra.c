@@ -226,8 +226,7 @@ TEST(d3d9_core_x_ex_modecount_matches_plain_enum_count_note) {
     if (!IDirect3D9Ex_GetAdapterCount(d)) { IDirect3D9Ex_Release(d); t_skip("no adapters"); return; }
     D3DDISPLAYMODEFILTER f = { sizeof f, D3DFMT_X8R8G8B8, D3DSCANLINEORDERING_UNKNOWN };
     UINT ex = IDirect3D9Ex_GetAdapterModeCountEx(d, 0, &f), pl = IDirect3D9Ex_GetAdapterModeCount(d, 0, D3DFMT_X8R8G8B8);
-    t_note("Ex filter count %u, GetAdapterModeCount %u", ex, pl);
-    CHECK(ex >= pl);
+    CHECKF(ex >= pl, "Ex filter count %u, GetAdapterModeCount %u", ex, pl);
     IDirect3D9Ex_Release(d);
 }
 
@@ -268,7 +267,7 @@ TEST(d3d9_core_x_validator_null_tokens_poison) {
     static const DWORD ver[] = { 0xFFFE0200 };
     EXPECT_HR(v->vt->Instruction(v, "t", 2, ver, 1), E_FAIL);   /* state 4: everything fails */
     EXPECT_HR(v->vt->End(v), E_FAIL);
-    t_note("callback invocations: %d", calls);
+    EXPECT_EQ(calls, 1);                       /* Win10: the error callback fires exactly once, for the NULL token pointer */
     v->vt->Release(v);
 }
 TEST(d3d9_core_x_validator_zero_count_poison) {
@@ -299,8 +298,8 @@ TEST(d3d9_core_x_validator_end_without_end_token) {
     static const DWORD ver[] = { 0xFFFF0300 };
     EXPECT_HR(v->vt->Begin(v, (void *)vx_cb, &calls, 0), S_OK);
     HRESULT h = v->vt->Instruction(v, "t", 1, ver, 1);
-    t_note("ps_3_0 version token -> %s", d3dh_hr_name(h));
-    if (SUCCEEDED(h)) EXPECT_HR(v->vt->End(v), E_FAIL);   /* the 0xFFFF end token was never supplied */
+    EXPECT_HR(h, S_OK);
+    EXPECT_HR(v->vt->End(v), E_FAIL);   /* the 0xFFFF end token was never supplied */
     v->vt->Release(v);
 }
 TEST(d3d9_core_x_validator_instruction_after_end_token_fails) {
@@ -310,8 +309,8 @@ TEST(d3d9_core_x_validator_instruction_after_end_token_fails) {
     EXPECT_HR(v->vt->Begin(v, (void *)vx_cb, &calls, 0), S_OK);
     HRESULT h1 = v->vt->Instruction(v, "t", 1, ver, 1);
     HRESULT h2 = v->vt->Instruction(v, "t", 2, end, 1);
-    t_note("vs_3_0 version %s end token %s", d3dh_hr_name(h1), d3dh_hr_name(h2));
-    if (SUCCEEDED(h1) && SUCCEEDED(h2)) EXPECT_HR(v->vt->Instruction(v, "t", 3, mov, 3), E_FAIL);
+    EXPECT_HR(h1, S_OK); EXPECT_HR(h2, S_OK);
+    EXPECT_HR(v->vt->Instruction(v, "t", 3, mov, 3), E_FAIL);
     v->vt->Release(v);
 }
 TEST(d3d9_core_x_validator_reuse_after_complete_cycle_note) {
@@ -323,8 +322,8 @@ TEST(d3d9_core_x_validator_reuse_after_complete_cycle_note) {
     v->vt->Instruction(v, "t", 2, end, 1);
     HRESULT he = v->vt->End(v);
     HRESULT hb = v->vt->Begin(v, (void *)vx_cb, &calls, 0);
-    t_note("empty vs_1_0: End=%s, second Begin=%s", d3dh_hr_name(he), d3dh_hr_name(hb));
-    if (SUCCEEDED(he)) EXPECT_HR(hb, S_OK);   /* a successful End returns the object to its idle state */
+    EXPECT_HR(he, E_FAIL);   /* Win10: a program with no instructions is invalid, and the object then stays in its error state */
+    EXPECT_HR(hb, E_FAIL);
     v->vt->Release(v);
 }
 TEST(d3d9_core_x_validator_qi_null_out_cleared) {
@@ -384,7 +383,7 @@ TEST(d3d9_core_x_release_one_of_two_qi_pointers) {
     EXPECT_EQ(IDirect3D9Ex_Release(d), 2);
     EXPECT_EQ(IDirect3D9_Release(a), 1);
     UINT n = IDirect3D9Ex_GetAdapterCount(b);
-    t_note("adapter count through last reference: %u", n);
+    EXPECT_EQ(n, IDirect3D9Ex_GetAdapterCount(b));
     EXPECT_EQ(IDirect3D9Ex_Release(b), 0);
 }
 

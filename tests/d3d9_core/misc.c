@@ -148,8 +148,8 @@ TEST(d3d9_core_perf_calls_with_live_object) {
     D9_GET(d);
     PERF_FN(b, D3DPERF_BeginEvent); PERF_FN(e, D3DPERF_EndEvent); REQUIRE(b); REQUIRE(e);
     int r1 = b(0xFF000000, L"scope"); int r2 = e();
-    t_note("BeginEvent=%d EndEvent=%d with live IDirect3D9", r1, r2);
-    EXPECT_EQ(r1, r2);   /* both stubbed alike, or both report depth 0 */
+    EXPECT_EQ(r1, -1);   /* Win10 retail d3d9: with no profiler attached BeginEvent/EndEvent return -1 */
+    EXPECT_EQ(r2, -1);
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_perf_cross_thread) {
@@ -292,7 +292,8 @@ TEST(d3d9_core_validator_instruction_stream_note) {
     HRESULT h3 = v->vt->Instruction(v, "t", 3, mov, 3);
     HRESULT h4 = v->vt->Instruction(v, "t", 4, end, 1);
     HRESULT he = v->vt->End(v);
-    t_note("validator vs_2_0 stream: ver=%s dcl=%s mov=%s end=%s End=%s callbacks=%d", d3dh_hr_name(h1), d3dh_hr_name(h2), d3dh_hr_name(h3), d3dh_hr_name(h4), d3dh_hr_name(he), calls);
+    EXPECT_HR(h1, S_OK); EXPECT_HR(h2, S_OK); EXPECT_HR(h3, S_OK); EXPECT_HR(h4, S_OK); EXPECT_HR(he, S_OK);   /* Win10: a valid vs_2_0 stream passes */
+    EXPECT_EQ(calls, 0);
     v->vt->Release(v);
 }
 

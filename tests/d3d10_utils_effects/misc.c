@@ -45,7 +45,7 @@ TEST(d3d10_utils_effects_exports_missing_name)
     EXPECT_ERR(ERROR_PROC_NOT_FOUND);
     SET_ERR(0);
     CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0x7ff0) == NULL);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);   /* Win10 22H2: missing ordinal -> 182 */
 }
 TEST(d3d10_utils_effects_exports_case_sensitive)
 {

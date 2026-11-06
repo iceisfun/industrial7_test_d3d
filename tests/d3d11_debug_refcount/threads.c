@@ -215,7 +215,7 @@ TEST(d3d11_debug_refcount_multithread_default_and_toggle)
     HRESULT hr = RC_QI(ctx, IID_ID3D11Multithread, &mt);
     if (FAILED(hr)) { RC_DEVICE_END(dev, ctx); t_skip("ID3D11Multithread unavailable: %s", d3dh_hr_name(hr)); return; }
     BOOL def = ID3D11Multithread_GetMultithreadProtected(mt);
-    t_note("default multithread protection: %d", (int)def);
+    EXPECT_EQ(def, FALSE);                                /* Win10: a new context is not multithread protected */
     BOOL prev = ID3D11Multithread_SetMultithreadProtected(mt, TRUE);
     EXPECT_EQ(prev, def);
     EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), TRUE);
@@ -234,7 +234,7 @@ TEST(d3d11_debug_refcount_multithread_default_is_off)
     RC_DEVICE(dev, ctx, 0);
     ID3D11Multithread *mt = NULL;
     if (FAILED(RC_QI(ctx, IID_ID3D11Multithread, &mt))) { RC_DEVICE_END(dev, ctx); t_skip("ID3D11Multithread unavailable"); return; }
-    t_note("default multithread protection (not hard-checked): %d", (int)ID3D11Multithread_GetMultithreadProtected(mt));
+    EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), FALSE);
     ID3D11Multithread_Release(mt);
     RC_DEVICE_END(dev, ctx);
 }
@@ -274,7 +274,7 @@ TEST(d3d11_debug_refcount_multithread_interface_refcount)
     ULONG base = d3dh_refcount(ctx);
     ID3D11Multithread *mt = NULL;
     if (FAILED(RC_QI(ctx, IID_ID3D11Multithread, &mt))) { RC_DEVICE_END(dev, ctx); t_skip("ID3D11Multithread unavailable"); return; }
-    t_note("context refcount %lu -> %lu after QI(Multithread)", base, d3dh_refcount(ctx));
+    EXPECT_EQ(d3dh_refcount(ctx), base + 1);              /* the interface is the context object itself */
     IUnknown *u0 = NULL, *u1 = NULL;
     RC_QI(ctx, IID_IUnknown, &u0); RC_QI(mt, IID_IUnknown, &u1);
     CHECK(u0 == u1);

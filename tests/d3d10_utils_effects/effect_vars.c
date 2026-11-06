@@ -138,7 +138,7 @@ TEST(d3d10_utils_effects_fxv_type_descs)
         t_check(d.Rows == rows[i].rows && d.Columns == rows[i].cols, __FILE__, __LINE__, "Rows/Columns", "%s: %ux%u", rows[i].var, d.Rows, d.Columns);
         t_check(d.PackedSize == rows[i].packed, __FILE__, __LINE__, "PackedSize", "%s: %u want %u", rows[i].var, d.PackedSize, rows[i].packed);
         t_check(d.UnpackedSize == rows[i].unpacked, __FILE__, __LINE__, "UnpackedSize", "%s: %u want %u", rows[i].var, d.UnpackedSize, rows[i].unpacked);
-        t_note("%s stride %u", rows[i].var, d.Stride);
+        t_check(d.Stride == (strcmp(rows[i].var, "mA") ? 16u : 64u), __FILE__, __LINE__, "Stride", "%s: %u", rows[i].var, d.Stride);
     }
     ID3D10Effect_Release(fx);
 }
@@ -305,7 +305,7 @@ TEST(d3d10_utils_effects_fxv_scalar_float_bool_conversions)
     EXPECT_HR(ID3D10EffectScalarVariable_SetFloat(s, 0.001f), S_OK);
     EXPECT_HR(ID3D10EffectScalarVariable_GetBool(s, &b), S_OK);
     CHECK(b != 0);
-    if (b != -1) t_note("float GetBool(true) returned %d", b);
+    EXPECT_EQ(b, -1);                                 /* Win10: a non-zero float reads back as -1 (all bits set), like the other numeric-to-bool conversions */
     EXPECT_HR(ID3D10EffectScalarVariable_SetFloat(s, -7.0f), S_OK);
     EXPECT_HR(ID3D10EffectScalarVariable_GetBool(s, &b), S_OK);
     CHECK(b != 0);
@@ -716,7 +716,7 @@ TEST(d3d10_utils_effects_fxv_string_type_desc)
     EXPECT_HR(ID3D10EffectType_GetDesc(ID3D10EffectVariable_GetType(BV(fx, "title")), &d), S_OK);
     EXPECT_EQ(d.Class, D3D_SVC_OBJECT);
     EXPECT_EQ(d.Type, D3D_SVT_STRING);
-    t_check(d.TypeName && !strcmp(d.TypeName, "string"), __FILE__, __LINE__, "TypeName", "%s", d.TypeName ? d.TypeName : "(null)");
+    t_check(d.TypeName && !strcmp(d.TypeName, "String"), __FILE__, __LINE__, "TypeName (Win10: capital S)", "%s", d.TypeName ? d.TypeName : "(null)");
     ID3D10Effect_Release(fx);
 }
 
@@ -766,7 +766,7 @@ TEST(d3d10_utils_effects_fxv_globals_outside_cbuffer_have_parent_cbuffer)
     ID3D10EffectConstantBuffer *p = ID3D10EffectVariable_GetParentConstantBuffer(BV(fx, "gcol"));
     CHECK(p && ID3D10EffectConstantBuffer_IsValid(p));
     D3D10_EFFECT_VARIABLE_DESC d;
-    if (p && SUCCEEDED(ID3D10EffectConstantBuffer_GetDesc(p, &d))) t_note("implicit constant buffer name: %s", d.Name ? d.Name : "(null)");
+    if (p && SUCCEEDED(ID3D10EffectConstantBuffer_GetDesc(p, &d))) t_check(d.Name && !strcmp(d.Name, "$Globals"), __FILE__, __LINE__, "implicit cbuffer name", "%s", d.Name ? d.Name : "(null)");
     if (p && SUCCEEDED(ID3D10EffectConstantBuffer_GetDesc(p, &d)) && d.Name) EXPECT_STR(d.Name, "$Globals");
     ID3D10Effect_Release(fx);
 }

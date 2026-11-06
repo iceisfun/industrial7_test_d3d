@@ -20,7 +20,12 @@ TEST(d3d10_utils_effects_fxo_sampler_backing_store)
     EXPECT_EQ(d.Filter, D3D10_FILTER_MIN_MAG_MIP_LINEAR);
     EXPECT_EQ(d.AddressU, D3D10_TEXTURE_ADDRESS_WRAP);
     EXPECT_EQ(d.AddressV, D3D10_TEXTURE_ADDRESS_CLAMP);
-    t_note("sampler defaults: addrW %d bias %g aniso %u cmp %d minlod %g maxlod %g", d.AddressW, d.MipLODBias, d.MaxAnisotropy, d.ComparisonFunc, d.MinLOD, d.MaxLOD);
+    EXPECT_EQ(d.AddressW, D3D10_TEXTURE_ADDRESS_WRAP);      /* unspecified fields take the D3D10_SAMPLER_DESC defaults */
+    CHECK(d.MipLODBias == 0.0f);
+    EXPECT_EQ(d.MaxAnisotropy, 16);
+    EXPECT_EQ(d.ComparisonFunc, D3D10_COMPARISON_NEVER);
+    CHECK(d.MinLOD == 0.0f);
+    CHECK(d.MaxLOD == FLT_MAX);
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_blend_backing_store)
@@ -34,7 +39,13 @@ TEST(d3d10_utils_effects_fxo_blend_backing_store)
     CHECK(d.BlendEnable[0] != 0);
     EXPECT_EQ(d.SrcBlend, D3D10_BLEND_SRC_ALPHA);
     EXPECT_EQ(d.DestBlend, D3D10_BLEND_INV_SRC_ALPHA);
-    t_note("blend defaults: a2c %d op %d srcA %d dstA %d opA %d mask0 %02x en1 %d", d.AlphaToCoverageEnable, d.BlendOp, d.SrcBlendAlpha, d.DestBlendAlpha, d.BlendOpAlpha, d.RenderTargetWriteMask[0], d.BlendEnable[1]);
+    EXPECT_EQ(d.AlphaToCoverageEnable, 0);
+    EXPECT_EQ(d.BlendOp, D3D10_BLEND_OP_ADD);
+    EXPECT_EQ(d.SrcBlendAlpha, D3D10_BLEND_SRC_ALPHA);      /* Win10 22H2: alpha factors default to the colour factors set in the block, not ONE/ZERO */
+    EXPECT_EQ(d.DestBlendAlpha, D3D10_BLEND_INV_SRC_ALPHA);
+    EXPECT_EQ(d.BlendOpAlpha, D3D10_BLEND_OP_ADD);
+    EXPECT_EQ(d.RenderTargetWriteMask[0], D3D10_COLOR_WRITE_ENABLE_ALL);
+    EXPECT_EQ(d.BlendEnable[1], 0);
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_rasterizer_backing_store)
@@ -47,7 +58,8 @@ TEST(d3d10_utils_effects_fxo_rasterizer_backing_store)
     EXPECT_HR(ID3D10EffectRasterizerVariable_GetBackingStore(rv, 0, &d), S_OK);
     EXPECT_EQ(d.CullMode, D3D10_CULL_NONE);
     EXPECT_EQ(d.FillMode, D3D10_FILL_WIREFRAME);
-    t_note("rasterizer defaults: ccw %d bias %d clip %d scissor %d ms %d aa %d", d.FrontCounterClockwise, d.DepthBias, d.DepthClipEnable, d.ScissorEnable, d.MultisampleEnable, d.AntialiasedLineEnable);
+    EXPECT_EQ(d.FrontCounterClockwise, 0); EXPECT_EQ(d.DepthBias, 0); EXPECT_EQ(d.DepthClipEnable, 1);
+    EXPECT_EQ(d.ScissorEnable, 0); EXPECT_EQ(d.MultisampleEnable, 0); EXPECT_EQ(d.AntialiasedLineEnable, 0);
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_depth_stencil_backing_store)
@@ -59,20 +71,34 @@ TEST(d3d10_utils_effects_fxo_depth_stencil_backing_store)
     memset(&d, 0xcd, sizeof d);
     EXPECT_HR(ID3D10EffectDepthStencilVariable_GetBackingStore(dv, 0, &d), S_OK);
     EXPECT_EQ(d.DepthEnable, 0);
-    t_note("depth-stencil defaults: write %d func %d stencil %d", d.DepthWriteMask, d.DepthFunc, d.StencilEnable);
+    EXPECT_EQ(d.DepthWriteMask, D3D10_DEPTH_WRITE_MASK_ALL); EXPECT_EQ(d.DepthFunc, D3D10_COMPARISON_LESS); EXPECT_EQ(d.StencilEnable, 0);
     ID3D10Effect_Release(fx);
 }
-TEST(d3d10_utils_effects_fxo_backing_store_index_out_of_range)
+/* Win10 22H2: GetBackingStore never validates its index. Out of range it reads past the effect's object table: depending on the index it
+   returns S_OK with garbage or faults (sampler idx 1: AV; blend idx 2: AV; rasterizer idx 7: AV), and after such a fault the d3d10
+   heap is damaged (later 0xc0000374 in unrelated calls). The behaviour is undefined, so it is deliberately not exercised. A NULL
+   output pointer is not checked either: it faults. */
+typedef struct { int kind; ID3D10EffectVariable *v; HRESULT hr; } bs_null_args;
+static void bs_null_call(void *p)
+{
+    bs_null_args *a = p;
+    switch (a->kind) {
+    case 0: a->hr = ID3D10EffectSamplerVariable_GetBackingStore(ID3D10EffectVariable_AsSampler(a->v), 0, NULL); break;
+    case 1: a->hr = ID3D10EffectBlendVariable_GetBackingStore(ID3D10EffectVariable_AsBlend(a->v), 0, NULL); break;
+    case 2: a->hr = ID3D10EffectRasterizerVariable_GetBackingStore(ID3D10EffectVariable_AsRasterizer(a->v), 0, NULL); break;
+    default: a->hr = ID3D10EffectDepthStencilVariable_GetBackingStore(ID3D10EffectVariable_AsDepthStencil(a->v), 0, NULL); break;
+    }
+}
+TEST(d3d10_utils_effects_fxo_backing_store_null_output_faults)
 {
     NEED_DEVICE(dev);
     FX_OPEN(fx, UE_FX_OBJECTS);
-    D3D10_SAMPLER_DESC sd; D3D10_BLEND_DESC bd; D3D10_RASTERIZER_DESC rd; D3D10_DEPTH_STENCIL_DESC dd;
-    HRESULT h1 = ID3D10EffectSamplerVariable_GetBackingStore(ID3D10EffectVariable_AsSampler(BV(fx, "smp")), 1, &sd);
-    HRESULT h2 = ID3D10EffectBlendVariable_GetBackingStore(ID3D10EffectVariable_AsBlend(BV(fx, "bs")), 1, &bd);
-    HRESULT h3 = ID3D10EffectRasterizerVariable_GetBackingStore(ID3D10EffectVariable_AsRasterizer(BV(fx, "rs")), 1, &rd);
-    HRESULT h4 = ID3D10EffectDepthStencilVariable_GetBackingStore(ID3D10EffectVariable_AsDepthStencil(BV(fx, "dss")), 1, &dd);
-    CHECK(FAILED(h1)); CHECK(FAILED(h2)); CHECK(FAILED(h3)); CHECK(FAILED(h4));
-    t_note("backing store index 1 on a single object: %s %s %s %s", d3dh_hr_name(h1), d3dh_hr_name(h2), d3dh_hr_name(h3), d3dh_hr_name(h4));
+    static const char *const names[4] = { "smp", "bs", "rs", "dss" };
+    for (int k = 0; k < 4; k++) {
+        bs_null_args a = { k, BV(fx, names[k]), S_OK };
+        DWORD code = t_try(bs_null_call, &a);
+        CHECKF(code == 0xC0000005u, "%s: exception 0x%08lx", names[k], (unsigned long)code);
+    }
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_sampler_array_backing_store)
@@ -93,8 +119,6 @@ TEST(d3d10_utils_effects_fxo_sampler_array_backing_store)
     EXPECT_EQ(d0.Filter, D3D10_FILTER_MIN_MAG_MIP_POINT);
     EXPECT_EQ(d1.Filter, D3D10_FILTER_ANISOTROPIC);
     EXPECT_EQ(d1.MaxAnisotropy, 4);
-    D3D10_SAMPLER_DESC d2;
-    CHECK(FAILED(ID3D10EffectSamplerVariable_GetBackingStore(sv, 2, &d2)));
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_state_objects_from_device)
@@ -259,7 +283,7 @@ TEST(d3d10_utils_effects_fxo_constant_buffer_override)
         D3D10_BUFFER_DESC d;
         ID3D10Buffer_GetDesc(got, &d);
         EXPECT_EQ(d.BindFlags, D3D10_BIND_CONSTANT_BUFFER);
-        EXPECT_EQ(d.ByteWidth, 176);
+        EXPECT_EQ(d.ByteWidth, 192);   /* vecA 0, fA 16, iA 20, bA 24, mA 32, arrA 96/112/128, v3 132, iv2 144, vArr 160/176 */
         ID3D10Buffer_Release(got);
     }
     ID3D10Effect_Release(fx);
@@ -311,10 +335,13 @@ TEST(d3d10_utils_effects_fxo_pass_geometry_shader_null)
     if (SUCCEEDED(hr) && gs.pShaderVariable) {
         D3D10_EFFECT_SHADER_DESC d;
         hr = ID3D10EffectShaderVariable_GetShaderDesc(gs.pShaderVariable, gs.ShaderIndex, &d);
-        t_note("GetShaderDesc of a NULL geometry shader: %s (len %u)", d3dh_hr_name(hr), SUCCEEDED(hr) ? d.BytecodeLength : 0);
+        EXPECT_HR(hr, S_OK);                         /* Win10: a NULL shader still describes itself, with empty bytecode */
+        EXPECT_EQ(d.BytecodeLength, 0);
     }
     ID3D10Effect_Release(fx);
 }
+typedef struct { ID3D10EffectShaderVariable *v; UINT idx; } sig_null_args;
+static void sig_null_call(void *p) { sig_null_args *a = p; ID3D10EffectShaderVariable_GetInputSignatureElementDesc(a->v, a->idx, 0, NULL); }
 TEST(d3d10_utils_effects_fxo_shader_signature_elements)
 {
     NEED_DEVICE(dev);
@@ -335,7 +362,10 @@ TEST(d3d10_utils_effects_fxo_shader_signature_elements)
     EXPECT_HR(ID3D10EffectShaderVariable_GetOutputSignatureElementDesc(vs.pShaderVariable, vs.ShaderIndex, 0, &e), S_OK);
     EXPECT_STR(e.SemanticName, "SV_Position");
     CHECK(FAILED(ID3D10EffectShaderVariable_GetOutputSignatureElementDesc(vs.pShaderVariable, vs.ShaderIndex, 1, &e)));
-    CHECK(FAILED(ID3D10EffectShaderVariable_GetInputSignatureElementDesc(vs.pShaderVariable, vs.ShaderIndex, 0, NULL)));
+    {   /* Win10: a NULL output descriptor is not validated: access violation */
+        sig_null_args a = { vs.pShaderVariable, vs.ShaderIndex };
+        EXPECT_EQ(t_try(sig_null_call, &a), 0xC0000005u);
+    }
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_pass_desc_input_signature)
@@ -354,7 +384,8 @@ TEST(d3d10_utils_effects_fxo_pass_desc_input_signature)
         EXPECT_EQ(*(const DWORD *)(d.pIAInputSignature + 24), d.IAInputSignatureSize);
         CHECK(ue_dxbc_chunk(d.pIAInputSignature, d.IAInputSignatureSize, FOURCC('I','S','G','N'), NULL) != NULL);
     }
-    t_note("pass desc: stencil ref %u sample mask %08x blend factor %g %g %g %g", d.StencilRef, d.SampleMask, d.BlendFactor[0], d.BlendFactor[1], d.BlendFactor[2], d.BlendFactor[3]);
+    EXPECT_EQ(d.StencilRef, 0); EXPECT_EQ(d.SampleMask, 0);   /* Win10: a pass that sets no blend/depth state reports zeros */
+    CHECK(d.BlendFactor[0] == 0 && d.BlendFactor[1] == 0 && d.BlendFactor[2] == 0 && d.BlendFactor[3] == 0);
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_pass_without_vs_has_no_input_signature)
@@ -523,7 +554,7 @@ TEST(d3d10_utils_effects_fxo_pass_apply_empty_pass)
     ID3D10EffectPass *p1 = ID3D10EffectTechnique_GetPassByIndex(ID3D10Effect_GetTechniqueByName(fx, "T0"), 1);
     EXPECT_HR(ID3D10EffectPass_Apply(p1, 0), S_OK);
     HRESULT hr = ID3D10EffectPass_Apply(p, 0x10);
-    t_note("Apply with a non-zero flags argument: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);                             /* Win10: the flags argument is ignored */
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_pass_state_block_mask)
@@ -552,8 +583,9 @@ TEST(d3d10_utils_effects_fxo_empty_pass_state_block_mask)
     EXPECT_HR(ID3D10EffectPass_ComputeStateBlockMask(p, &m), S_OK);
     int pop = 0;
     for (unsigned i = 0; i < sizeof m; i++) for (int b = 0; b < 8; b++) pop += (((unsigned char *)&m)[i] >> b) & 1;
-    t_note("state block mask bits set by an empty pass: %d", pop);
-    t_note("empty pass: VS bit %d PS bit %d", UIN("d3d10.dll", D3D10StateBlockMaskGetSetting)(&m, D3D10_DST_VS, 0) != 0, UIN("d3d10.dll", D3D10StateBlockMaskGetSetting)(&m, D3D10_DST_PS, 0) != 0);
+    EXPECT_EQ(pop, 380);                             /* Win10 22H2: even an empty pass marks 380 mask bits (all shader stages and fixed-function state) */
+    EXPECT_EQ(UIN("d3d10.dll", D3D10StateBlockMaskGetSetting)(&m, D3D10_DST_VS, 0) != 0, 1);
+    EXPECT_EQ(UIN("d3d10.dll", D3D10StateBlockMaskGetSetting)(&m, D3D10_DST_PS, 0) != 0, 1);
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fxo_shader_variable_global_is_shader)
@@ -786,7 +818,8 @@ TEST(d3d10_utils_effects_fxp_optimize_pool_is_noop_ok)
     if (!make_pool(dev, &pool)) return;
     ID3D10Effect *pe = ID3D10EffectPool_AsEffect(pool);
     HRESULT hr = ID3D10Effect_Optimize(pe);
-    t_note("Optimize on a pool effect: %s, IsOptimized=%d", d3dh_hr_name(hr), ID3D10Effect_IsOptimized(pe));
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(ID3D10Effect_IsOptimized(pe), 1);
     CHECK(SUCCEEDED(hr));
     ID3D10EffectPool_Release(pool);
 }
@@ -843,11 +876,11 @@ TEST(d3d10_utils_effects_sb_qi)
     EXPECT_HR(ID3D10StateBlock_QueryInterface(sb, &IID_IUnknown, NULL), E_INVALIDARG_);
     o = NULL;
     HRESULT hr = ID3D10StateBlock_QueryInterface(sb, &IID_ID3D10StateBlock, &o);
-    t_note("QI(IID_ID3D10StateBlock): %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);                    /* Win10: the state block's QueryInterface is a stub that supports nothing, IUnknown included */
     if (SUCCEEDED(hr) && o) ID3D10StateBlock_Release((ID3D10StateBlock *)o);
     o = NULL;
     hr = ID3D10StateBlock_QueryInterface(sb, &IID_IUnknown, &o);
-    t_note("QI(IID_IUnknown) on a state block: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
     if (SUCCEEDED(hr) && o) ID3D10StateBlock_Release((ID3D10StateBlock *)o);
     ID3D10StateBlock_Release(sb);
 }
@@ -934,6 +967,8 @@ TEST(d3d10_utils_effects_sb_release_all_device_objects)
     if (!sb) return;
     EXPECT_HR(ID3D10StateBlock_Capture(sb), S_OK);
     EXPECT_HR(ID3D10StateBlock_ReleaseAllDeviceObjects(sb), S_OK);
+    EXPECT_HR(ID3D10StateBlock_Apply(sb), E_FAIL_);   /* Win10: a released block cannot be applied until it is captured again */
+    EXPECT_HR(ID3D10StateBlock_Capture(sb), S_OK);
     EXPECT_HR(ID3D10StateBlock_Apply(sb), S_OK);
     ID3D10StateBlock_Release(sb);
 }
@@ -964,7 +999,7 @@ TEST(d3d10_utils_effects_sb_empty_mask)
     UIN("d3d10.dll", D3D10StateBlockMaskDisableAll)(&m);
     ID3D10StateBlock *sb = NULL;
     HRESULT hr = CSB("d3d10.dll")(dev, &m, &sb);
-    t_note("CreateStateBlock with an empty mask: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr) && sb) {
         EXPECT_HR(ID3D10StateBlock_Capture(sb), S_OK);
         EXPECT_HR(ID3D10StateBlock_Apply(sb), S_OK);
@@ -985,7 +1020,7 @@ TEST(d3d10_utils_effects_sb_holds_device_reference)
     ID3D10Device_AddRef(dev);
     ULONG during = ID3D10Device_Release(dev);
     CHECK(during >= before);
-    t_note("device refcount %u -> %u with a state block", (unsigned)before, (unsigned)during);
+    EXPECT_EQ(during, before + 1);
     ID3D10StateBlock_Release(sb);
     ID3D10Device_AddRef(dev);
     ULONG after = ID3D10Device_Release(dev);
@@ -1000,7 +1035,7 @@ TEST(d3d10_utils_effects_fxo_cb_set_get_buffer)
     ID3D10EffectConstantBuffer *cb = ID3D10Effect_GetConstantBufferByName(fx, "cb");
     D3D10_BUFFER_DESC bd;
     memset(&bd, 0, sizeof bd);
-    bd.ByteWidth = 176; bd.Usage = D3D10_USAGE_DEFAULT; bd.BindFlags = D3D10_BIND_CONSTANT_BUFFER;
+    bd.ByteWidth = 192; bd.Usage = D3D10_USAGE_DEFAULT; bd.BindFlags = D3D10_BIND_CONSTANT_BUFFER;
     ID3D10Buffer *mine = NULL, *orig = NULL, *got = NULL;
     if (FAILED(ID3D10Device_CreateBuffer(dev, &bd, NULL, &mine))) { t_skip("cannot create buffer"); ID3D10Effect_Release(fx); return; }
     EXPECT_HR(ID3D10EffectConstantBuffer_GetConstantBuffer(cb, &orig), S_OK);
@@ -1040,7 +1075,8 @@ TEST(d3d10_utils_effects_fxo_tbuffer_texture_buffer)
     D3D10_EFFECT_TYPE_DESC td;
     if (cb) {
         EXPECT_HR(ID3D10EffectType_GetDesc(ID3D10EffectVariable_GetType((ID3D10EffectVariable *)cb), &td), S_OK);
-        t_note("tbuffer type: name %s class %d", td.TypeName ? td.TypeName : "(null)", td.Class);
+        t_check(td.TypeName && !strcmp(td.TypeName, "tbuffer"), __FILE__, __LINE__, "tbuffer TypeName", "%s", td.TypeName ? td.TypeName : "(null)");
+        EXPECT_EQ(td.Class, 4);
     }
     ID3D10Effect_Release(fx);
 }

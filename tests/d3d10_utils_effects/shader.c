@@ -15,6 +15,41 @@ static const char *text_of(ID3D10Blob *b, char *buf, size_t cap)
     buf[n] = 0;
     return buf;
 }
+/* Win10 22H2: D3D10CompileShader leaves the 2 padding bytes of every ISGN/OSGN signature element uninitialised (they vary from call to
+   call, 25/60 pairs) and therefore also the DXBC header checksum (bytes 4..19, differs in ~99/100 calls). Everything else is identical.
+   d3dcompiler_47 is bit-for-bit deterministic. Compare after masking the checksum and the signature padding. */
+static void mask_volatile(unsigned char *p, SIZE_T n)
+{
+    DWORD i, nch;
+    if (n < 32) return;
+    memset(p + 4, 0, 16);
+    nch = ue_dxbc_nchunks(p);
+    for (i = 0; i < nch; i++) {
+        DWORD off = ((const DWORD *)(p + 32))[i];
+        DWORD tag = *(const DWORD *)(p + off), sz = *(const DWORD *)(p + off + 4);
+        if (tag == FOURCC('I','S','G','N') || tag == FOURCC('O','S','G','N')) {
+            DWORD cnt = *(const DWORD *)(p + off + 8), e;
+            for (e = 0; e < cnt && 16 + 24 * (e + 1) <= sz + 8; e++) { p[off + 8 + 8 + 24 * e + 22] = 0; p[off + 8 + 8 + 24 * e + 23] = 0; }
+        }
+    }
+}
+static int same_but_checksum(ID3D10Blob *a, ID3D10Blob *b)
+{
+    unsigned char *x, *y;
+    int same;
+    if (!a || !b || ue_bs(a) != ue_bs(b) || ue_bs(a) < 32) return 0;
+    x = malloc(ue_bs(a)); y = malloc(ue_bs(b));
+    memcpy(x, ue_bp(a), ue_bs(a)); memcpy(y, ue_bp(b), ue_bs(b));
+    mask_volatile(x, ue_bs(a)); mask_volatile(y, ue_bs(b));
+    same = !memcmp(x, y, ue_bs(a));
+    free(x); free(y);
+    return same;
+}
+/* preprocessor output is NUL terminated; its buffer size includes the terminator */
+static int blob_is(ID3D10Blob *b, const char *text)
+{
+    return b && ID3D10Blob_GetBufferSize(b) == strlen(text) + 1 && !memcmp(ID3D10Blob_GetBufferPointer(b), text, strlen(text) + 1);
+}
 static int blob_has(ID3D10Blob *b, const char *needle)
 {
     size_t n = b ? ID3D10Blob_GetBufferSize(b) : 0;
@@ -206,7 +241,7 @@ TEST(d3d10_utils_effects_shader_compile_error_line_number)
     if (e) {
         char txt[1024];
         text_of(e, txt, sizeof txt);
-        CHECK(strstr(txt, "ln.hlsl(3,") != NULL);
+        CHECK(strstr(txt, "ln.hlsl(3): error X3004: undeclared identifier 'nope'") != NULL);   /* d3d10's compiler prints no column; d3dcompiler_47 prints (3,36-39) */
     } else CHECK(0);
     UE_REL(e); UE_REL(b);
 }
@@ -278,9 +313,15 @@ TEST(d3d10_utils_effects_shader_compile_deterministic)
     EXPECT_HR(ue_compile_vs(UE_PS_SRC, "main", "ps_4_0", &b), S_OK);
     if (a && b) {
         EXPECT_EQ(ue_bs(a), ue_bs(b));
-        CHECK(ue_bs(a) == ue_bs(b) && !memcmp(ue_bp(a), ue_bp(b), ue_bs(a)));
+        CHECK(same_but_checksum(a, b));
     }
     UE_REL(a); UE_REL(b);
+    /* the reference compiler is bit-exact deterministic, checksum included */
+    ID3D10Blob *c = NULL, *d = NULL;
+    EXPECT_HR(ue_d3dc(UE_PS_SRC, "main", "ps_4_0", 0, &c), S_OK);
+    EXPECT_HR(ue_d3dc(UE_PS_SRC, "main", "ps_4_0", 0, &d), S_OK);
+    if (c && d) CHECK(ue_bs(c) == ue_bs(d) && !memcmp(ue_bp(c), ue_bp(d), ue_bs(c)));
+    UE_REL(c); UE_REL(d);
 }
 TEST(d3d10_utils_effects_shader_compile_macro_defines)
 {
@@ -360,7 +401,10 @@ TEST(d3d10_utils_effects_shader_compile_sm4_1)
     for (int st = 0; st < 2; st++) {
         ID3D10Blob *b = NULL;
         HRESULT hr = ue_compile_vs(st ? UE_PS_SRC : UE_VS_SRC, "main", st ? "ps_4_1" : "vs_4_1", &b);
-        if (FAILED(hr)) { t_note("4_1 profile compile failed: %s", d3dh_hr_name(hr)); continue; }
+        /* Win10 22H2: D3D10CompileShader's front end does not know the 4_1 targets ("X3506: unrecognized compiler target") */
+        EXPECT_HR(hr, E_D3DERR_INVALIDCALL);
+        CHECK(b == NULL);
+        continue;
         DWORD csz;
         const unsigned char *c = ue_dxbc_chunk(ue_bp(b), ue_bs(b), FOURCC('S','H','D','R'), &csz);
         if (c) EXPECT_EQ(*(const DWORD *)c, st ? 0x41u : 0x10041u);
@@ -372,8 +416,8 @@ TEST(d3d10_utils_effects_shader_compile_sm5_rejected)
     REQUIRE(CS("d3d10.dll"));
     ID3D10Blob *b = NULL;
     HRESULT hr = ue_compile_vs(UE_VS_SRC, "main", "vs_5_0", &b);
-    if (SUCCEEDED(hr)) t_note("vs_5_0 accepted by D3D10CompileShader");
-    else CHECK(b == NULL);
+    EXPECT_HR(hr, E_D3DERR_INVALIDCALL);
+    CHECK(b == NULL);
     UE_REL(b);
 }
 TEST(d3d10_utils_effects_shader_compile_via_d3d10_1)
@@ -395,7 +439,7 @@ TEST(d3d10_utils_effects_shader_compile_matches_between_dlls)
     ID3D10Blob *a = NULL, *b = NULL;
     EXPECT_HR(CS("d3d10.dll")(UE_PS_SRC, strlen(UE_PS_SRC), "ue.hlsl", NULL, NULL, "main", "ps_4_0", 0, &a, NULL), S_OK);
     EXPECT_HR(CS("d3d10_1.dll")(UE_PS_SRC, strlen(UE_PS_SRC), "ue.hlsl", NULL, NULL, "main", "ps_4_0", 0, &b, NULL), S_OK);
-    if (a && b) CHECK(ue_bs(a) == ue_bs(b) && !memcmp(ue_bp(a), ue_bp(b), ue_bs(a)));
+    if (a && b) CHECK(same_but_checksum(a, b));
     UE_REL(a); UE_REL(b);
 }
 
@@ -731,7 +775,7 @@ TEST(d3d10_utils_effects_sigblob_null_out)
     sig_fn f = (sig_fn)t_proc_in("d3d10.dll", "D3D10GetInputSignatureBlob");
     REQUIRE(f);
     HRESULT hr = f(ue_bp(sh), ue_bs(sh), NULL);
-    t_note("signature blob with NULL output: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     UE_REL(sh);
 }
 TEST(d3d10_utils_effects_sigblob_usable_for_input_layout)
@@ -841,9 +885,8 @@ TEST(d3d10_utils_effects_preprocess_macro_expansion)
     ID3D10Blob *t = NULL, *e = NULL;
     HRESULT hr = PP("d3d10.dll")(src, strlen(src), "pp.hlsl", NULL, NULL, &t, &e);
     EXPECT_HR(hr, S_OK);
-    CHECK(blob_has(t, "((3)+(3))"));
-    CHECK(blob_has(t, "int w = 42;"));
-    CHECK(!blob_has(t, "#define"));
+    /* Win10: the preprocessor re-emits tokens separated by single spaces, drops the directives and does not add #line */
+    CHECK(blob_is(t, "float v = ( ( 3 ) + ( 3 ) ) ;\nint w = 42 ;\n"));
     UE_REL(t); UE_REL(e);
 }
 TEST(d3d10_utils_effects_preprocess_conditionals)
@@ -854,9 +897,7 @@ TEST(d3d10_utils_effects_preprocess_conditionals)
     D3D10_SHADER_MACRO defs[] = { { "A_VALUE", "5" }, { NULL, NULL } };
     ID3D10Blob *t = NULL, *e = NULL;
     EXPECT_HR(PP("d3d10.dll")(src, strlen(src), "pp.hlsl", defs, NULL, &t, &e), S_OK);
-    CHECK(blob_has(t, "int taken = 1;"));
-    CHECK(!blob_has(t, "skipped"));
-    CHECK(!blob_has(t, "hidden"));
+    CHECK(blob_is(t, "int taken = 1 ;\n"));
     UE_REL(t); UE_REL(e);
 }
 TEST(d3d10_utils_effects_preprocess_error_directive)
@@ -879,8 +920,7 @@ TEST(d3d10_utils_effects_preprocess_include)
     const char *src = "#include \"x.h\"\nint after;\n";
     ID3D10Blob *t = NULL, *e = NULL;
     EXPECT_HR(PP("d3d10.dll")(src, strlen(src), "pp.hlsl", NULL, (ID3D10Include *)&inc, &t, &e), S_OK);
-    CHECK(blob_has(t, "int from_include = 7;"));
-    CHECK(blob_has(t, "int after;"));
+    CHECK(blob_is(t, "int from_include = 7 ;\nint after ;\n"));
     EXPECT_EQ(inc.opens, 1);
     EXPECT_EQ(inc.closes, 1);
     UE_REL(t); UE_REL(e);
@@ -891,7 +931,7 @@ TEST(d3d10_utils_effects_preprocess_null_error_out_ok)
     REQUIRE(PP("d3d10.dll"));
     ID3D10Blob *t = NULL;
     EXPECT_HR(PP("d3d10.dll")("int a;\n", 7, "pp.hlsl", NULL, NULL, &t, NULL), S_OK);
-    CHECK(blob_has(t, "int a;"));
+    CHECK(blob_is(t, "int a ;\n"));
     UE_REL(t);
 }
 TEST(d3d10_utils_effects_preprocess_via_d3d10_1)
@@ -901,7 +941,7 @@ TEST(d3d10_utils_effects_preprocess_via_d3d10_1)
     REQUIRE(PP("d3d10_1.dll"));
     ID3D10Blob *t = NULL, *e = NULL;
     EXPECT_HR(PP("d3d10_1.dll")("#define Q 9\nint z = Q;\n", 23, "pp.hlsl", NULL, NULL, &t, &e), S_OK);
-    CHECK(blob_has(t, "int z = 9;"));
+    CHECK(blob_is(t, "int z = 9 ;\n"));
     UE_REL(t); UE_REL(e);
     EXPECT_HR(PP("d3d10_1.dll")(NULL, 0, "pp.hlsl", NULL, NULL, &t, &e), E_INVALIDARG_);
 }

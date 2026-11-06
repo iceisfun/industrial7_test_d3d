@@ -58,7 +58,7 @@ static const D3D12_ROOT_SIGNATURE_DESC1 *sample1(RS1 *b) {
     rs1_table(b, PS);
     rs1_range(b, SRV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC, APPEND);
     rs1_range(b, UAV, 4, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE, APPEND);
-    rs1_range(b, CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_STATIC_KEEPING_BUFFER_BOUNDS_CHECKS, 100);
+    rs1_range(b, CBV, 1, 5, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_STATIC_KEEPING_BUFFER_BOUNDS_CHECKS, 100);   /* b5: b0 is taken by the root constants and Win10 rejects overlapping register ranges */
     rs1_table(b, ALL); rs1_range(b, SMP, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE, APPEND);
     rs1_sampler(b, 7, 3, PS)->Filter = D3D12_FILTER_ANISOTROPIC;
     return rs1_done(b, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT);
@@ -162,7 +162,15 @@ CONT(part_offset_beyond_end, *(uint32_t *)(bl.d + 32) = (uint32_t)bl.n)
 CONT(part_offset_before_table, *(uint32_t *)(bl.d + 32) = 32)
 CONT(part_offset_not_contiguous, *(uint32_t *)(bl.d + 32) = 40)
 CONT(part_size_beyond_end, *(uint32_t *)(bl.d + 40) += 4)
-CONT(part_size_huge, *(uint32_t *)(bl.d + 40) = 0xfffffff0u)
+/* Win10 22H2: the part size is not checked against the container; a part claiming 0xfffffff0 bytes is still accepted by both deserializers */
+TEST(d3d12_rootsig_cpu_des_container_part_size_huge_accepted) {
+    RS_REQUIRE_ALL(); RS0 b; RSBUF m; CBUF bl; void *p; size_t n;
+    n = rs_model0(sample0(&b), &m); mk_blob(&bl, m.w, n, 1); *(uint32_t *)(bl.d + 40) = 0xfffffff0u;
+    EXPECT_HR(cr0(&bl, bl.n, &IID_ID3D12RootSignatureDeserializer, &p), S_OK);
+    if (p) ID3D12RootSignatureDeserializer_Release((ID3D12RootSignatureDeserializer *)p);
+    EXPECT_HR(crv(&bl, bl.n, &IID_ID3D12VersionedRootSignatureDeserializer, &p), S_OK);
+    if (p) ID3D12VersionedRootSignatureDeserializer_Release((ID3D12VersionedRootSignatureDeserializer *)p);
+}
 CONT(part_tag_renamed, bl.d[36] = 'X')
 TEST(d3d12_rootsig_cpu_des_container_no_rts0_part) {
     RS_REQUIRE_ALL(); CBUF bl; void *p; const char *tags[1] = { "ABCD" }; uint32_t data[4] = { 1, 2, 3, 4 }; const void *dp[1] = { data }; size_t sz[1] = { 16 };
@@ -221,10 +229,21 @@ PAY(version_ffffffff, 0, w[0] = 0xffffffffu, (void)0)
 PAY(shorter_than_header, 0, n = 23, (void)0)
 PAY(only_version, 0, n = 4, (void)0)
 PAY(header_only_empty_ok, 1, w[1] = 0; w[3] = 0; w[4] = 24; n = 24, CHECK(g->NumParameters == 0 && g->NumStaticSamplers == 0))
-PAY(params_count_overruns, 0, w[1] = 100, (void)0)
-PAY(params_count_huge, 0, w[1] = 0xffffffffu, (void)0)
-PAY(params_count_one_too_many, 0, w[1] = 4, (void)0)
-PAY(params_offset_beyond, 0, w[2] = 4000, (void)0)
+/* Win10 22H2: the parameter count and offset are not range checked against the payload. Counts/offsets that run off the buffer fault inside the
+   deserializer (access violation, 3/3 fresh VMs); a count one past the real table just reads the next bytes as a parameter and succeeds. */
+typedef struct { const CBUF *bl; HRESULT hr; void *p; int versioned; } payf_args;
+static void payf_call(void *x) {
+    payf_args *a = x; a->p = (void *)(ULONG_PTR)1;
+    a->hr = a->versioned ? CRVDES()(a->bl->d, a->bl->n, &IID_ID3D12VersionedRootSignatureDeserializer, &a->p) : CRDES()(a->bl->d, a->bl->n, &IID_ID3D12RootSignatureDeserializer, &a->p);
+}
+#define PAYF(name, code) TEST(d3d12_rootsig_cpu_des_payload_##name##_faults) { RS_REQUIRE_ALL(); RS0 b; RSBUF m; CBUF bl; size_t n; uint32_t w[64]; \
+    n = rs_model0(sample0(&b), &m); memcpy(w, m.w, n); { code; } mk_blob(&bl, w, n, 1); \
+    payf_args a = { &bl, S_OK, NULL, 0 }; \
+    EXPECT_EQ(t_try(payf_call, &a), 0xC0000005u); }
+PAYF(params_count_overruns, w[1] = 100)
+PAYF(params_count_huge, w[1] = 0xffffffffu)
+PAYF(params_offset_beyond, w[2] = 4000)
+PAY(params_count_one_too_many, 1, w[1] = 4, (void)0)
 PAY(sampler_count_overruns, 0, w[3] = 2, (void)0)
 PAY(sampler_count_huge, 0, w[3] = 0x7fffffffu, (void)0)
 PAY(sampler_offset_beyond, 0, w[4] = 1000, (void)0)
@@ -237,13 +256,43 @@ PAY(constants_payload_beyond, 0, w[8] = 4000, (void)0)
 PAY(constants_payload_crosses_end, 0, w[8] = 180 - 8, (void)0)
 PAY(cbv_payload_crosses_end, 0, w[11] = 180 - 4, (void)0)
 PAY(table_header_crosses_end, 0, w[14] = 180 - 4, (void)0)
-PAY(table_header_beyond, 0, if (t_is_wine()) { t_skip("emulator reads out of bounds"); return; } w[14] = 100000, (void)0)
+/* table_header_beyond (table header offset 100000 bytes past a 16 KiB buffer) is deliberately not run: Win10 22H2 reads and writes through the
+   unchecked offset and dies with heap corruption (0xc0000374) at an unpredictable later point, so no stable outcome can be pinned in-process. */
 PAY(flags_top_bit_dropped, 1, w[5] = 0x80000001u, EXPECT_EQ(g->Flags, 1))
 PAY(flags_all_low_bits_kept, 1, w[5] = 0x7fffffffu, EXPECT_EQ(g->Flags, 0x7fffffffu))
 PAY(visibility_not_validated, 1, w[7] = 77, EXPECT_EQ(g->pParameters[0].ShaderVisibility, 77))
 PAY(sampler_fields_not_validated, 1, w[33] = 999; w[34] = 1234, EXPECT_EQ(g->pStaticSamplers[0].AddressU, 999))
 PAY(trailing_bytes_ignored, 1, n = 180 + 8, (void)0)
-PAY(table_zero_ranges, 1, w[20] = 0; w[21] = 88, CHECK(g->pParameters[2].DescriptorTable.NumDescriptorRanges == 0))
+/* Win10 22H2: descriptor tables with zero ranges. The serializer accepts them; the deserializers either answer E_INVALIDARG (blob written by
+   the serializer) or S_OK (hand-made payload), and in both cases damage the heap: the process later dies with 0xc0000374 or 0xc0000005 (observed in
+   3 of 4 in-process attempts, 100% within 40 iterations). The cases therefore run in a child process and only the crash is asserted. */
+CHILD(rs_zero_range_table) {
+    int mode = argc > 0 ? atoi(argv[0]) : 0, it, k; ID3DBlob *bl = NULL;
+    if (!SER10() || !CRDES() || !CRVDES()) return 77;
+    RS0 *b = calloc(1, sizeof *b); RSBUF m; CBUF cb; size_t n;
+    if (mode == 0) {
+        rs0_init(b); rs0_table(b, ALL);
+        if (FAILED(SER10()(rs0_done(b, 0), D3D_ROOT_SIGNATURE_VERSION_1_0, &bl, NULL))) return 78;
+        memcpy(cb.d, ID3D10Blob_GetBufferPointer(bl), ID3D10Blob_GetBufferSize(bl)); cb.n = ID3D10Blob_GetBufferSize(bl);
+    } else {
+        uint32_t w[64]; n = rs_model0(sample0(b), &m); memcpy(w, m.w, n); w[20] = 0; w[21] = 88; mk_blob(&cb, w, n, 1);
+    }
+    for (it = 0; it < 40; it++) {
+        void *p = NULL;
+        HRESULT hr = (it & 1) ? CRVDES()(cb.d, cb.n, &IID_ID3D12VersionedRootSignatureDeserializer, &p) : CRDES()(cb.d, cb.n, &IID_ID3D12RootSignatureDeserializer, &p);
+        if (SUCCEEDED(hr) && p) { if (it & 1) ID3D12VersionedRootSignatureDeserializer_Release((ID3D12VersionedRootSignatureDeserializer *)p); else ID3D12RootSignatureDeserializer_Release((ID3D12RootSignatureDeserializer *)p); }
+        for (k = 0; k < 400; k++) { void *q = malloc(16 + (k % 97)); memset(q, 1, 16); free(q); }
+    }
+    return 0;
+}
+TEST(d3d12_rootsig_cpu_des_zero_range_table_serialized_blob_damages_heap) {
+    RS_REQUIRE_ALL(); DWORD rc = t_run_child("rs_zero_range_table", "0", 120000);
+    CHECKF(rc == 0xC0000374u || rc == 0xC0000005u, "child exit 0x%08lx (expected a heap-corruption/access-violation crash)", (unsigned long)rc);
+}
+TEST(d3d12_rootsig_cpu_des_zero_range_table_handmade_payload_damages_heap) {
+    RS_REQUIRE_ALL(); DWORD rc = t_run_child("rs_zero_range_table", "1", 120000);
+    CHECKF(rc == 0xC0000374u || rc == 0xC0000005u, "child exit 0x%08lx (expected a heap-corruption/access-violation crash)", (unsigned long)rc);
+}
 
 /* ---------------- interface identity ---------------- */
 TEST(d3d12_rootsig_cpu_des_riid_plain) {
@@ -560,7 +609,6 @@ TEST(d3d12_rootsig_cpu_ver_at_version_invalid) {
         for (i = 0; i < sizeof vers / sizeof *vers; i++) {
             const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *g = (const void *)(ULONG_PTR)0x77;
             HRESULT hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(ds, (D3D_ROOT_SIGNATURE_VERSION)vers[i], &g);
-            if (vers[i] == 3 && SUCCEEDED(hr)) { t_note("this runtime can convert to version 1.2"); continue; }
             CHECKF(hr == E_FAILX, "version %u: hr=%08lx", vers[i], (unsigned long)hr);
             CHECKF(g == (const void *)(ULONG_PTR)0x77, "version %u: output pointer modified", vers[i]);
         }
@@ -615,6 +663,7 @@ TEST(d3d12_rootsig_cpu_ver_v12_blob_version3) {
     RS_REQUIRE_ALL(); RS0 b; RSBUF m; CBUF bl; void *p; size_t n;
     n = rs_model0(sample0(&b), &m); m.w[0] = 3; mk_blob(&bl, m.w, n, 1);
     HRESULT hr = crv(&bl, bl.n, &IID_ID3D12VersionedRootSignatureDeserializer, &p);
-    if (FAILED(hr)) { EXPECT_HR(hr, E_INVALID); CHECK(p == NULL); t_note("version 3 blobs rejected by this runtime"); }
-    else { t_note("version 3 blobs accepted by this runtime"); if (p) ID3D12VersionedRootSignatureDeserializer_Release((ID3D12VersionedRootSignatureDeserializer *)p); }
+    EXPECT_HR(hr, E_INVALID);                          /* Win10 22H2: version 3 (1.2) blobs are rejected */
+    CHECK(p == NULL);
+    if (SUCCEEDED(hr) && p) ID3D12VersionedRootSignatureDeserializer_Release((ID3D12VersionedRootSignatureDeserializer *)p);
 }

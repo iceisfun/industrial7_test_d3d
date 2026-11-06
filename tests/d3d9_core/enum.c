@@ -326,7 +326,7 @@ TEST(d3d9_core_enum_modes_contains_current_note) {
         D3DDISPLAYMODE m; memset(&m, 0, sizeof m);
         if (SUCCEEDED(IDirect3D9_EnumAdapterModes(d, 0, cur.Format, i, &m)) && m.Width == cur.Width && m.Height == cur.Height) found = 1;
     }
-    t_note("current mode %ux%u listed in its own format table: %d", cur.Width, cur.Height, found);
+    CHECKF(found, "current mode %ux%u missing from its own format table", cur.Width, cur.Height);
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_enum_modes_plain_vs_ex_count) {
@@ -334,8 +334,7 @@ TEST(d3d9_core_enum_modes_plain_vs_ex_count) {
     if (!IDirect3D9_GetAdapterCount(a)) { IDirect3D9_Release(a); IDirect3D9Ex_Release(b); t_skip("no adapters"); return; }
     UINT ca = IDirect3D9_GetAdapterModeCount(a, 0, D3DFMT_X8R8G8B8);
     UINT cb = IDirect3D9Ex_GetAdapterModeCount(b, 0, D3DFMT_X8R8G8B8);
-    t_note("mode count plain %u / Ex %u", ca, cb);
-    CHECK(cb >= ca);
+    CHECKF(cb >= ca, "mode count plain %u / Ex %u", ca, cb);
     IDirect3D9_Release(a); IDirect3D9Ex_Release(b);
 }
 
@@ -432,8 +431,8 @@ TEST(d3d9_core_enum_ex_modecount_scanline_partition) {
     mkfilter(&f, D3DFMT_X8R8G8B8, D3DSCANLINEORDERING_UNKNOWN);     UINT all = IDirect3D9Ex_GetAdapterModeCountEx(d, 0, &f);
     mkfilter(&f, D3DFMT_X8R8G8B8, D3DSCANLINEORDERING_PROGRESSIVE); UINT prog = IDirect3D9Ex_GetAdapterModeCountEx(d, 0, &f);
     mkfilter(&f, D3DFMT_X8R8G8B8, D3DSCANLINEORDERING_INTERLACED);  UINT inter = IDirect3D9Ex_GetAdapterModeCountEx(d, 0, &f);
-    t_note("Ex mode counts: any %u progressive %u interlaced %u", all, prog, inter);
     CHECK(prog <= all); CHECK(inter <= all);
+    EXPECT_EQ(all, prog + inter);                       /* UNKNOWN ordering is the union of the two */
     IDirect3D9Ex_Release(d);
 }
 TEST(d3d9_core_enum_ex_enum_invalid_filters) {

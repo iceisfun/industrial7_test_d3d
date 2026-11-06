@@ -258,7 +258,7 @@ TEST(d3d10_utils_effects_reflect_resource_texture)
         EXPECT_EQ(b.BindCount, 1);
         EXPECT_EQ(b.ReturnType, 5);       /* float */
         EXPECT_EQ(b.Dimension, 4);        /* TEXTURE2D */
-        EXPECT_EQ(b.NumSamples, 0xffffffffu);
+        EXPECT_EQ(b.NumSamples, who == 0 ? 0u : 0xffffffffu);   /* D3D10CompileShader: 0; d3dcompiler_47: -1 */
     }
 }
 TEST(d3d10_utils_effects_reflect_resource_sampler)
@@ -396,7 +396,9 @@ static void check_vars(ID3D10ShaderReflection *r, const char *cbname, const vare
         t_check(td.Class == v[i].cls, __FILE__, __LINE__, "Class", "%s %s: %d want %u", k_who[who], v[i].name, td.Class, v[i].cls);
         t_check(td.Type == v[i].type, __FILE__, __LINE__, "Type", "%s %s: %d want %u", k_who[who], v[i].name, td.Type, v[i].type);
         t_check(td.Rows == v[i].rows && td.Columns == v[i].cols, __FILE__, __LINE__, "Rows/Columns", "%s %s: %ux%u", k_who[who], v[i].name, td.Rows, td.Columns);
-        t_check(td.Elements == v[i].elems, __FILE__, __LINE__, "Elements", "%s %s: %u want %u", k_who[who], v[i].name, td.Elements, v[i].elems);
+        /* shaders from D3D10CompileShader report Elements == 1 for non-arrays; d3dcompiler_47 shaders report 0 */
+        UINT want_el = (who == 0 && v[i].elems == 0) ? 1 : v[i].elems;
+        t_check(td.Elements == want_el, __FILE__, __LINE__, "Elements", "%s %s: %u want %u", k_who[who], v[i].name, td.Elements, want_el);
         EXPECT_EQ(td.Members, 0);
     }
 }
@@ -509,9 +511,9 @@ TEST(d3d10_utils_effects_reflect_struct_member_types)
             ID3D10ShaderReflectionType *mt = ID3D10ShaderReflectionType_GetMemberTypeByIndex(t, i);
             D3D10_SHADER_TYPE_DESC md;
             if (mt && SUCCEEDED(ID3D10ShaderReflectionType_GetDesc(mt, &md))) {
-                if (i == 0) { EXPECT_EQ(md.Class, D3D_SVC_VECTOR); EXPECT_EQ(md.Columns, 4); if (md.Offset != 0) t_note("member 0 offset %u", md.Offset); }
-                if (i == 1) { EXPECT_EQ(md.Type, D3D_SVT_INT); EXPECT_EQ(md.Columns, 2); t_note("member 1 offset %u (want 16)", md.Offset); }
-                if (i == 2) { EXPECT_EQ(md.Class, D3D_SVC_SCALAR); t_note("member 2 offset %u (want 24)", md.Offset); }
+                if (i == 0) { EXPECT_EQ(md.Class, D3D_SVC_VECTOR); EXPECT_EQ(md.Columns, 4); EXPECT_EQ(md.Offset, 0); }
+                if (i == 1) { EXPECT_EQ(md.Type, D3D_SVT_INT); EXPECT_EQ(md.Columns, 2); EXPECT_EQ(md.Offset, 16); }
+                if (i == 2) { EXPECT_EQ(md.Class, D3D_SVC_SCALAR); EXPECT_EQ(md.Offset, 24); }
             } else CHECK(0);
         }
     }
@@ -528,7 +530,9 @@ static void check_sig(ID3D10ShaderReflection *r, int output, const sigexp *e, in
         t_check(!strcmp(d.SemanticName, e[i].sem), __FILE__, __LINE__, "SemanticName", "%s %s[%d]: %s want %s", k_who[who], what, i, d.SemanticName, e[i].sem);
         t_check(d.SemanticIndex == e[i].idx, __FILE__, __LINE__, "SemanticIndex", "%s %s[%d]: %u", k_who[who], what, i, d.SemanticIndex);
         t_check(d.Register == e[i].reg, __FILE__, __LINE__, "Register", "%s %s[%d]: %u", k_who[who], what, i, d.Register);
-        t_check((int)d.SystemValueType == e[i].sv, __FILE__, __LINE__, "SystemValueType", "%s %s[%d]: %d want %d", k_who[who], what, i, d.SystemValueType, e[i].sv);
+        /* D3D10ReflectShader reports SV_Target as system value 0 (undefined), not D3D_NAME_TARGET (64), for either compiler */
+        int want_sv = !strcmp(e[i].sem, "SV_Target") ? 0 : e[i].sv;
+        t_check((int)d.SystemValueType == want_sv, __FILE__, __LINE__, "SystemValueType", "%s %s[%d]: %d want %d", k_who[who], what, i, d.SystemValueType, want_sv);
         t_check(d.ComponentType == D3D_REGISTER_COMPONENT_FLOAT32, __FILE__, __LINE__, "ComponentType", "%s %s[%d]: %d", k_who[who], what, i, d.ComponentType);
         t_check(d.Mask == e[i].mask, __FILE__, __LINE__, "Mask", "%s %s[%d]: %02x want %02x", k_who[who], what, i, d.Mask, e[i].mask);
     }

@@ -240,10 +240,9 @@ TEST(d3d9_core_refcount_independent_objects) {
 }
 TEST(d3d9_core_object_usable_after_other_released) {
     D9_GET(a); D9_GET(b);
+    UINT want = IDirect3D9_GetAdapterCount(b);
     IDirect3D9_Release(a);
-    UINT n = IDirect3D9_GetAdapterCount(b);
-    t_note("adapter count after sibling release: %u", n);
-    CHECK(1);
+    EXPECT_EQ(IDirect3D9_GetAdapterCount(b), want);   /* the surviving object is independent of its sibling */
     EXPECT_EQ(IDirect3D9_Release(b), 0);
 }
 TEST(d3d9_core_object_cross_thread_refcount) {
@@ -301,9 +300,9 @@ TEST(d3d9_core_on12_disabled_args) {
     Direct3DCreate9On12_pfn c = (Direct3DCreate9On12_pfn)t_proc_in("d3d9.dll", "Direct3DCreate9On12"); REQUIRE(c); NEED_CREATE();
     d9c_on12_args a; memset(&a, 0, sizeof a);   /* Enable9On12 = FALSE, no D3D12 objects */
     IDirect3D9 *d = c(D3D_SDK_VERSION, &a, 1);
-    t_note("Direct3DCreate9On12 with Enable9On12=FALSE: %p", (void *)d);
+    CHECK(d != NULL);                          /* Win10: Enable9On12=FALSE falls back to the native d3d9 object */
     if (d) {
-        t_note("adapter count with disabled 9On12 args: %u", IDirect3D9_GetAdapterCount(d));
+        CHECK(IDirect3D9_GetAdapterCount(d) >= 1);
         IDirect3D9_Release(d);
     }
 }

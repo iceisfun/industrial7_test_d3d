@@ -155,17 +155,18 @@ TEST(d3d12_rootsig_cpu_hlsl_v11_default_flags_observed) {
     CHECK(u != NULL);
     if (u && u->Desc_1_1.NumParameters == 5) {
         const D3D12_ROOT_PARAMETER1 *p = u->Desc_1_1.pParameters;
-        t_note("v1.1 HLSL defaults: root CBV flags=%x SRV=%x UAV=%x; table ranges CBV=%x SRV=%x UAV=%x sampler=%x", p[0].Descriptor.Flags, p[1].Descriptor.Flags,
-               p[2].Descriptor.Flags, p[3].DescriptorTable.pDescriptorRanges[0].Flags, p[3].DescriptorTable.pDescriptorRanges[1].Flags,
-               p[3].DescriptorTable.pDescriptorRanges[2].Flags, p[4].DescriptorTable.pDescriptorRanges[0].Flags);
-        CHECK(p[0].Descriptor.Flags != 0xffffffffu);
+        /* Win10 22H2 d3dcompiler_47: unflagged v1.1 root descriptors and ranges are emitted with flags 0 (NONE), not the documented
+           DATA_STATIC_WHILE_SET_AT_EXECUTE / DESCRIPTORS_VOLATILE defaults */
+        EXPECT_EQ(p[0].Descriptor.Flags, 0); EXPECT_EQ(p[1].Descriptor.Flags, 0); EXPECT_EQ(p[2].Descriptor.Flags, 0);
+        EXPECT_EQ(p[3].DescriptorTable.pDescriptorRanges[0].Flags, 0); EXPECT_EQ(p[3].DescriptorTable.pDescriptorRanges[1].Flags, 0);
+        EXPECT_EQ(p[3].DescriptorTable.pDescriptorRanges[2].Flags, 0); EXPECT_EQ(p[4].DescriptorTable.pDescriptorRanges[0].Flags, 0);
     } else CHECK(0);
     if (d) ID3D12VersionedRootSignatureDeserializer_Release(d);
     SAFE_RELEASE(code);
 }
 TEST(d3d12_rootsig_cpu_hlsl_v11_matches_serializer_bytes) {
     REQUIRE(d3dh_D3DCompile()); RS_REQUIRE_ALL(); ID3DBlob *code = NULL, *ser = NULL; ID3D12VersionedRootSignatureDeserializer *d; const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *u;
-    HRESULT hr = compile_rs("RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT), RootConstants(num32BitConstants=2, b0), CBV(b1, flags=DATA_STATIC), DescriptorTable(SRV(t0, numDescriptors=3, flags=DATA_STATIC_WHILE_SET_AT_EXECUTE), Sampler(s4)), StaticSampler(s2)", "rootsig_1_1", &code);
+    HRESULT hr = compile_rs("RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT), RootConstants(num32BitConstants=2, b0), CBV(b1, flags=DATA_STATIC), DescriptorTable(SRV(t0, numDescriptors=3, flags=DATA_STATIC_WHILE_SET_AT_EXECUTE)), DescriptorTable(Sampler(s4)), StaticSampler(s2)", "rootsig_1_1", &code);
     if (rs_unsup(hr)) return; if (FAILED(hr)) { CHECKF(0, "compile failed hr=%08lx: %s", (unsigned long)hr, d3dh_compile_errors()); return; }
     u = deser11(code, &d);
     if (u) {
@@ -177,7 +178,7 @@ TEST(d3d12_rootsig_cpu_hlsl_v11_matches_serializer_bytes) {
             CHECK(r1 && r2 && n1 == n2 && !memcmp(r1, r2, n1));
             SAFE_RELEASE(ser);
         }
-    } else t_note("compiled table mixing SRV and Sampler was rejected by the d3d12 deserializer (expected: invalid mix)");
+    } else CHECK(0);
     if (d) ID3D12VersionedRootSignatureDeserializer_Release(d);
     SAFE_RELEASE(code);
 }
@@ -200,7 +201,9 @@ TEST(d3d12_rootsig_cpu_hlsl_attribute_embeds_rts0) {
     {
         size_t n1 = 0, n2 = 0; const uint8_t *r1 = rs_find_rts0(ID3D10Blob_GetBufferPointer(code), ID3D10Blob_GetBufferSize(code), &n1), *r2;
         CHECK(r1 != NULL);
-        hr = compile_rs("RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT), CBV(b0), DescriptorTable(SRV(t0, numDescriptors=2))", "rootsig_1_0", &rsc);
+        /* Win10 22H2: the [RootSignature] attribute embeds a version 1.1 (RTS0 version dword 2) blob, equal to a rootsig_1_1 compile */
+        if (r1 && n1 >= 4) { uint32_t ver; memcpy(&ver, r1, 4); EXPECT_EQ(ver, 2); }
+        hr = compile_rs("RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT), CBV(b0), DescriptorTable(SRV(t0, numDescriptors=2))", "rootsig_1_1", &rsc);
         if (SUCCEEDED(hr)) { r2 = rts_of(rsc, &n2); CHECK(r1 && r2 && n1 == n2 && !memcmp(r1, r2, n1)); }
         else CHECKF(0, "rootsig compile failed: %s", d3dh_compile_errors());
     }
@@ -239,8 +242,9 @@ TEST(d3d12_rootsig_cpu_hlsl_get_blob_part_root_signature) {
         size_t n = 0; const uint8_t *r = rs_find_rts0(ID3D10Blob_GetBufferPointer(code), ID3D10Blob_GetBufferSize(code), &n);
         const uint8_t *g = ID3D10Blob_GetBufferPointer(part); SIZE_T gn = ID3D10Blob_GetBufferSize(part);
         CHECK(r != NULL);
-        if (gn >= 4 && !memcmp(g, "DXBC", 4)) { size_t n2 = 0; const uint8_t *r2 = rs_find_rts0(g, gn, &n2); CHECK(r && r2 && n == n2 && !memcmp(r, r2, n)); t_note("GetBlobPart(ROOT_SIGNATURE) returns a container"); }
-        else { CHECK(r && gn == n && !memcmp(g, r, n)); t_note("GetBlobPart(ROOT_SIGNATURE) returns the raw RTS0 part"); }
+        /* Win10: the part comes back wrapped in a DXBC container */
+        CHECK(gn >= 4 && !memcmp(g, "DXBC", 4));
+        { size_t n2 = 0; const uint8_t *r2 = rs_find_rts0(g, gn, &n2); CHECK(r && r2 && n == n2 && !memcmp(r, r2, n)); }
     }
     SAFE_RELEASE(part); SAFE_RELEASE(code);
 }
@@ -249,7 +253,7 @@ TEST(d3d12_rootsig_cpu_hlsl_get_blob_part_missing_root_signature) {
     hr = d3dh_compile(k_vs_plain, "main", "vs_5_0", 0, &code);
     if (FAILED(hr)) { t_skip("compile unavailable (hr=%08lx)", (unsigned long)hr); return; }
     hr = d3dh_D3DGetBlobPart()(ID3D10Blob_GetBufferPointer(code), ID3D10Blob_GetBufferSize(code), D3D_BLOB_ROOT_SIGNATURE, 0, &part);
-    CHECK(FAILED(hr)); t_note("GetBlobPart(ROOT_SIGNATURE) on a shader without one: hr=%08lx", (unsigned long)hr);
+    EXPECT_HR(hr, E_FAIL);
     if (FAILED(hr) && part == (ID3DBlob *)(ULONG_PTR)1) part = NULL;
     SAFE_RELEASE(part); SAFE_RELEASE(code);
 }
@@ -277,11 +281,9 @@ TEST(d3d12_rootsig_cpu_hlsl_set_blob_part_root_signature) {
     if (ser) {
         size_t sn = 0; const uint8_t *sr = rs_find_rts0(ID3D10Blob_GetBufferPointer(ser), ID3D10Blob_GetBufferSize(ser), &sn);
         hr = setp(ID3D10Blob_GetBufferPointer(code), ID3D10Blob_GetBufferSize(code), D3D_BLOB_ROOT_SIGNATURE, 0, sr, sn, &out);
-        if (FAILED(hr)) { t_note("D3DSetBlobPart(ROOT_SIGNATURE) with raw RTS0 failed hr=%08lx", (unsigned long)hr); }
-        else if (out) {
-            size_t n = 0; const uint8_t *r = rs_find_rts0(ID3D10Blob_GetBufferPointer(out), ID3D10Blob_GetBufferSize(out), &n);
-            CHECK(r && n == sn && !memcmp(r, sr, sn));
-        }
+        /* Win10: D3DSetBlobPart wants the raw RTS0 payload wrapped as a container; the bare part bytes are D3DERR_INVALIDCALL */
+        EXPECT_HR(hr, (HRESULT)0x8876086C);
+        CHECK(out == NULL);
     }
     SAFE_RELEASE(out); SAFE_RELEASE(ser); SAFE_RELEASE(code);
 }

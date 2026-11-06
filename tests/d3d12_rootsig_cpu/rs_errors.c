@@ -141,12 +141,11 @@ TEST(d3d12_rootsig_cpu_err_serv_version_1_2) {
     if (FAILED(hr)) {
         /* Windows 10 inbox d3d12core: only versions 1 and 2 are known and no error text is produced */
         EXPECT_HR(hr, E_INVALID); CHECK(b == NULL);
-        t_note("version 1.2 root signatures are rejected by this d3d12 runtime (hr=%08lx)", (unsigned long)hr);
     } else {
         const uint8_t *p = b ? ID3D10Blob_GetBufferPointer(b) : NULL; size_t rn = 0;
         const uint8_t *r = p ? rs_find_rts0(p, ID3D10Blob_GetBufferSize(b), &rn) : NULL;
         CHECK(r != NULL); if (r) { uint32_t ver; memcpy(&ver, r, 4); EXPECT_EQ(ver, 3); }
-        t_note("version 1.2 root signatures are accepted by this d3d12 runtime");
+        CHECKF(0, "Win10 22H2 d3d12 rejects version 3 (E_INVALIDARG) but it was accepted");
     }
     SAFE_RELEASE(b); SAFE_RELEASE(e);
 }
@@ -205,7 +204,7 @@ TEST(d3d12_rootsig_cpu_err_flags_unknown_high_bits) {
         D3D12_ROOT_SIGNATURE_DESC d; ID3DBlob *b = NULL, *e = NULL; char want[128];
         memset(&d, 0, sizeof d); d.Flags = fl[i];
         HRESULT hr = rs_ser0(&d, &b, &e);
-        if (SUCCEEDED(hr)) { t_note("flags %x accepted by this runtime", fl[i]); SAFE_RELEASE(b); SAFE_RELEASE(e); continue; }
+        if (SUCCEEDED(hr)) { CHECKF(0, "flags %x accepted (Win10 22H2 rejects undefined bits)", fl[i]); SAFE_RELEASE(b); SAFE_RELEASE(e); continue; }
         EXPECT_HR(hr, E_INVALID);
         sprintf(want, "Unsupported bit-flag set (root signature flags %x).\n", fl[i]);
         check_err(e, want, "high flag"); SAFE_RELEASE(e);
@@ -217,11 +216,10 @@ TEST(d3d12_rootsig_cpu_err_flags_directly_indexed_heaps) {
         D3D12_ROOT_SIGNATURE_DESC d; ID3DBlob *b = NULL, *e = NULL; char want[128];
         memset(&d, 0, sizeof d); d.Flags = fl[i];
         HRESULT hr = rs_ser0(&d, &b, &e);
-        if (SUCCEEDED(hr)) { t_note("flags %x (directly indexed heaps) accepted by this runtime", fl[i]); SAFE_RELEASE(b); SAFE_RELEASE(e); continue; }
+        if (SUCCEEDED(hr)) { CHECKF(0, "flags %x accepted (Win10 22H2 d3d12 predates directly indexed heaps)", fl[i]); SAFE_RELEASE(b); SAFE_RELEASE(e); continue; }
         EXPECT_HR(hr, E_INVALID);
         sprintf(want, "Unsupported bit-flag set (root signature flags %x).\n", fl[i]);
         check_err(e, want, "dir idx flag"); SAFE_RELEASE(e);
-        t_note("flags %x rejected: runtime predates directly indexed heaps", fl[i]);
     }
 }
 
@@ -302,8 +300,8 @@ TEST(d3d12_rootsig_cpu_err_table_range_overlap_in_descriptor_space_accepted) {
     /* explicit offsets that overlap in the descriptor heap range are not rejected by the serializer */
     rs0_table(b, ALL); rs0_range(b, SRV, 4, 0, 0, 0); rs0_range(b, UAV, 4, 0, 0, 2);
     HRESULT hr = rs_ser0(rs0_done(b, 0), &bl, &e);
-    if (FAILED(hr)) t_note("descriptor-space overlap rejected: hr=%08lx text=%s", (unsigned long)hr, e ? rs_errstr(e) : "(none)");
-    else { RSBUF m; rs_model0(&b->d, &m); rs_blob_matches(bl, &m, "overlap accepted"); }
+    EXPECT_HR(hr, S_OK);
+    if (SUCCEEDED(hr)) { RSBUF m; rs_model0(&b->d, &m); rs_blob_matches(bl, &m, "overlap accepted"); }
     SAFE_RELEASE(bl); SAFE_RELEASE(e); free(b);
 }
 TEST(d3d12_rootsig_cpu_err_table_empty_ok) {
@@ -438,7 +436,8 @@ TEST(d3d12_rootsig_cpu_err_overlap_visibility_names) {
     SAFE_RELEASE(bl); SAFE_RELEASE(e); rs0_init(b);
     rs0_root(b, RCBV, 0, 0, VS); rs0_root(b, RCBV, 0, 0, VS);
     EXPECT_HR(rs_ser0(rs0_done(b, 0), &bl, &e), E_INVALID);
-    if (e) t_note("overlap text for VERTEX visibility: %s", rs_errstr(e));
+    CHECK(e != NULL);
+    if (e) CHECKF(strstr(rs_errstr(e), "(root parameter [1], visibility VERTEX) overlaps with another shader register range (root parameter [0], visibility VERTEX).") != NULL, "text: %s", rs_errstr(e));
     SAFE_RELEASE(e); free(b);
 }
 F0(overlap_in_nonzero_space, OV("CBV", "(root parameter [1], visibility ALL)", "(root parameter [0], visibility ALL)"), 0,
@@ -460,7 +459,6 @@ TEST(d3d12_rootsig_cpu_err_overlap_static_sampler_text) {
         const char *s = rs_errstr(e);
         CHECKF(strstr(s, " (static sampler [1], visibility ALL) overlaps with another shader register range (static sampler [0], visibility ALL).\n") != NULL, "text: %s", s);
         CHECKF(!strncmp(s, "Shader register range of type ", 30), "text: %s", s);
-        t_note("static sampler overlap text: %s", s);
     } else CHECK(e != NULL);
     SAFE_RELEASE(e); free(b);
 }

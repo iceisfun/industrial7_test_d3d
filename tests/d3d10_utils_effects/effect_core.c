@@ -44,7 +44,8 @@ TEST(d3d10_utils_effects_fx_compile_syntax_error)
     const char *src = "float4 x\ntechnique10 T { pass P { } }\n";
     HRESULT hr = f((void *)src, strlen(src), "bad.fx", NULL, NULL, 0, 0, &b, &e);
     CHECK(FAILED(hr));
-    EXPECT_EQ(b == (ID3D10Blob *)(ULONG_PTR)1, 0);
+    EXPECT_HR(hr, E_FAIL);
+    CHECK(b == (ID3D10Blob *)(ULONG_PTR)1);   /* Win10: the effect output is left untouched on a failed compile */
     CHECK(e != NULL);
     if (e) {
         char t[600];
@@ -61,7 +62,8 @@ TEST(d3d10_utils_effects_fx_compile_empty_source)
     ID3D10Blob *b = NULL;
     HRESULT hr = ue_compile_fx("", 0, 0, &b);
     if (hr == D3DH_E_NOCOMPILER) { t_skip("missing export"); return; }
-    t_note("compiling an empty effect: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_D3DERR_INVALIDCALL);
+    CHECK(b == NULL);
     UE_REL(b);
 }
 TEST(d3d10_utils_effects_fx_compile_no_technique)
@@ -251,7 +253,8 @@ TEST(d3d10_utils_effects_fx_create_null_device)
     if (FAILED(ue_compile_fx(UE_FX_BASIC, 0, 0, &b))) { CHECK(0); return; }
     ID3D10Effect *fx = (ID3D10Effect *)(ULONG_PTR)1;
     HRESULT hr = CREATE_FX("d3d10.dll")((void *)ue_bp(b), ue_bs(b), 0, NULL, NULL, &fx);
-    t_note("create effect with NULL device: %s (effect %p)", d3dh_hr_name(hr), (void *)fx);
+    EXPECT_HR(hr, E_D3DERR_INVALIDCALL);
+    CHECK(fx == NULL);
     if (SUCCEEDED(hr) && fx && fx != (ID3D10Effect *)(ULONG_PTR)1) ID3D10Effect_Release(fx);
     UE_REL(b);
 }
@@ -261,11 +264,10 @@ TEST(d3d10_utils_effects_fx_create_from_d3dcompiler_fx_4_0)
     REQUIRE(CREATE_FX("d3d10.dll") && d3dh_D3DCompile());
     ID3DBlob *b = NULL;
     HRESULT hr = d3dh_compile(UE_FX_BASIC, NULL, "fx_4_0", 0, &b);
-    t_note("D3DCompile fx_4_0: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
         ID3D10Effect *fx = NULL;
         hr = CREATE_FX("d3d10.dll")((void *)ue_bp((ID3D10Blob *)b), ue_bs((ID3D10Blob *)b), 0, dev, NULL, &fx);
-        t_note("create from fx_4_0 blob: %s", d3dh_hr_name(hr));
         EXPECT_HR(hr, S_OK);
         SAFE_RELEASE(fx);
     }
@@ -277,11 +279,11 @@ TEST(d3d10_utils_effects_fx_create_from_d3dcompiler_fx_5_0)
     REQUIRE(CREATE_FX("d3d10.dll") && d3dh_D3DCompile());
     ID3DBlob *b = NULL;
     HRESULT hr = d3dh_compile(UE_FX_BASIC, NULL, "fx_5_0", 0, &b);
-    t_note("D3DCompile fx_5_0: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
         ID3D10Effect *fx = (ID3D10Effect *)(ULONG_PTR)1;
         hr = CREATE_FX("d3d10.dll")((void *)ue_bp((ID3D10Blob *)b), ue_bs((ID3D10Blob *)b), 0, dev, NULL, &fx);
-        t_note("create from fx_5_0 blob with D3D10CreateEffectFromMemory: %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_FAIL);                       /* Win10: the D3D10 effects runtime rejects fx_5_0 containers */
         if (SUCCEEDED(hr) && fx) ID3D10Effect_Release(fx);
     }
     SAFE_RELEASE(b);
@@ -366,7 +368,7 @@ TEST(d3d10_utils_effects_fx_get_desc)
     EXPECT_EQ(d.GlobalVariables, 9);
     EXPECT_EQ(d.Techniques, 2);
     CHECK(d.ConstantBuffers >= 1);
-    t_note("effect desc: constant buffers %u", d.ConstantBuffers);
+    EXPECT_EQ(d.ConstantBuffers, 2);
     ID3D10Effect_Release(fx);
 }
 TEST(d3d10_utils_effects_fx_get_desc_null)
@@ -406,11 +408,11 @@ TEST(d3d10_utils_effects_fx_qi_edge_cases)
     EXPECT_EQ(o, NULL);
     o = NULL;
     HRESULT hr = ID3D10Effect_QueryInterface(fx, &IID_ID3D10Effect, &o);
-    t_note("QI(IID_ID3D10Effect) on an effect: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);                    /* Win10: effects expose no interfaces through QueryInterface, not even their own or IUnknown */
     if (SUCCEEDED(hr) && o) ID3D10Effect_Release((ID3D10Effect *)o);
     o = NULL;
     hr = ID3D10Effect_QueryInterface(fx, &IID_IUnknown, &o);
-    t_note("QI(IID_IUnknown) on an effect: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);
     if (SUCCEEDED(hr) && o) ID3D10Effect_Release((ID3D10Effect *)o);
     ID3D10Effect_Release(fx);
 }
@@ -648,6 +650,8 @@ TEST(d3d10_utils_effects_fx_technique_misses)
     for (int i = 0; i < 6; i++) { if (all[i]) CHECK(!ID3D10EffectTechnique_IsValid(all[i])); EXPECT_EQ(all[i], a); }
     ID3D10Effect_Release(fx);
 }
+typedef struct { ID3D10EffectTechnique *t; } pl_args;
+static void pl_null_name(void *p) { pl_args *a = p; ID3D10EffectTechnique_GetPassByName(a->t, NULL); }
 TEST(d3d10_utils_effects_fx_pass_lookup)
 { if (t_is_wine()) { t_skip("Wine faults on this call; Windows behaviour is authoritative"); return; }
     NEED_DEVICE(dev);
@@ -667,7 +671,11 @@ TEST(d3d10_utils_effects_fx_pass_lookup)
     }
     ID3D10EffectPass *bad1 = ID3D10EffectTechnique_GetPassByIndex(t, 2);
     ID3D10EffectPass *bad2 = ID3D10EffectTechnique_GetPassByName(t, "p0");
-    ID3D10EffectPass *bad3 = ID3D10EffectTechnique_GetPassByName(t, NULL);
+    ID3D10EffectPass *bad3 = bad1;
+    {   /* Win10: a NULL pass name is not validated: access violation */
+        pl_args a = { t };
+        EXPECT_EQ(t_try(pl_null_name, &a), 0xC0000005u);
+    }
     t_check(bad1 && bad2 && bad3, __FILE__, __LINE__, "never NULL", "");
     if (bad1) CHECK(!ID3D10EffectPass_IsValid(bad1));
     if (bad2) CHECK(!ID3D10EffectPass_IsValid(bad2));
@@ -959,10 +967,10 @@ TEST(d3d10_utils_effects_fx_optimize_drops_desc_names)
     EXPECT_HR(ID3D10Effect_Optimize(fx), S_OK);
     D3D10_EFFECT_VARIABLE_DESC d;
     EXPECT_HR(ID3D10EffectVariable_GetDesc(ID3D10Effect_GetVariableByIndex(fx, 0), &d), S_OK);
-    t_note("variable desc after Optimize: name %s semantic %s", d.Name ? d.Name : "(null)", d.Semantic ? d.Semantic : "(null)");
+    CHECK(d.Name == NULL && d.Semantic == NULL);     /* Win10: Optimize strips names and semantics */
     D3D10_TECHNIQUE_DESC td;
     EXPECT_HR(ID3D10EffectTechnique_GetDesc(ID3D10Effect_GetTechniqueByIndex(fx, 0), &td), S_OK);
-    t_note("technique desc after Optimize: name %s", td.Name ? td.Name : "(null)");
+    CHECK(td.Name == NULL);
     ID3D10Effect_Release(fx);
 }
 

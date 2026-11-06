@@ -353,6 +353,16 @@ static inline int rs_desc_eq1(const D3D12_ROOT_SIGNATURE_DESC1 *a, const D3D12_R
     return rs_samplers_eq(a->pStaticSamplers, b->pStaticSamplers, a->NumStaticSamplers);
 }
 
+/* Win10 22H2: the serializer accepts a descriptor table with zero ranges, but both deserializers then answer E_INVALIDARG and corrupt the
+   heap (0xc0000374 / 0xc0000005 in later allocations, 3 of 4 runs). Round trips are therefore skipped for such descriptions. */
+static inline int rs_has_empty_table0(const D3D12_ROOT_SIGNATURE_DESC *d) {
+    UINT i; for (i = 0; i < d->NumParameters; i++) if (d->pParameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE && !d->pParameters[i].DescriptorTable.NumDescriptorRanges) return 1;
+    return 0;
+}
+static inline int rs_has_empty_table1(const D3D12_ROOT_SIGNATURE_DESC1 *d) {
+    UINT i; for (i = 0; i < d->NumParameters; i++) if (d->pParameters[i].ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE && !d->pParameters[i].DescriptorTable.NumDescriptorRanges) return 1;
+    return 0;
+}
 /* serialize and fully check one v1.0 description: bytes, determinism, both entry points, round trip */
 static inline void rs_case0(const D3D12_ROOT_SIGNATURE_DESC *d, const char *tag) {
     RSBUF m; ID3DBlob *b = NULL, *e = NULL, *b2 = NULL, *e2 = NULL; HRESULT hr;
@@ -367,6 +377,7 @@ static inline void rs_case0(const D3D12_ROOT_SIGNATURE_DESC *d, const char *tag)
                    !memcmp(ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferPointer(b2), ID3D10Blob_GetBufferSize(b)),
                    "%s: versioned and plain v1.0 serialization differ", tag);
         }
+        if (rs_has_empty_table0(d)) goto done0;
         hr = CRDES()(ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), &IID_ID3D12RootSignatureDeserializer, (void **)&des);
         EXPECT_HR(hr, S_OK);
         if (des) {
@@ -375,6 +386,7 @@ static inline void rs_case0(const D3D12_ROOT_SIGNATURE_DESC *d, const char *tag)
             ID3D12RootSignatureDeserializer_Release(des);
         }
     }
+done0:
     SAFE_RELEASE(b); SAFE_RELEASE(b2); SAFE_RELEASE(e); SAFE_RELEASE(e2);
 }
 /* same for v1.1 descriptions (only the versioned entry point exists) */
@@ -391,6 +403,7 @@ static inline void rs_case1(const D3D12_ROOT_SIGNATURE_DESC1 *d, const char *tag
                    !memcmp(ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferPointer(b2), ID3D10Blob_GetBufferSize(b)),
                    "%s: two serializations differ", tag);
         }
+        if (rs_has_empty_table1(d)) goto done1;
         hr = CRVDES()(ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&des);
         EXPECT_HR(hr, S_OK);
         if (des) {
@@ -399,6 +412,7 @@ static inline void rs_case1(const D3D12_ROOT_SIGNATURE_DESC1 *d, const char *tag
             ID3D12VersionedRootSignatureDeserializer_Release(des);
         }
     }
+done1:
     SAFE_RELEASE(b); SAFE_RELEASE(b2); SAFE_RELEASE(e);
 }
 

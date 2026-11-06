@@ -108,7 +108,7 @@ static void k_identity(int K)
     EXPECT_HR(u1->lpVtbl->QueryInterface(u1, &IID_IUnknown, (void **)&u3), S_OK);
     CHECK(u1 && u1 == u2);
     CHECK(u1 && u1 == u3);
-    if (c != obj) t_note("kind %d: QI(DeviceChild) returned a different pointer than the creation pointer", K);
+    CHECK(c == obj);
     EXPECT_EQ(d3dh_refcount(obj), 5);   // 1 + u1 + c + u2 + u3
     SAFE_RELEASE(u1); SAFE_RELEASE(u2); SAFE_RELEASE(u3); SAFE_RELEASE(c);
     EXPECT_EQ(d3dh_refcount(obj), 1);
@@ -203,8 +203,8 @@ static void k_two(int K)
             EXPECT_EQ(d3dh_refcount(obj), 2);
             EXPECT_EQ(RC_RELEASE(o2), 1);
         } else if (K == K_VS || K == K_PS || K == K_CS || K == K_IL) {
-            if (o2 == obj) t_note("kind %d: identical creation returned the same object (refcount %lu)", K, d3dh_refcount(obj));
-            else EXPECT_EQ(d3dh_refcount(obj), 1);
+            CHECK(o2 != obj);                         /* Win10: shaders and layouts are not deduplicated */
+            EXPECT_EQ(d3dh_refcount(obj), 1);
             RC_RELEASE(o2);
         } else {
             CHECK(o2 != obj);
@@ -256,7 +256,7 @@ static void k_privdata(int K)
     sz = sizeof(buf);
     EXPECT_HR(obj->lpVtbl->GetPrivateData(obj, &RC_GUID_A, &sz, buf), HR_NOT_FOUND);
     /* deleting something that does not exist is not an error */
-    t_note("kind %d: delete of absent private data -> %s", K, d3dh_hr_name(obj->lpVtbl->SetPrivateData(obj, &RC_GUID_C, 0, NULL)));
+    EXPECT_HR(obj->lpVtbl->SetPrivateData(obj, &RC_GUID_C, 0, NULL), S_FALSE);   /* Win10: deleting absent data is S_FALSE */
     KIND_END();
 }
 
