@@ -85,11 +85,14 @@ static void expect_same_chunks(ID3DBlob *a, ID3DBlob *b, const char *what) {
     EXPECT_EQ(g1_rd32(BP(b) + 0x18), BS(b));                /* total-size field matches the blob */
     EXPECT_EQ(g1_chunk_count(BP(a)), g1_chunk_count(BP(b)));
     if (g1_chunk_count(BP(a)) != g1_chunk_count(BP(b))) return;
-    for (DWORD i = 0; i < g1_chunk_count(BP(a)); i++) {
-        CHECKF(g1_chunk_fourcc(BP(a), i) == g1_chunk_fourcc(BP(b), i), "%s: chunk %u fourcc", what, i);
-        CHECKF(g1_chunk_size_at(BP(a), i) == g1_chunk_size_at(BP(b), i), "%s: chunk %u size", what, i);
-        if (g1_chunk_size_at(BP(a), i) == g1_chunk_size_at(BP(b), i))
-            CHECKF(!memcmp(g1_chunk_data_at(BP(a), i), g1_chunk_data_at(BP(b), i), g1_chunk_size_at(BP(a), i)), "%s: chunk %u payload", what, i);
+    DWORD n = g1_chunk_count(BP(a));
+    /* Win10: D3DDecompressShaders emits the parts in REVERSE order of the source container (source RDEF ISGN OSGN SHEX STAT -> STAT SHEX OSGN ISGN RDEF) */
+    for (DWORD i = 0; i < n; i++) {
+        DWORD j = n - 1 - i;
+        CHECKF(g1_chunk_fourcc(BP(a), i) == g1_chunk_fourcc(BP(b), j), "%s: chunk %u fourcc", what, i);
+        CHECKF(g1_chunk_size_at(BP(a), i) == g1_chunk_size_at(BP(b), j), "%s: chunk %u size", what, i);
+        if (g1_chunk_size_at(BP(a), i) == g1_chunk_size_at(BP(b), j))
+            CHECKF(!memcmp(g1_chunk_data_at(BP(a), i), g1_chunk_data_at(BP(b), j), g1_chunk_size_at(BP(a), i)), "%s: chunk %u payload", what, i);
     }
 }
 
@@ -107,7 +110,8 @@ TEST(gap1_compress_roundtrip_keep_all_parts) {
         CHECK(out[0] != NULL);
         if (out[0]) {
             expect_same_chunks(vs, out[0], "keep-all");
-            if (BS(out[0]) != BS(vs) || memcmp(BP(out[0]), BP(vs), BS(vs))) t_note("keep-all round trip is not byte identical (size %zu vs %zu)", (size_t)BS(out[0]), (size_t)BS(vs));
+            EXPECT_EQ(BS(out[0]), BS(vs));   /* same size, parts reversed: not byte identical */
+            CHECK(memcmp(BP(out[0]), BP(vs), BS(vs)) != 0);
             BREL(out[0]);
         }
     }
@@ -130,6 +134,9 @@ TEST(gap1_compress_roundtrip_strips_reflection_and_debug) {
             CHECK(!g1_has_chunk(p, n, FOURCC_RDEF));
             CHECK(!g1_has_chunk(p, n, FOURCC_STAT));
             CHECK(!g1_has_chunk(p, n, FOURCC_SDBG));
+            CHECK(g1_has_chunk(p, n, G1_FOURCC('S', 'P', 'D', 'B')));   /* the compiler's debug part (SPDB) is kept, not stripped */
+            EXPECT_EQ(g1_chunk_count(p), 4);                           /* SPDB SHEX OSGN ISGN, in that order */
+            if (g1_chunk_count(p) == 4) { EXPECT_EQ(g1_chunk_fourcc(p, 0), G1_FOURCC('S', 'P', 'D', 'B')); EXPECT_EQ(g1_chunk_fourcc(p, 1), FOURCC_SHEX); EXPECT_EQ(g1_chunk_fourcc(p, 2), FOURCC_OSGN); EXPECT_EQ(g1_chunk_fourcc(p, 3), FOURCC_ISGN); }
             /* the executable parts stay */
             CHECK(g1_has_chunk(p, n, FOURCC_SHEX) || g1_has_chunk(p, n, FOURCC_SHDR));
             CHECK(g1_has_chunk(p, n, FOURCC_ISGN));
@@ -170,7 +177,7 @@ TEST(gap1_decompress_two_shaders_all_orders) {
         /* start index */
         ID3DBlob *one[1] = { NULL }; total = 0;
         EXPECT_HR(UN(D3DDecompressShaders)(BP(c), BS(c), 1, 1, NULL, 0, one, &total), S_OK);
-        t_note("pTotalShaders with start=1,num=1 -> %u", total);
+        EXPECT_EQ(total, 2);   /* pTotalShaders is the number of shaders in the container, not the number returned */
         if (one[0]) expect_same_chunks(ps, one[0], "start1");
         BREL(one[0]);
 
@@ -272,13 +279,13 @@ TEST(gap1_linker_create_and_refcount) {
         G1_EQ(IUnknown_AddRef((IUnknown *)l), 2);
         G1_EQ(IUnknown_Release((IUnknown *)l), 1);
         IUnknown *u = NULL;
-        EXPECT_HR(IUnknown_QueryInterface((IUnknown *)l, &IID_IUnknown, (void **)&u), S_OK);
-        CHECK(u != NULL);
-        if (u) { G1_EQ(IUnknown_Release(u), 1); }
+        /* Win10: the linker answers only its own IID; even IID_IUnknown is E_NOINTERFACE */
+        EXPECT_HR(IUnknown_QueryInterface((IUnknown *)l, &IID_IUnknown, (void **)&u), G1_E_NOINTERFACE);
+        CHECK(u == NULL);
         void *again = NULL;
         EXPECT_HR(IUnknown_QueryInterface((IUnknown *)l, &IID_ID3D11Linker, &again), S_OK);
         CHECK(again == (void *)l);
-        if (again) IUnknown_Release((IUnknown *)again);
+        if (again) G1_EQ(IUnknown_Release((IUnknown *)again), 1);   /* the QI reference */
         void *bad = (void *)1;
         EXPECT_HR(IUnknown_QueryInterface((IUnknown *)l, &IID_ID3D11Module, &bad), G1_E_NOINTERFACE);
         CHECK(bad == NULL);
@@ -318,7 +325,7 @@ TEST(gap1_load_module_garbage_clears_output) {
     HRESULT hr = U(D3DLoadModule)(buf, sizeof buf, &m);
     EXPECT_HR_FAILED(hr);
     CHECK(m == NULL);
-    t_note("D3DLoadModule(garbage) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_FAIL);   /* D3DLoadModule(garbage): measured on Win10 */
 }
 TEST(gap1_load_module_rejects_fxc_container) {
     SKIP_ON_WINE("compiler API not implemented");
@@ -329,7 +336,7 @@ TEST(gap1_load_module_rejects_fxc_container) {
     /* a DXBC shader is not a DXIL library */
     EXPECT_HR_FAILED(hr);
     CHECK(m == NULL);
-    t_note("D3DLoadModule(vs_5_0 container) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_INVALIDARG);   /* D3DLoadModule(vs_5_0 container): measured on Win10 */
     BREL(vs);
 }
 
@@ -342,7 +349,7 @@ TEST(gap1_reflect_library_rejects_non_library) {
     HRESULT hr = UN(D3DReflectLibrary)(BP(vs), BS(vs), &IID_IUnknown, &r);
     EXPECT_HR_FAILED(hr);
     CHECK(r == NULL);
-    t_note("D3DReflectLibrary(vs_5_0 container) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_INVALIDARG);   /* D3DReflectLibrary(vs_5_0 container): measured on Win10 */
     BREL(vs);
 }
 TEST(gap1_reflect_library_garbage) {
@@ -353,7 +360,7 @@ TEST(gap1_reflect_library_garbage) {
     HRESULT hr = UN(D3DReflectLibrary)(buf, sizeof buf, &IID_IUnknown, &r);
     EXPECT_HR_FAILED(hr);
     CHECK(r == NULL);
-    t_note("D3DReflectLibrary(garbage) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_D3DERR_INVALIDCALL);   /* D3DReflectLibrary(garbage): measured on Win10 */
 }
 TEST(gap1_reflect_library_truncated_header) {
     SKIP_ON_WINE("D3DReflectLibrary unimplemented");

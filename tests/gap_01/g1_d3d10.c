@@ -50,7 +50,7 @@ TEST(gap1_profile_d3d10_1_dll_matches_family) {
     CHECK(p != NULL && v != NULL && g != NULL);
     if (p && v && g) {
         CHECK(!strncmp(p, "ps_4_", 5) && !strncmp(v, "vs_4_", 5) && !strncmp(g, "gs_4_", 5));
-        t_note("d3d10_1.dll profiles: %s %s %s", p, v, g);
+        EXPECT_STR(p, "ps_4_0"); EXPECT_STR(v, "vs_4_0"); EXPECT_STR(g, "gs_4_0");   /* NULL device: the baseline 4.0 profiles */
     }
 }
 
@@ -212,7 +212,7 @@ TEST(gap1_d3d10disasm_matches_d3ddisassemble_instructions) {
         const char *ma = strstr(ta, "ps_4_0"), *mb = strstr(tb, "ps_4_0");
         CHECK(ma && mb);
         if (ma && mb) {
-            if (strcmp(ma, mb)) t_note("D3D10DisassembleShader listing differs from D3DDisassemble after the profile line");
+            CHECK(strcmp(ma, mb) != 0);   /* Win10: the d3d10 listing is formatted differently from D3DDisassemble's, even after the profile line */
             CHECK(strstr(ma, "mov o0.xyzw") != NULL && strstr(mb, "mov o0.xyzw") != NULL);
         }
     }
@@ -226,7 +226,8 @@ TEST(gap1_d3d10disasm_color_code_changes_output) {
     HRESULT hr = U(D3D10DisassembleShader)(BP(ps), BS(ps), TRUE, NULL, &col);
     EXPECT_HR(hr, S_OK);
     if (plain && col) {
-        t_note("plain %zu bytes, colour-coded %zu bytes", (size_t)BS(plain), (size_t)BS(col));
+        CHECK(BS(col) > BS(plain));   /* colour coding adds HTML markup */
+        CHECK(strstr((const char *)BP(col), "<font") != NULL || strstr((const char *)BP(col), "<span") != NULL || strstr((const char *)BP(col), "<") != NULL);
     }
     BREL(plain); BREL(col); BREL(ps);
 }
@@ -236,7 +237,7 @@ TEST(gap1_d3d10disasm_truncated_bytecode_fails) {
     ID3DBlob *out = NULL;
     HRESULT hr = U(D3D10DisassembleShader)(BP(ps), 12, FALSE, NULL, &out);
     EXPECT_HR_FAILED(hr);
-    t_note("D3D10DisassembleShader(12 bytes) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_D3DERR_INVALIDCALL);   /* D3D10DisassembleShader(12 bytes): measured on Win10 */
     BREL(out); BREL(ps);
 }
 
@@ -386,7 +387,7 @@ TEST(gap1_d3d10reflect_sm5_bytecode_observed) {
     ID3DBlob *ps = g1_compile(SH_FLAT_PS, "ps_5_0", 0); if (!ps) { t_skip("no compiler"); return; }
     ID3D10ShaderReflection *r = NULL;
     HRESULT hr = U(D3D10ReflectShader)(BP(ps), BS(ps), &r);
-    t_note("D3D10ReflectShader(ps_5_0) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_INVALIDARG);   /* D3D10ReflectShader(ps_5_0): measured on Win10 */
     if (r) IUnknown_Release((IUnknown *)r);
     BREL(ps);
 }
@@ -467,7 +468,7 @@ TEST(gap1_fxcompile_debug_flag_needs_sdk_layers) {
     HRESULT hr = U(D3D10CompileEffectFromMemory)((void *)FX_SRC, sizeof FX_SRC - 1, "dbg.fx", NULL, NULL, D3D10_SHADER_DEBUG, 0, &fx, &err);
     /* the D3D10_SHADER_DEBUG path is delegated to the debug-layer implementation; without it the call is E_NOTIMPL */
     CHECK(hr == S_OK || hr == G1_E_NOTIMPL);
-    t_note("D3D10_SHADER_DEBUG -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_NOTIMPL);   /* D3D10_SHADER_DEBUG: measured on Win10 */
     BREL(fx); BREL(err);
 }
 TEST(gap1_fxcompile_effect_creates_with_device) {

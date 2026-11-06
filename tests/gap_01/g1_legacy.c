@@ -28,9 +28,8 @@ TEST(gap1_ddraw_create_unknown_guid_fails_and_clears_output) {
     static GUID bogus = { 0x1a2b3c4d, 0x1111, 0x2222, { 1, 2, 3, 4, 5, 6, 7, 8 } };
     LPDIRECTDRAW dd = GAP_MAGIC;
     HRESULT hr = UIN("ddraw.dll", DirectDrawCreate)(&bogus, &dd, NULL);
-    EXPECT_HR_FAILED(hr);
+    EXPECT_HR(hr, (HRESULT)DDERR_INVALIDDIRECTDRAWGUID);
     CHECK(dd == NULL);
-    t_note("DirectDrawCreate(unknown driver GUID) -> %s (DDERR_INVALIDDIRECTDRAWGUID is %s)", d3dh_hr_name(hr), d3dh_hr_name(DDERR_INVALIDDIRECTDRAWGUID));
 }
 TEST(gap1_ddraw_create_default_object_is_initialized) {
     SKIP_ON_WINE("wine ddraw/dxva2/d3d9 behaviour differs");
@@ -51,14 +50,23 @@ TEST(gap1_ddraw_create_default_object_is_initialized) {
     CHECK(bad == NULL);
     G1_EQ(IDirectDraw_Release(dd), 0);
 }
+CHILD(g1_emu) {
+    int mode = argc > 1 ? atoi(argv[1]) : 0;
+    typedef HRESULT (WINAPI *cr_t)(GUID *, LPDIRECTDRAW *, IUnknown *);
+    cr_t f = (cr_t)t_proc_in("ddraw.dll", "DirectDrawCreate"); if (!f) return 0xC0DE0001;
+    IDirectDraw *a = NULL, *b = NULL;
+    if (mode >= 1) { if (FAILED(f(NULL, &a, NULL))) return 0xC0DE0002; if (mode == 2) { IDirectDraw_Release(a); a = NULL; } }
+    HRESULT h = f((GUID *)DDCREATE_EMULATIONONLY, &b, NULL);
+    if (b) { DDCAPS hal, hel; memset(&hal, 0, sizeof hal); memset(&hel, 0, sizeof hel); hal.dwSize = hel.dwSize = sizeof hal; if (IDirectDraw_GetCaps(b, &hal, &hel) != DD_OK) return 0xC0DE0003; IDirectDraw_Release(b); }
+    return (int)h;
+}
 TEST(gap1_ddraw_create_emulation_only_flag) {
     SKIP_ON_WINE("wine ddraw/dxva2/d3d9 behaviour differs");
-    REQUIRE(UIN("ddraw.dll", DirectDrawCreate));
-    LPDIRECTDRAW dd = NULL;
-    HRESULT hr = UIN("ddraw.dll", DirectDrawCreate)((GUID *)DDCREATE_EMULATIONONLY, &dd, NULL);
-    if (FAILED(hr)) { t_note("DDCREATE_EMULATIONONLY -> %s", d3dh_hr_name(hr)); CHECK(dd == NULL); return; }
-    CHECK(dd != NULL);
-    if (dd) G1_EQ(IDirectDraw_Release(dd), 0);
+    /* Win10 22H2: the emulation-only (HEL) object can be created only while no DirectDraw object of the HAL driver is alive in the process */
+    DWORD r0 = t_run_child("g1_emu", "0", 60000), r1 = t_run_child("g1_emu", "1", 60000), r2 = t_run_child("g1_emu", "2", 60000);
+    EXPECT_EQ(r0, 0);                  /* first call in the process */
+    EXPECT_EQ(r1, 0x80004005);         /* E_FAIL while a DirectDrawCreate(NULL) object is alive */
+    EXPECT_EQ(r2, 0);                  /* S_OK again after that object was released */
 }
 TEST(gap1_ddraw_createex_rejects_aggregation_before_iid_check) {
     SKIP_ON_WINE("wine ddraw/dxva2/d3d9 behaviour differs");
@@ -171,6 +179,23 @@ TEST(gap1_ddraw_dllgetclassobject_only_iunknown_or_iclassfactory) {
         CHECK(p == NULL);
     }
 }
+CHILD(g1_lockserver_nocom) {
+    dgco_fn f = dgco("ddraw.dll"); if (!f) return 90;
+    const GUID *ids[] = { &CLSID_DirectDraw, &CLSID_DirectDraw7, &CLSID_DirectDrawClipper };
+    int bad = 0;
+    for (int i = 0; i < 3; i++) {
+        IClassFactory *cf = NULL;
+        if (FAILED(f(ids[i], &IID_IClassFactory, (void **)&cf)) || !cf) return 91;
+        if (IClassFactory_LockServer(cf, TRUE) != (HRESULT)0x800401f0) bad |= 1 << i;
+        if (IClassFactory_LockServer(cf, FALSE) != (HRESULT)0x800401f0) bad |= 8 << i;
+        IClassFactory_Release(cf);
+    }
+    return bad;
+}
+TEST(gap1_ddraw_factory_lockserver_needs_com) {
+    SKIP_ON_WINE("wine ddraw/dxva2/d3d9 behaviour differs");
+    EXPECT_EQ(t_run_child("g1_lockserver_nocom", "", 30000), 0);   /* CO_E_NOTINITIALIZED for all three factories, TRUE and FALSE */
+}
 TEST(gap1_ddraw_dllgetclassobject_factories_for_each_clsid) {
     dgco_fn f = dgco("ddraw.dll"); REQUIRE(f);
     const GUID *ids[] = { &CLSID_DirectDraw, &CLSID_DirectDraw7, &CLSID_DirectDrawClipper };
@@ -179,8 +204,13 @@ TEST(gap1_ddraw_dllgetclassobject_factories_for_each_clsid) {
         HRESULT hr = f(ids[i], &IID_IClassFactory, (void **)&cf);
         CHECKF(hr == S_OK && cf, "clsid %u -> %s", i, d3dh_hr_name(hr));
         if (!cf) continue;
-        EXPECT_HR(IClassFactory_LockServer(cf, TRUE), S_OK);
-        EXPECT_HR(IClassFactory_LockServer(cf, FALSE), S_OK);
+        /* Win10: LockServer needs COM on the calling thread (without it CO_E_NOTINITIALIZED, see gap1_ddraw_factory_lockserver_needs_com) */
+        HRESULT ci = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+        if (SUCCEEDED(ci)) {
+            EXPECT_HR(IClassFactory_LockServer(cf, TRUE), S_OK);
+            EXPECT_HR(IClassFactory_LockServer(cf, FALSE), S_OK);
+            CoUninitialize();
+        }
         IUnknown *u = NULL;
         EXPECT_HR(IClassFactory_QueryInterface(cf, &IID_IUnknown, (void **)&u), S_OK);
         if (u) IUnknown_Release(u);
@@ -337,7 +367,7 @@ TEST(gap1_dxva2_video_service_for_device) {
     if (FAILED(d3dh_make_device9(&d3d, &dev, NULL, &hw, &ty)) || !dev) { SAFE_RELEASE(d3d); d3dh_destroy_window(hw); t_skip("no D3D9 device"); return; }
     void *svc = GAP_MAGIC;
     HRESULT hr = U(DXVA2CreateVideoService)(dev, &G1_IID_ProcessorService, &svc);
-    t_note("DXVA2CreateVideoService(devtype %d, processor service) -> %s", (int)ty, d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10: the processor service is available (also on devtype 4) */
     if (SUCCEEDED(hr)) {
         CHECK(svc != NULL && svc != GAP_MAGIC);
         if (svc) IUnknown_Release((IUnknown *)svc);
@@ -386,9 +416,8 @@ TEST(gap1_dxvahd_rejects_invalid_content_description) {
     for (int i = 0; i < n; i++) {
         IDXVAHD_Device *out = GAP_MAGIC;
         HRESULT hr = U(DXVAHD_CreateDevice)(dev, &cases[i].d, cases[i].u, NULL, &out);
-        CHECKF(FAILED(hr), "%s -> %s", cases[i].what, d3dh_hr_name(hr));
+        CHECKF(hr == G1_E_INVALIDARG, "%s -> %s", cases[i].what, d3dh_hr_name(hr));
         CHECKF(out == GAP_MAGIC, "%s: output written on failure", cases[i].what);
-        t_note("%s -> %s", cases[i].what, d3dh_hr_name(hr));
     }
     SAFE_RELEASE(dev); SAFE_RELEASE(d3d); d3dh_destroy_window(hw);
 }
@@ -399,7 +428,8 @@ TEST(gap1_dxvahd_valid_description_observed) {
     DXVAHD_CONTENT_DESC d = good_desc();
     IDXVAHD_Device *out = NULL;
     HRESULT hr = U(DXVAHD_CreateDevice)(dev, &d, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &out);
-    t_note("DXVAHD_CreateDevice(devtype %d, valid 64x64 desc) -> %s", (int)ty, d3dh_hr_name(hr));
+    /* Win10, Basic Display Adapter / null-ref device (devtype 4): there is no DXVA-HD device, E_NOINTERFACE. Hardware drivers return S_OK. */
+    if (FAILED(hr)) EXPECT_HR(hr, G1_E_NOINTERFACE);
     if (SUCCEEDED(hr)) {
         CHECK(out != NULL);
         if (out) {

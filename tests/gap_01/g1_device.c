@@ -100,14 +100,11 @@ TEST(gap1_factory2_private_data_protocol) {
     CHECK(!memcmp(buf, data, 8));
     sz = 0;
     HRESULT hq = IDXGIFactory2_GetPrivateData(f, &g, &sz, NULL);
-    t_note("size query with NULL buffer -> %s, size %u", d3dh_hr_name(hq), sz);
+    EXPECT_HR(hq, S_OK); EXPECT_EQ(sz, 8);   /* Win10: a NULL buffer is a size query */
     HRESULT hrm = IDXGIFactory2_SetPrivateData(f, &g, 0, NULL);
-    t_note("SetPrivateData(size 0, NULL) -> %s", d3dh_hr_name(hrm));
-    if (hrm == S_OK) {
-        sz = 8;
-        HRESULT hg = IDXGIFactory2_GetPrivateData(f, &g, &sz, buf);
-        t_note("GetPrivateData after removal -> %s", d3dh_hr_name(hg));
-    }
+    EXPECT_HR(hrm, S_OK);   /* Win10: size 0 with a NULL pointer removes the entry */
+    sz = 8;
+    EXPECT_HR(IDXGIFactory2_GetPrivateData(f, &g, &sz, buf), G1_DXGI_ERROR_NOT_FOUND);
     IDXGIFactory2_Release(f);
 }
 TEST(gap1_factory2_warp_adapter_identity) {
@@ -198,7 +195,7 @@ TEST(gap1_dxgi_debug_interface_unknown_iid) {
     HRESULT hr = U(DXGIGetDebugInterface1)(0, &IID_ID3D11Device, &p);
     EXPECT_HR_FAILED(hr);
     CHECK(p == NULL);
-    t_note("unknown IID -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_NOINTERFACE);   /* unknown IID: measured on Win10 */
 }
 
 /* ======================= D3D12CreateDevice ======================= */
@@ -233,8 +230,7 @@ TEST(gap1_d3d12_create_warp_device_properties) {
     D3D12_FEATURE_DATA_FEATURE_LEVELS fl; static const D3D_FEATURE_LEVEL req[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_12_0, D3D_FEATURE_LEVEL_12_1 };
     fl.NumFeatureLevels = 4; fl.pFeatureLevelsRequested = req; fl.MaxSupportedFeatureLevel = 0;
     EXPECT_HR(ID3D12Device_CheckFeatureSupport(dev, D3D12_FEATURE_FEATURE_LEVELS, &fl, sizeof fl), S_OK);
-    CHECK(fl.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_11_0);
-    t_note("WARP max D3D12 feature level 0x%x", fl.MaxSupportedFeatureLevel);
+    EXPECT_EQ(fl.MaxSupportedFeatureLevel, D3D_FEATURE_LEVEL_12_1);   /* Win10 22H2 WARP12 */
     G1_EQ(ID3D12Device_Release(dev), 0);
     IDXGIAdapter_Release(a);
 }
@@ -245,7 +241,8 @@ TEST(gap1_d3d12_two_devices_on_one_adapter) {
     HRESULT h1 = U(D3D12CreateDevice)((IUnknown *)a, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d1);
     if (FAILED(h1)) { t_skip("D3D12CreateDevice -> %s", d3dh_hr_name(h1)); IDXGIAdapter_Release(a); return; }
     EXPECT_HR(U(D3D12CreateDevice)((IUnknown *)a, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d2), S_OK);
-    CHECK(d1 && d2 && d1 != d2);
+    CHECK(d1 && d1 == d2);   /* Win10: an adapter has one ID3D12Device; the second create returns the same object with a second reference */
+    if (d1 && d1 == d2) { G1_EQ(ID3D12Device_AddRef(d1), 3); G1_EQ(ID3D12Device_Release(d1), 2); }
     if (d1) ID3D12Device_Release(d1);
     if (d2) ID3D12Device_Release(d2);
     IDXGIAdapter_Release(a);
@@ -260,8 +257,7 @@ TEST(gap1_d3d12_invalid_minimum_feature_level) {
     for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
         ID3D12Device *d = NULL;
         HRESULT hr = U(D3D12CreateDevice)((IUnknown *)a, bad[i], &IID_ID3D12Device, (void **)&d);
-        t_note("minimum level 0x%x -> %s", bad[i], d3dh_hr_name(hr));
-        if (bad[i] == 0 || bad[i] == 0x1234) CHECKF(FAILED(hr), "level 0x%x unexpectedly accepted", bad[i]);
+        CHECKF(hr == G1_E_INVALIDARG, "minimum level 0x%x -> %s", bad[i], d3dh_hr_name(hr));   /* below 11_0 and unknown values: E_INVALIDARG */
         if (d) ID3D12Device_Release(d);
     }
     IDXGIAdapter_Release(a);
@@ -274,7 +270,7 @@ TEST(gap1_d3d12_non_adapter_object_is_rejected) {
     HRESULT hr = U(D3D12CreateDevice)((IUnknown *)f, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&d);
     EXPECT_HR_FAILED(hr);
     CHECK(d == NULL);
-    t_note("D3D12CreateDevice(factory as adapter) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_INVALIDARG);   /* D3D12CreateDevice(factory as adapter): measured on Win10 */
     IDXGIFactory1_Release(f);
 }
 
@@ -330,9 +326,10 @@ TEST(gap1_d3d10_1_device_interfaces_and_adapter) {
         }
         IDXGIDevice_Release(dx);
     }
-    void *bad = GAP_MAGIC;
-    EXPECT_HR(ID3D10Device1_QueryInterface(d, &IID_ID3D11Device, &bad), G1_E_NOINTERFACE);
-    CHECK(bad == NULL);
+    void *d11 = NULL;
+    EXPECT_HR(ID3D10Device1_QueryInterface(d, &IID_ID3D11Device, &d11), S_OK);   /* Win10: a d3d10.1 device is backed by a d3d11 device and exposes it */
+    CHECK(d11 != NULL);
+    if (d11) { ID3D11Device *x = d11; CHECK(ID3D11Device_GetFeatureLevel(x) >= D3D_FEATURE_LEVEL_10_0); ID3D11Device_Release(x); }
     if (d0) ID3D10Device_Release(d0);
     ID3D10Device1_Release(d);
 }
@@ -341,7 +338,7 @@ TEST(gap1_d3d10_1_software_driver_needs_module) {
     ID3D10Device1 *d = GAP_MAGIC;
     HRESULT hr = U(D3D10CreateDevice1)(NULL, D3D10_DRIVER_TYPE_SOFTWARE, NULL, 0, D3D10_FEATURE_LEVEL_10_0, D3D10_1_SDK_VERSION, &d);
     EXPECT_HR_FAILED(hr);
-    t_note("D3D10_DRIVER_TYPE_SOFTWARE with a NULL module -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_E_INVALIDARG);   /* D3D10_DRIVER_TYPE_SOFTWARE with a NULL module: measured on Win10 */
     if (d != GAP_MAGIC && d) ID3D10Device1_Release(d);
 }
 
@@ -390,7 +387,7 @@ TEST(gap1_d3d10_swapchain_creation_roundtrip) {
     if (same) ID3D10Device_Release(same);
     HRESULT hp = IDXGISwapChain_Present(sc, 0, 0);
     CHECK(SUCCEEDED(hp));
-    t_note("Present on a hidden window -> %s", d3dh_hr_name(hp));
+    EXPECT_HR(hp, S_OK);   /* Present on a hidden window: measured on Win10 */
     IDXGISwapChain_Release(sc);
     G1_EQ(ID3D10Device_Release(dev), 0);
     d3dh_destroy_window(hw);
@@ -406,15 +403,17 @@ TEST(gap1_d3d10_swapchain_device_flags_apply) {
     CHECK((ID3D10Device_GetCreationFlags(dev) & want) == want);
     IDXGISwapChain_Release(sc); ID3D10Device_Release(dev); d3dh_destroy_window(hw);
 }
-TEST(gap1_d3d10_swapchain_rejects_zero_buffer_count) {
-    REQUIRE(U(D3D10CreateDeviceAndSwapChain));
+CHILD(g1_d3d10_sc_zero_buffers) {
+    if (!U(D3D10CreateDeviceAndSwapChain)) return 90;
     HWND hw = d3dh_create_hidden_window_sized(64, 48);
     DXGI_SWAP_CHAIN_DESC d = sc_desc(hw); d.BufferCount = 0;
-    IDXGISwapChain *sc = (IDXGISwapChain *)GAP_MAGIC; ID3D10Device *dev = NULL;
-    HRESULT hr = U(D3D10CreateDeviceAndSwapChain)(NULL, D3D10_DRIVER_TYPE_WARP, NULL, 0, D3D10_SDK_VERSION, &d, &sc, &dev);
-    t_note("BufferCount 0 -> %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) { CHECK(sc == NULL || sc == (IDXGISwapChain *)GAP_MAGIC); }
-    else { if (sc && sc != GAP_MAGIC) IDXGISwapChain_Release(sc); }
-    SAFE_RELEASE(dev);
-    d3dh_destroy_window(hw);
+    IDXGISwapChain *sc = NULL; ID3D10Device *dev = NULL;
+    U(D3D10CreateDeviceAndSwapChain)(NULL, D3D10_DRIVER_TYPE_WARP, NULL, 0, D3D10_SDK_VERSION, &d, &sc, &dev);   /* faults */
+    return 0;
+}
+TEST(gap1_d3d10_swapchain_zero_buffer_count_faults) {
+    REQUIRE(U(D3D10CreateDeviceAndSwapChain));
+    SKIP_ON_WINE("wine d3d10 behaviour differs");
+    /* Win10: BufferCount 0 is not rejected with an HRESULT, it raises STATUS_ACCESS_VIOLATION inside d3d10 */
+    EXPECT_EQ(t_run_child("g1_d3d10_sc_zero_buffers", "", 60000), 0xC0000005);
 }

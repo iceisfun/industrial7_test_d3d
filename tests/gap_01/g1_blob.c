@@ -123,7 +123,7 @@ TEST(gap1_outsig_rejects_corrupt_magic) {
     ID3DBlob *sig = NULL;
     HRESULT hr = U(D3DGetOutputSignatureBlob)(copy, BS(vs), &sig);
     EXPECT_HR_FAILED(hr);
-    t_note("corrupt magic -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, G1_D3DERR_INVALIDCALL);   /* corrupt magic: measured on Win10 */
     BREL(sig); free(copy); BREL(vs);
 }
 
@@ -325,12 +325,13 @@ TEST(gap1_setblobpart_odd_sized_private_data) {
     HRESULT hr = UN(D3DSetBlobPart)(BP(vs), BS(vs), PART_PRIVATE_DATA, 0, pay, sizeof pay, &o);
     EXPECT_HR(hr, S_OK);
     if (o) {
-        if (g1_rd32(BP(o) + 0x18) % 4) t_note("container size %u is not dword aligned", g1_rd32(BP(o) + 0x18));
+        EXPECT_EQ(g1_rd32(BP(o) + 0x18) % 4, 1);   /* Win10: the 5 byte payload is stored unpadded (offset 4 + header 8 + 5) */
+        EXPECT_EQ(g1_rd32(BP(o) + 0x18), BS(o));
         hr = U(D3DGetBlobPart)(BP(o), BS(o), (D3D_BLOB_PART)PART_PRIVATE_DATA, 0, &back);
         EXPECT_HR(hr, S_OK);
         if (back) {
+            EXPECT_EQ(BS(back), 5);
             CHECK(BS(back) >= sizeof pay && !memcmp(BP(back), pay, sizeof pay));
-            t_note("5 byte private data reads back as %zu bytes", (size_t)BS(back));
         }
     }
     BREL(back); BREL(o); BREL(vs);

@@ -89,14 +89,22 @@ TEST(ddraw_legacy_create_two_objects_independent) {
     EXPECT_HR(IDirectDraw_GetCaps(b, &caps, NULL), DD_OK);   /* b unaffected by a's destruction */
     EXPECT_RET(IDirectDraw_Release(b), 0);
 }
+CHILD(ddl_emu) {
+    int mode = argc > 1 ? atoi(argv[1]) : 0;
+    typedef HRESULT (WINAPI *cr_t)(GUID *, LPDIRECTDRAW *, IUnknown *);
+    cr_t f = (cr_t)t_proc_in("ddraw.dll", "DirectDrawCreate"); if (!f) return 0xC0DE0001;
+    IDirectDraw *a = NULL, *b = NULL;
+    if (mode >= 1) { if (FAILED(f(NULL, &a, NULL))) return 0xC0DE0002; if (mode == 2) { IDirectDraw_Release(a); a = NULL; } }
+    HRESULT h = f((GUID *)DDCREATE_EMULATIONONLY, &b, NULL);
+    if (b) { DDCAPS hal, hel; memset(&hal, 0, sizeof hal); memset(&hel, 0, sizeof hel); hal.dwSize = hel.dwSize = sizeof hal; if (IDirectDraw_GetCaps(b, &hal, &hel) != DD_OK) return 0xC0DE0003; IDirectDraw_Release(b); }
+    return (int)h;
+}
 TEST(ddraw_legacy_create_emulation_only) {
-    dl_create_t f = DL_PROC(dl_create_t, "DirectDrawCreate"); REQUIRE(f);
-    IDirectDraw *dd = NULL;
-    HRESULT hr = f((GUID *)DDCREATE_EMULATIONONLY, &dd, NULL);
-    /* Win10 22H2: the software-emulation-only driver is not available (E_FAIL, no object) */
-    EXPECT_HR(hr, E_FAIL);
-    EXPECT_EQ(dd, 0);
-    if (dd) IDirectDraw_Release(dd);
+    /* Win10 22H2: the emulation-only (HEL) object can be created only while no DirectDraw object of the HAL driver is alive in the process */
+    DWORD r0 = t_run_child("ddl_emu", "0", 60000), r1 = t_run_child("ddl_emu", "1", 60000), r2 = t_run_child("ddl_emu", "2", 60000);
+    EXPECT_EQ(r0, 0);                  /* first call in the process */
+    EXPECT_EQ(r1, 0x80004005);         /* E_FAIL while a DirectDrawCreate(NULL) object is alive */
+    EXPECT_EQ(r2, 0);                  /* S_OK again after that object was released */
 }
 TEST(ddraw_legacy_create_hardware_only) {
     dl_create_t f = DL_PROC(dl_create_t, "DirectDrawCreate"); REQUIRE(f);
