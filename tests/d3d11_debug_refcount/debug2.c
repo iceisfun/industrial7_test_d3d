@@ -249,3 +249,38 @@ TEST(d3d11_debug_refcount_debug_creation_flags_are_preserved)
         SAFE_RELEASE(ctx); SAFE_RELEASE(dev);
     }
 }
+
+/* D3D11CreateDevice with the debug flag: WARP and the NULL driver honour every requested feature level exactly (9_1 .. 11_1); an
+   unspecified list starts at 11_0 (not 11_1). Measured on Win10 22H2 with the Graphics Tools feature installed. */
+TEST(d3d11_debug_refcount_debug_device_feature_level_matrix_warp_null)
+{
+    REQUIRE(d3dh_D3D11CreateDevice());
+    static const D3D_FEATURE_LEVEL fls[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0,
+                                             D3D_FEATURE_LEVEL_9_3, D3D_FEATURE_LEVEL_9_2, D3D_FEATURE_LEVEL_9_1 };
+    static const D3D_DRIVER_TYPE dts[] = { D3D_DRIVER_TYPE_WARP, D3D_DRIVER_TYPE_NULL };
+    for (int d = 0; d < 2; d++) for (int f = -1; f < 7; f++) {
+        ID3D11Device *dev = NULL; ID3D11DeviceContext *ctx = NULL; D3D_FEATURE_LEVEL got = 0;
+        HRESULT hr = d3dh_D3D11CreateDevice()(NULL, dts[d], NULL, D3D11_CREATE_DEVICE_DEBUG, f < 0 ? NULL : &fls[f], f < 0 ? 0 : 1, D3D11_SDK_VERSION, &dev, &got, &ctx);
+        if (hr == HR_SDK_COMPONENT_MISSING) { t_skip("SDK layers not installed"); return; }
+        CHECKF(hr == S_OK, "driver %d fl %d: %s", (int)dts[d], f, d3dh_hr_name(hr));
+        if (FAILED(hr)) continue;
+        CHECKF(got == (f < 0 ? D3D_FEATURE_LEVEL_11_0 : fls[f]), "driver %d fl %d: got 0x%x", (int)dts[d], f, (unsigned)got);
+        EXPECT_EQ(ID3D11Device_GetFeatureLevel(dev), got);
+        EXPECT_EQ(ID3D11Device_GetCreationFlags(dev) & D3D11_CREATE_DEVICE_DEBUG, D3D11_CREATE_DEVICE_DEBUG);
+        ID3D11InfoQueue *iq = NULL; ID3D11Debug *dbg = NULL;
+        EXPECT_HR(RC_QI(dev, IID_ID3D11InfoQueue, &iq), S_OK);
+        EXPECT_HR(RC_QI(dev, IID_ID3D11Debug, &dbg), S_OK);
+        SAFE_RELEASE(iq); SAFE_RELEASE(dbg); SAFE_RELEASE(ctx); SAFE_RELEASE(dev);
+    }
+}
+
+TEST(d3d11_debug_refcount_debug_reference_driver_unsupported_without_sdk)
+{
+    REQUIRE(d3dh_D3D11CreateDevice());
+    ID3D11Device *dev = (ID3D11Device *)(ULONG_PTR)1; ID3D11DeviceContext *ctx = (ID3D11DeviceContext *)(ULONG_PTR)1; D3D_FEATURE_LEVEL fl = (D3D_FEATURE_LEVEL)0x1234;
+    HRESULT hr = d3dh_D3D11CreateDevice()(NULL, D3D_DRIVER_TYPE_REFERENCE, NULL, D3D11_CREATE_DEVICE_DEBUG, NULL, 0, D3D11_SDK_VERSION, &dev, &fl, &ctx);
+    if (SUCCEEDED(hr)) { SAFE_RELEASE(ctx); SAFE_RELEASE(dev); t_skip("a reference rasteriser is installed"); return; }
+    EXPECT_HR(hr, (HRESULT)0x887A0004);                  /* DXGI_ERROR_UNSUPPORTED: the REF rasteriser ships only with the SDK */
+    CHECK(dev == NULL && ctx == NULL);
+    EXPECT_EQ(fl, 0);
+}
