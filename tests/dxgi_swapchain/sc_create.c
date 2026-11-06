@@ -25,8 +25,7 @@ TEST(dxgi_swapchain_create_not_a_device)
     IDXGISwapChain *sc = NULL;
     /* The factory is not a device: creation must fail. */
     HRESULT hr = IDXGIFactory_CreateSwapChain(s.fac, (IUnknown *)s.fac, &d, &sc);
-    CHECK(FAILED(hr));
-    t_note("CreateSwapChain(factory as device) -> %s", d3dh_hr_name(hr));
+    PIN_HR("CreateSwapChain(factory as device)", hr, DXGI_ERROR_INVALID_CALL);
     if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
     sc_close(&s);
 }
@@ -36,16 +35,26 @@ TEST(dxgi_swapchain_create_invalid_window)
     OPEN(s);
     DXGI_SWAP_CHAIN_DESC d = sc_desc0((HWND)(ULONG_PTR)0x7ffe0, 64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, 1, DXGI_SWAP_EFFECT_DISCARD);
     IDXGISwapChain *sc = NULL;
+    /* DXGI does not validate the window at creation: a stale handle, a destroyed window and the desktop window all create a chain */
     HRESULT hr = IDXGIFactory_CreateSwapChain(s.fac, s.unk, &d, &sc);
-    CHECK(FAILED(hr));
-    t_note("CreateSwapChain(stale HWND) -> %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
+    PIN_HR("CreateSwapChain(stale HWND)", hr, S_OK);
+    if (SUCCEEDED(hr)) {
+        DXGI_SWAP_CHAIN_DESC g; memset(&g, 0, sizeof g);
+        EXPECT_HR(IDXGISwapChain_GetDesc(sc, &g), S_OK);
+        CHECK(g.OutputWindow == (HWND)(ULONG_PTR)0x7ffe0);
+        EXPECT_HR(IDXGISwapChain_Present(sc, 0, 0), S_OK);
+        SC_REL(sc);
+    }
     HWND w = sc_window(32, 32);
     DestroyWindow(w);
     d.OutputWindow = w;
     hr = IDXGIFactory_CreateSwapChain(s.fac, s.unk, &d, &sc);
-    CHECK(FAILED(hr));
-    if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
+    PIN_HR("CreateSwapChain(destroyed HWND)", hr, S_OK);
+    if (SUCCEEDED(hr)) SC_REL(sc);
+    d.OutputWindow = GetDesktopWindow();
+    hr = IDXGIFactory_CreateSwapChain(s.fac, s.unk, &d, &sc);
+    PIN_HR("CreateSwapChain(desktop window)", hr, S_OK);
+    if (SUCCEEDED(hr)) SC_REL(sc);
     sc_close(&s);
 }
 
@@ -188,7 +197,7 @@ TEST(dxgi_swapchain_buffer_texture_desc)
         EXPECT_EQ(td.Usage, D3D11_USAGE_DEFAULT);
         EXPECT_EQ(td.BindFlags, D3D11_BIND_RENDER_TARGET);
         EXPECT_EQ(td.CPUAccessFlags, 0);
-        t_note("back buffer MiscFlags 0x%x", td.MiscFlags);
+        EXPECT_EQ(td.MiscFlags, 0);
         SAFE_RELEASE(t);
     }
     IDXGISurface *su = NULL;
@@ -320,8 +329,7 @@ TEST(dxgi_swapchain_ms_bad_quality)
     d.SampleDesc.Count = 1; d.SampleDesc.Quality = 1; /* quality 1 does not exist for 1 sample */
     IDXGISwapChain *sc = NULL;
     HRESULT hr = sc_create0(&s, &d, &sc);
-    CHECK(FAILED(hr));
-    t_note("SampleDesc{1,1} -> %s", d3dh_hr_name(hr));
+    PIN_HR("SampleDesc{1,1}", hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
     d.SampleDesc.Count = 3; d.SampleDesc.Quality = 0; /* 3x never exists */
     hr = sc_create0(&s, &d, &sc);
@@ -388,7 +396,8 @@ TEST(dxgi_swapchain_create_format_unknown)
         DXGI_SWAP_CHAIN_DESC d = sc_desc0(s.hwnd, 64, 64, DXGI_FORMAT_UNKNOWN, 2, eff);
         IDXGISwapChain *sc = NULL;
         HRESULT hr = sc_create0(&s, &d, &sc);
-        EXPECT_HR(hr, E_INVALIDARG);
+        /* bit-blt models: E_INVALIDARG; flip models: DXGI_ERROR_INVALID_CALL */
+        EXPECT_HR(hr, sc_is_flip((DXGI_SWAP_EFFECT)eff) ? DXGI_ERROR_INVALID_CALL : E_INVALIDARG);
         if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
     }
     sc_close(&s);
@@ -404,7 +413,7 @@ TEST(dxgi_swapchain_create_format_rejected_misc)
         IDXGISwapChain *sc = NULL;
         HRESULT hr = sc_create0(&s, &d, &sc);
         if (SUCCEEDED(hr)) { t_note("format %d accepted by bitblt CreateSwapChain", bad[i]); SAFE_RELEASE(sc); }
-        else t_note("format %d -> %s", bad[i], d3dh_hr_name(hr));
+        else PINF(hr, "format %d", bad[i]);
     }
     /* Depth/compressed/video formats cannot be a back buffer. */
     static const DXGI_FORMAT hard[] = { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_NV12 };
@@ -608,7 +617,7 @@ TEST(dxgi_swapchain_qi_interfaces)
     /* IDXGISwapChain4 appeared in Windows 10 1607 */
     IUnknown *u4 = NULL;
     HRESULT hr = IDXGISwapChain_QueryInterface(sc, &IID_IDXGISwapChain4, (void **)&u4);
-    t_note("QI IDXGISwapChain4 -> %s", d3dh_hr_name(hr));
+    PIN_HR("QI IDXGISwapChain4", hr, S_OK);
     if (u4) u4->lpVtbl->Release(u4);
     /* identity: IUnknown from different interfaces is the same pointer */
     IUnknown *a = NULL, *b = NULL; IDXGISwapChain1 *s1 = NULL;
@@ -716,7 +725,7 @@ TEST(dxgi_swapchain_second_chain_same_window)
     IDXGISwapChain *a, *b = NULL;
     if (!sc_okish(sc_create0(&s, &d, &a))) { CHECK(0); sc_close(&s); return; }
     HRESULT hr = sc_create0(&s, &d, &b);
-    t_note("second CreateSwapChain on the same HWND -> %s", d3dh_hr_name(hr));
+    PIN_HR("second CreateSwapChain on the same HWND", hr, S_OK);
     SAFE_RELEASE(b);
     SC_REL(a);
     /* after the first is released the window can be reused */
@@ -760,7 +769,7 @@ TEST(dxgi_swapchain_create_flags_unsupported_for_bitblt)
         IDXGISwapChain *sc = NULL;
         HRESULT hr = sc_create0(&s, &d, &sc);
         CHECKF(FAILED(hr), "flag 0x%x with bitblt effect %d accepted", fl[i], eff);
-        t_note("flag 0x%x bitblt effect %d -> %s", fl[i], eff, d3dh_hr_name(hr));
+        PINF(hr, "flag 0x%x bitblt effect %d", fl[i], eff);
         if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
     }
     sc_close(&s);
@@ -780,7 +789,7 @@ TEST(dxgi_swapchain_create_gdi_compatible_surface)
     if (su) {
         HDC dc = NULL;
         hr = IDXGISurface1_GetDC(su, FALSE, &dc);
-        t_note("IDXGISurface1::GetDC on GDI-compatible back buffer -> %s", d3dh_hr_name(hr));
+        PIN_HR("IDXGISurface1::GetDC on GDI-compatible back buffer", hr, S_OK);
         if (SUCCEEDED(hr)) { CHECK(dc != NULL); IDXGISurface1_ReleaseDC(su, NULL); }
         SAFE_RELEASE(su);
     }
@@ -820,7 +829,7 @@ TEST(dxgi_swapchain_destroy_window_before_release)
     DXGI_SWAP_CHAIN_DESC g; memset(&g, 0, sizeof g);
     EXPECT_HR(IDXGISwapChain_GetDesc(sc, &g), S_OK);
     HRESULT hr = IDXGISwapChain_Present(sc, 0, 0);
-    t_note("Present after DestroyWindow -> %s", d3dh_hr_name(hr));
+    PIN_HR("Present after DestroyWindow", hr, S_OK);
     SC_REL(sc);
     sc_close(&s);
 }

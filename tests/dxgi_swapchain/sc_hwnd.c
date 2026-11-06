@@ -12,8 +12,7 @@ TEST(dxgi_swapchain_hwnd_null_args)
     EXPECT_HR(IDXGIFactory2_CreateSwapChainForHwnd(s.fac2, s.unk, NULL, &d, NULL, NULL, &sc), DXGI_ERROR_INVALID_CALL);
     EXPECT_HR(IDXGIFactory2_CreateSwapChainForHwnd(s.fac2, s.unk, s.hwnd, NULL, NULL, NULL, &sc), DXGI_ERROR_INVALID_CALL);
     HRESULT hr = IDXGIFactory2_CreateSwapChainForHwnd(s.fac2, s.unk, s.hwnd, &d, NULL, NULL, NULL);
-    CHECK(FAILED(hr));
-    t_note("CreateSwapChainForHwnd(ppSwapChain=NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("CreateSwapChainForHwnd(ppSwapChain=NULL)", hr, DXGI_ERROR_INVALID_CALL);
     sc_close(&s);
 }
 
@@ -23,8 +22,7 @@ TEST(dxgi_swapchain_hwnd_bad_device_object)
     DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, 2, DXGI_SWAP_EFFECT_FLIP_DISCARD);
     IDXGISwapChain1 *sc = NULL;
     HRESULT hr = IDXGIFactory2_CreateSwapChainForHwnd(s.fac2, (IUnknown *)s.fac2, s.hwnd, &d, NULL, NULL, &sc);
-    CHECK(FAILED(hr));
-    t_note("ForHwnd(factory as device) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ForHwnd(factory as device)", hr, DXGI_ERROR_INVALID_CALL);
     if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
     sc_close(&s);
 }
@@ -41,7 +39,7 @@ TEST(dxgi_swapchain_hwnd_restrict_to_output_wrong_factory)
         IDXGIOutput *o = (IDXGIOutput *)(ULONG_PTR)1;
         hr = IDXGISwapChain1_GetRestrictToOutput(sc, &o);
         EXPECT_HR(hr, S_OK);
-        t_note("GetRestrictToOutput on an unrestricted chain -> output %p", (void *)o);
+        CHECK(o == NULL);   /* an unrestricted chain reports S_OK and a NULL output */
         SAFE_RELEASE(o);
         SC_REL(sc);
     }
@@ -66,7 +64,7 @@ TEST(dxgi_swapchain_hwnd_desc1_roundtrip)
     EXPECT_EQ(g.Scaling, DXGI_SCALING_STRETCH);
     EXPECT_EQ(g.SwapEffect, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL);
     EXPECT_EQ(g.Flags, 0);
-    t_note("GetDesc1.AlphaMode for AlphaMode=UNSPECIFIED input -> %d", g.AlphaMode);
+    EXPECT_EQ(g.AlphaMode, DXGI_ALPHA_MODE_UNSPECIFIED);
     SC_REL(sc);
     sc_close(&s);
 }
@@ -122,17 +120,13 @@ TEST(dxgi_swapchain_hwnd_getters_null)
     EXPECT_HR(IDXGISwapChain1_GetDesc1(sc, NULL), E_INVALIDARG);
     EXPECT_HR(IDXGISwapChain1_GetFullscreenDesc(sc, NULL), E_INVALIDARG);
     HRESULT hr = IDXGISwapChain1_GetHwnd(sc, NULL);
-    CHECK(FAILED(hr));
-    t_note("GetHwnd(NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetHwnd(NULL)", hr, DXGI_ERROR_INVALID_CALL);
     hr = IDXGISwapChain1_GetLastPresentCount(sc, NULL);
-    CHECK(FAILED(hr));
-    t_note("GetLastPresentCount(NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetLastPresentCount(NULL)", hr, DXGI_ERROR_INVALID_CALL);
     hr = IDXGISwapChain1_GetFrameStatistics(sc, NULL);
-    CHECK(FAILED(hr));
-    t_note("GetFrameStatistics(NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetFrameStatistics(NULL)", hr, DXGI_ERROR_INVALID_CALL);
     hr = IDXGISwapChain1_GetRestrictToOutput(sc, NULL);
-    CHECK(FAILED(hr));
-    t_note("GetRestrictToOutput(NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetRestrictToOutput(NULL)", hr, DXGI_ERROR_INVALID_CALL);
     SC_REL(sc);
     sc_close(&s);
 }
@@ -185,7 +179,8 @@ TEST(dxgi_swapchain_hwnd_fullscreen_desc_default)
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC fd; memset(&fd, 0xCC, sizeof fd);
     EXPECT_HR(IDXGISwapChain1_GetFullscreenDesc(sc, &fd), S_OK);
     EXPECT_EQ(fd.Windowed, TRUE);
-    t_note("default fullscreen desc: rate %u/%u scanline %d scaling %d", fd.RefreshRate.Numerator, fd.RefreshRate.Denominator, fd.ScanlineOrdering, fd.Scaling);
+    EXPECT_EQ(fd.RefreshRate.Numerator, 0); EXPECT_EQ(fd.RefreshRate.Denominator, 1);
+    EXPECT_EQ(fd.ScanlineOrdering, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED); EXPECT_EQ(fd.Scaling, DXGI_MODE_SCALING_UNSPECIFIED);
     SC_REL(sc);
     sc_close(&s);
 }
@@ -283,7 +278,7 @@ TEST(dxgi_swapchain_hwnd_format_unknown)
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, s.hwnd, &d, &sc);
         CHECKF(FAILED(hr), "effect %d accepted FORMAT_UNKNOWN", eff);
-        t_note("ForHwnd(FORMAT_UNKNOWN, effect %d) -> %s", eff, d3dh_hr_name(hr));
+        PINF(hr, "ForHwnd(FORMAT_UNKNOWN, effect %d)", eff);
         if (SUCCEEDED(hr)) SAFE_RELEASE(sc);
     }
     sc_close(&s);
@@ -301,7 +296,7 @@ TEST(dxgi_swapchain_hwnd_scaling_modes)
             IDXGISwapChain1 *sc = NULL;
             HRESULT hr = sc_create1(&s, w, &d, &sc);
             if (sc_ == DXGI_SCALING_STRETCH) CHECKF(sc_okish(hr), "STRETCH effect %d -> %s", eff, d3dh_hr_name(hr));
-            else t_note("scaling %d effect %d -> %s", sc_, eff, d3dh_hr_name(hr));
+            else PINF(hr, "scaling %d effect %d", sc_, eff);
             if (sc) {
                 DXGI_SWAP_CHAIN_DESC1 g; memset(&g, 0, sizeof g);
                 IDXGISwapChain1_GetDesc1(sc, &g);
@@ -334,7 +329,7 @@ TEST(dxgi_swapchain_hwnd_alpha_modes)
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, s.hwnd, &d, &sc);
         if (t[i].a == DXGI_ALPHA_MODE_UNSPECIFIED || t[i].a == DXGI_ALPHA_MODE_IGNORE) CHECKF(sc_okish(hr), "alpha %s -> %s", t[i].n, d3dh_hr_name(hr));
-        else t_note("alpha mode %s on an HWND chain -> %s", t[i].n, d3dh_hr_name(hr));
+        else PINF(hr, "alpha mode %s on an HWND chain", t[i].n);
         if (sc) {
             DXGI_SWAP_CHAIN_DESC1 g; memset(&g, 0, sizeof g);
             IDXGISwapChain1_GetDesc1(sc, &g);
@@ -384,8 +379,8 @@ TEST(dxgi_swapchain_hwnd_stereo)
         d.Stereo = TRUE;
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, s.hwnd, &d, &sc);
-        if (!sc_is_flip(effs[i]) || !stereo_ok) CHECKF(FAILED(hr), "stereo with effect %d and no windowed stereo support accepted", effs[i]);
-        t_note("stereo effect %d -> %s", effs[i], d3dh_hr_name(hr));
+        /* Win10 22H2 creates flip-model stereo chains although IsWindowedStereoEnabled() is FALSE here; bit-blt models reject stereo */
+        CHECKF(hr == (sc_is_flip(effs[i]) ? S_OK : DXGI_ERROR_INVALID_CALL), "stereo effect %d -> %s", effs[i], d3dh_hr_name(hr));
         if (sc) {
             DXGI_SWAP_CHAIN_DESC1 g; memset(&g, 0, sizeof g);
             IDXGISwapChain1_GetDesc1(sc, &g);
@@ -429,18 +424,20 @@ TEST(dxgi_swapchain_hwnd_flag_waitable_needs_flip)
     sc_close(&s);
 }
 
-static const struct { UINT flag; const char *n; int ok; } k_flags[] = {
-    { DXGI_SWAP_CHAIN_FLAG_NONPREROTATED, "NONPREROTATED", 0 },
-    { DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH, "ALLOW_MODE_SWITCH", 1 },
-    { DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE, "GDI_COMPATIBLE", 1 },
-    { DXGI_SWAP_CHAIN_FLAG_RESTRICTED_CONTENT, "RESTRICTED_CONTENT", 1 },
-    { DXGI_SWAP_CHAIN_FLAG_RESTRICT_SHARED_RESOURCE_DRIVER, "RESTRICT_SHARED_RESOURCE_DRIVER", 1 },
-    { DXGI_SWAP_CHAIN_FLAG_DISPLAY_ONLY, "DISPLAY_ONLY", 0 },
-    { DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, "FRAME_LATENCY_WAITABLE_OBJECT", 1 },
-    { DXGI_SWAP_CHAIN_FLAG_FOREGROUND_LAYER, "FOREGROUND_LAYER", 0 },
-    { DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO, "FULLSCREEN_VIDEO", 0 },
-    { DXGI_SWAP_CHAIN_FLAG_YUV_VIDEO, "YUV_VIDEO", 0 },
-    { DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING, "ALLOW_TEARING", 1 },
+/* Per-flag outcome of CreateSwapChainForHwnd on a FLIP_DISCARD chain, measured on Win10 22H2 with a WARP device: through a D3D11 device and through a D3D12 queue. */
+#define IV DXGI_ERROR_INVALID_CALL
+static const struct { UINT flag; const char *n; HRESULT hr11, hr12; } k_flags[] = {
+    { DXGI_SWAP_CHAIN_FLAG_NONPREROTATED, "NONPREROTATED", IV, IV },
+    { DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH, "ALLOW_MODE_SWITCH", S_OK, S_OK },
+    { DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE, "GDI_COMPATIBLE", S_OK, IV },
+    { DXGI_SWAP_CHAIN_FLAG_RESTRICTED_CONTENT, "RESTRICTED_CONTENT", S_OK, IV },
+    { DXGI_SWAP_CHAIN_FLAG_RESTRICT_SHARED_RESOURCE_DRIVER, "RESTRICT_SHARED_RESOURCE_DRIVER", E_INVALIDARG, IV },
+    { DXGI_SWAP_CHAIN_FLAG_DISPLAY_ONLY, "DISPLAY_ONLY", S_OK, S_OK },
+    { DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, "FRAME_LATENCY_WAITABLE_OBJECT", S_OK, S_OK },
+    { DXGI_SWAP_CHAIN_FLAG_FOREGROUND_LAYER, "FOREGROUND_LAYER", IV, IV },
+    { DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO, "FULLSCREEN_VIDEO", IV, IV },
+    { DXGI_SWAP_CHAIN_FLAG_YUV_VIDEO, "YUV_VIDEO", IV, IV },
+    { DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING, "ALLOW_TEARING", S_OK, S_OK },
 };
 
 TEST(dxgi_swapchain_hwnd_flag_table_flip)
@@ -452,9 +449,7 @@ TEST(dxgi_swapchain_hwnd_flag_table_flip)
         d.Flags = k_flags[i].flag;
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, w, &d, &sc);
-        /* flag acceptance on flip chains depends on OS build and driver: record only */
-        t_note("flip chain flag %s (expected %s) -> %s", k_flags[i].n, k_flags[i].ok ? "ok" : "rejected", d3dh_hr_name(hr));
-        CHECKF(sc_okish(hr) || hr == DXGI_ERROR_INVALID_CALL || hr == E_INVALIDARG || hr == DXGI_ERROR_UNSUPPORTED, "flag %s -> %s", k_flags[i].n, d3dh_hr_name(hr));
+        CHECKF(hr == k_flags[i].hr11, "flip chain flag %s -> %s want %s", k_flags[i].n, d3dh_hr_name(hr), d3dh_hr_name(k_flags[i].hr11));
         if (sc) {
             DXGI_SWAP_CHAIN_DESC1 g; memset(&g, 0, sizeof g);
             IDXGISwapChain1_GetDesc1(sc, &g);
@@ -481,14 +476,14 @@ TEST(dxgi_swapchain_hwnd_flag_hw_protected)
 TEST(dxgi_swapchain_hwnd_flag_undefined_bits)
 {
     OPEN2(s);
-    static const UINT bad[] = { 0x2000, 0x10000, 0x80000000 };
+    /* 0x2000 is accepted silently on Win10 22H2 (a newer SDK defines it); 0x4000 and up are rejected */
+    static const UINT bad[] = { 0x2000, 0x4000, 0x8000, 0x10000, 0x80000000, 0x1FFF, 0x2FFF };
     for (unsigned i = 0; i < ARRAY_SIZE_(bad); i++) {
         DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, 2, DXGI_SWAP_EFFECT_FLIP_DISCARD);
         d.Flags = bad[i];
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, s.hwnd, &d, &sc);
-        CHECKF(FAILED(hr), "undefined flag 0x%x accepted", bad[i]);
-        t_note("flags 0x%x -> %s", bad[i], d3dh_hr_name(hr));
+        CHECKF(hr == (bad[i] == 0x2000 ? S_OK : DXGI_ERROR_INVALID_CALL), "flags 0x%x -> %s", bad[i], d3dh_hr_name(hr));
         if (sc) SAFE_RELEASE(sc);
     }
     sc_close(&s);
@@ -504,7 +499,7 @@ TEST(dxgi_swapchain_hwnd_ms_rules)
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, s.hwnd, &d, &sc);
         if (sc_is_flip(eff)) EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);
-        else t_note("4x MSAA bitblt effect %d -> %s", eff, d3dh_hr_name(hr));
+        else PINF(hr, "4x MSAA bitblt effect %d", eff);
         if (sc) SC_REL(sc);
     }
     sc_close(&s);
@@ -520,7 +515,7 @@ TEST(dxgi_swapchain_hwnd_usage_values)
         d.BufferUsage = u[i];
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc_create1(&s, s.hwnd, &d, &sc);
-        t_note("BufferUsage 0x%x -> %s", u[i], d3dh_hr_name(hr));
+        PINF(hr, "BufferUsage 0x%x", u[i]);
         if (i < 2) CHECKF(sc_okish(hr), "BufferUsage 0x%x -> %s", u[i], d3dh_hr_name(hr));
         if (sc) {
             DXGI_SWAP_CHAIN_DESC1 g; memset(&g, 0, sizeof g);
@@ -542,8 +537,7 @@ TEST(dxgi_swapchain_composition_null_args)
     EXPECT_HR(IDXGIFactory2_CreateSwapChainForComposition(s.fac2, NULL, &d, NULL, &sc), DXGI_ERROR_INVALID_CALL);
     EXPECT_HR(IDXGIFactory2_CreateSwapChainForComposition(s.fac2, s.unk, NULL, NULL, &sc), DXGI_ERROR_INVALID_CALL);
     HRESULT hr = IDXGIFactory2_CreateSwapChainForComposition(s.fac2, s.unk, &d, NULL, NULL);
-    CHECK(FAILED(hr));
-    t_note("ForComposition(ppSwapChain=NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ForComposition(ppSwapChain=NULL)", hr, DXGI_ERROR_INVALID_CALL);
     sc_close(&s);
 }
 
@@ -570,7 +564,7 @@ TEST(dxgi_swapchain_composition_create)
     EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC fd;
     hr = IDXGISwapChain1_GetFullscreenDesc(sc, &fd);
-    t_note("GetFullscreenDesc on a composition chain -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetFullscreenDesc on a composition chain", hr, DXGI_ERROR_INVALID_CALL);
     CHECK(sc_okish(IDXGISwapChain1_Present(sc, 0, 0)));
     SC_REL(sc);
     sc_close(&s);
@@ -583,7 +577,7 @@ TEST(dxgi_swapchain_composition_zero_size)
     IDXGISwapChain1 *sc = NULL;
     HRESULT hr = IDXGIFactory2_CreateSwapChainForComposition(s.fac2, s.unk, &d, NULL, &sc);
     CHECK(FAILED(hr));   /* a composition surface has no window to take a size from */
-    t_note("ForComposition with 0x0 -> %s", d3dh_hr_name(hr));
+    PIN_HR("ForComposition with 0x0", hr, DXGI_ERROR_INVALID_CALL);
     if (sc) SAFE_RELEASE(sc);
     sc_close(&s);
 }
@@ -595,7 +589,7 @@ TEST(dxgi_swapchain_composition_bitblt)
         DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, 2, eff);
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = IDXGIFactory2_CreateSwapChainForComposition(s.fac2, s.unk, &d, NULL, &sc);
-        t_note("ForComposition with bitblt effect %d -> %s", eff, d3dh_hr_name(hr));
+        PINF(hr, "ForComposition with bitblt effect %d", eff);
         if (sc) SC_REL(sc);
     }
     sc_close(&s);
@@ -612,8 +606,7 @@ TEST(dxgi_swapchain_corewindow_invalid)
     sc = NULL;
     /* A desktop COM object is not a CoreWindow. */
     HRESULT hr = IDXGIFactory2_CreateSwapChainForCoreWindow(s.fac2, s.unk, (IUnknown *)s.fac2, &d, NULL, &sc);
-    CHECK(FAILED(hr));
-    t_note("ForCoreWindow(factory as window) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ForCoreWindow(factory as window)", hr, DXGI_ERROR_INVALID_CALL);
     if (sc) SAFE_RELEASE(sc);
     sc_close(&s);
 }
@@ -705,11 +698,11 @@ TEST(dxgi_swapchain_d12_getdevice)
     if (!sc_okish(sc12_create(&s, s.hwnd, &d, &sc))) { CHECK(0); sc12_close(&s); return; }
     ID3D12Device *dv = NULL;
     HRESULT hr = IDXGISwapChain1_GetDevice(sc, &IID_ID3D12Device, (void **)&dv);
-    t_note("GetDevice(ID3D12Device) on a D3D12 chain -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetDevice(ID3D12Device) on a D3D12 chain", hr, S_OK);
     if (dv) { CHECK(dv == s.dev); SAFE_RELEASE(dv); }
     ID3D12CommandQueue *q = NULL;
     hr = IDXGISwapChain1_GetDevice(sc, &IID_ID3D12CommandQueue, (void **)&q);
-    t_note("GetDevice(ID3D12CommandQueue) on a D3D12 chain -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetDevice(ID3D12CommandQueue) on a D3D12 chain", hr, E_NOINTERFACE);
     if (q) { CHECK(q == s.q); SAFE_RELEASE(q); }
     void *p = (void *)(ULONG_PTR)1;
     hr = IDXGISwapChain1_GetDevice(sc, &IID_ID3D11Device, &p);
@@ -727,11 +720,7 @@ TEST(dxgi_swapchain_d12_flags)
         d.Flags = k_flags[i].flag;
         IDXGISwapChain1 *sc = NULL;
         HRESULT hr = sc12_create(&s, w, &d, &sc);
-        int ok = k_flags[i].ok;
-        if (k_flags[i].flag == DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE || k_flags[i].flag == DXGI_SWAP_CHAIN_FLAG_RESTRICTED_CONTENT ||
-            k_flags[i].flag == DXGI_SWAP_CHAIN_FLAG_RESTRICT_SHARED_RESOURCE_DRIVER) ok = 0;
-        if (ok) CHECKF(sc_okish(hr), "d3d12 flag %s -> %s", k_flags[i].n, d3dh_hr_name(hr));
-        else CHECKF(hr == DXGI_ERROR_INVALID_CALL, "d3d12 flag %s -> %s", k_flags[i].n, d3dh_hr_name(hr));
+        CHECKF(hr == k_flags[i].hr12, "d3d12 flag %s -> %s want %s", k_flags[i].n, d3dh_hr_name(hr), d3dh_hr_name(k_flags[i].hr12));
         if (sc) SC_REL(sc);
         DestroyWindow(w);
     }

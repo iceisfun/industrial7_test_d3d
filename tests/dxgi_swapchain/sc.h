@@ -4,6 +4,7 @@
 #define SC_H
 #include "d3dh.h"
 #include <dxgi1_5.h>
+#include <stdarg.h>
 
 #ifndef DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
 #define DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING 0x800
@@ -11,6 +12,22 @@
 
 /* All flags a swap chain description may carry (DXGI 1.5). */
 #define SC_ALL_FLAGS 0x1FFF
+/* A value measured on Windows 10 and pinned: fails when the HRESULT differs. */
+#define PIN_HR(text, hr, want) do { HRESULT ph_ = (HRESULT)(hr), pw_ = (HRESULT)(want); \
+    t_check(ph_ == pw_, __FILE__, __LINE__, text, "%s -> %s want %s", text, d3dh_hr_name(ph_), d3dh_hr_name(pw_)); } while (0)
+/* Golden HRESULTs for formatted descriptions (sc_pins.inc, measured on Win10 22H2): PINF(hr, "scaling %d effect %d", a, b) must equal the table entry. */
+static const struct { const char *k, *v; } k_sc_pins[] = {
+#include "sc_pins.inc"
+};
+static void sc_pinf(const char *file, int line, HRESULT hr, const char *fmt, ...)
+{
+    char key[256]; va_list ap; unsigned i;
+    va_start(ap, fmt); vsnprintf(key, sizeof key, fmt, ap); va_end(ap);
+    for (i = 0; i < sizeof k_sc_pins / sizeof *k_sc_pins; i++)
+        if (!strcmp(key, k_sc_pins[i].k)) { t_check(!strcmp(d3dh_hr_name(hr), k_sc_pins[i].v), file, line, key, "%s -> %s want %s", key, d3dh_hr_name(hr), k_sc_pins[i].v); return; }
+    t_check(0, file, line, key, "no pinned HRESULT for \"%s\" (got %s)", key, d3dh_hr_name(hr));
+}
+#define PINF(hr, ...) sc_pinf(__FILE__, __LINE__, (hr), __VA_ARGS__)
 #define ARRAY_SIZE_(a) (sizeof(a) / sizeof((a)[0]))
 
 typedef struct SC {

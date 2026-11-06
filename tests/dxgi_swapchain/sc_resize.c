@@ -100,7 +100,7 @@ TEST(dxgi_swapchain_resize_outstanding_view_fails)
     /* the view keeps the resource alive */
     HRESULT hrv = IDXGISwapChain1_ResizeBuffers(sc, 0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
     CHECKF(hrv == DXGI_ERROR_INVALID_CALL || hrv == S_OK, "resize with live view -> %s", d3dh_hr_name(hrv));
-    t_note("resize with a live RTV -> %s", d3dh_hr_name(hrv));
+    PIN_HR("resize with a live RTV", hrv, DXGI_ERROR_INVALID_CALL);
     SAFE_RELEASE(rtv);
     EXPECT_HR(IDXGISwapChain1_ResizeBuffers(sc, 0, 0, 0, DXGI_FORMAT_UNKNOWN, 0), S_OK);
     SC_REL(sc);
@@ -140,15 +140,15 @@ TEST(dxgi_swapchain_resize_invalid_arguments)
     IDXGISwapChain1 *sc = mkr(&s, DXGI_SWAP_EFFECT_FLIP_DISCARD, 2, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
     if (!sc) { sc_close(&s); return; }
     HRESULT hr = IDXGISwapChain1_ResizeBuffers(sc, 17, 32, 32, DXGI_FORMAT_UNKNOWN, 0);
-    CHECK(FAILED(hr)); t_note("ResizeBuffers(count 17) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ResizeBuffers(count 17)", hr, E_INVALIDARG);
     hr = IDXGISwapChain1_ResizeBuffers(sc, 2, 32, 32, DXGI_FORMAT_D32_FLOAT, 0);
-    CHECK(FAILED(hr)); t_note("ResizeBuffers(D32_FLOAT) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ResizeBuffers(D32_FLOAT)", hr, E_INVALIDARG);
     hr = IDXGISwapChain1_ResizeBuffers(sc, 2, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0);
-    CHECK(FAILED(hr)); t_note("ResizeBuffers(SRGB format on flip chain) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ResizeBuffers(SRGB format on flip chain)", hr, E_INVALIDARG);
     hr = IDXGISwapChain1_ResizeBuffers(sc, 1, 32, 32, DXGI_FORMAT_UNKNOWN, 0);
-    CHECK(FAILED(hr)); t_note("ResizeBuffers(count 1 on flip chain) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ResizeBuffers(count 1 on flip chain)", hr, E_INVALIDARG);
     hr = IDXGISwapChain1_ResizeBuffers(sc, 2, 32, 32, DXGI_FORMAT_UNKNOWN, 0x80000000);
-    CHECK(FAILED(hr)); t_note("ResizeBuffers(undefined flag bits) -> %s", d3dh_hr_name(hr));
+    PIN_HR("ResizeBuffers(undefined flag bits)", hr, DXGI_ERROR_INVALID_CALL);
     DXGI_SWAP_CHAIN_DESC1 g; memset(&g, 0, sizeof g);
     IDXGISwapChain1_GetDesc1(sc, &g);
     CHECKF(g.Width == 64 && g.Height == 48 && g.BufferCount == 2, "failed calls modified the desc (%ux%u count %u)", g.Width, g.Height, g.BufferCount);
@@ -169,8 +169,7 @@ TEST(dxgi_swapchain_resize_bitblt_count_range)
         CHECKF(g.BufferCount == n, "count %u reported as %u", n, g.BufferCount);
     }
     HRESULT hr = IDXGISwapChain1_ResizeBuffers(sc, 17, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
-    CHECK(FAILED(hr));
-    t_note("bitblt ResizeBuffers(count 17) -> %s", d3dh_hr_name(hr));
+    PIN_HR("bitblt ResizeBuffers(count 17)", hr, E_INVALIDARG);
     SC_REL(sc);
     sc_close(&s);
 }
@@ -213,7 +212,7 @@ TEST(dxgi_swapchain_resize_flag_cannot_be_dropped)
         CHECKF(hr == S_OK, "same flag 0x%x -> %s", fl[i], d3dh_hr_name(hr));
         hr = IDXGISwapChain1_ResizeBuffers(sc, 2, 32, 24, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
         CHECKF(FAILED(hr), "dropping flag 0x%x succeeded", fl[i]);
-        t_note("dropping flag 0x%x in ResizeBuffers -> %s", fl[i], d3dh_hr_name(hr));
+        PINF(hr, "dropping flag 0x%x in ResizeBuffers", fl[i]);
         SC_REL(sc);
     }
     sc_close(&s);
@@ -245,7 +244,7 @@ TEST(dxgi_swapchain_resizebuffers1_d3d11)
     IDXGISwapChain3 *s3 = NULL;
     if (FAILED(IDXGISwapChain1_QueryInterface(sc, &IID_IDXGISwapChain3, (void **)&s3))) { t_skip("no IDXGISwapChain3"); SC_REL(sc); sc_close(&s); return; }
     HRESULT hr = IDXGISwapChain3_ResizeBuffers1(s3, 2, 40, 30, DXGI_FORMAT_B8G8R8A8_UNORM, 0, NULL, NULL);
-    t_note("D3D11 ResizeBuffers1(NULL masks, NULL queues) -> %s", d3dh_hr_name(hr));
+    PIN_HR("D3D11 ResizeBuffers1(NULL masks, NULL queues)", hr, DXGI_ERROR_INVALID_CALL);
     UINT mask[2] = { 1, 1 };
     IUnknown *queues[2] = { s.unk, s.unk };
     hr = IDXGISwapChain3_ResizeBuffers1(s3, 2, 40, 30, DXGI_FORMAT_B8G8R8A8_UNORM, 0, mask, queues);
@@ -280,10 +279,11 @@ TEST(dxgi_swapchain_resize_partial_zero_dimension)
     RECT r; GetClientRect(s.hwnd, &r);
     HRESULT hr = IDXGISwapChain1_ResizeBuffers(sc, 2, 50, 0, DXGI_FORMAT_UNKNOWN, 0);
     DXGI_SWAP_CHAIN_DESC1 g; IDXGISwapChain1_GetDesc1(sc, &g);
-    t_note("ResizeBuffers(50, 0) -> %s, buffer %ux%u (client %ldx%ld)", d3dh_hr_name(hr), g.Width, g.Height, r.right, r.bottom);
+    /* a zero in either dimension means "use the client area" for both: the other (non-zero) value is ignored */
+    EXPECT_HR(hr, S_OK); CHECKF(g.Width == (UINT)r.right && g.Height == (UINT)r.bottom, "ResizeBuffers(50, 0): buffer %ux%u client %ldx%ld", g.Width, g.Height, r.right, r.bottom);
     hr = IDXGISwapChain1_ResizeBuffers(sc, 2, 0, 40, DXGI_FORMAT_UNKNOWN, 0);
     IDXGISwapChain1_GetDesc1(sc, &g);
-    t_note("ResizeBuffers(0, 40) -> %s, buffer %ux%u", d3dh_hr_name(hr), g.Width, g.Height);
+    EXPECT_HR(hr, S_OK); CHECKF(g.Width == (UINT)r.right && g.Height == (UINT)r.bottom, "ResizeBuffers(0, 40): buffer %ux%u client %ldx%ld", g.Width, g.Height, r.right, r.bottom);
     SC_REL(sc);
     sc_close(&s);
 }

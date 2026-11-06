@@ -119,52 +119,57 @@ TEST(dxgi_swapchain_pixels_flip_srgb_view)
     sc_close(&s);
 }
 
-TEST(dxgi_swapchain_pixels_sequential_preserves_content)
+/* What GetBuffer(0) reads after Present, measured on Win10 22H2 (identical for hidden and shown windows):
+ * DISCARD keeps the presented pixels for any buffer count. SEQUENTIAL with a single buffer keeps them; with two or more buffers Windows rotates the
+ * buffers even in the bit-blt model, so buffer 0 holds an untouched (zero) buffer after the first Present, the presented one again after the
+ * second (2 buffers) or only after the third (3 buffers). */
+static void seq_content(SC *s, DXGI_SWAP_EFFECT eff, UINT count, uint32_t want1, uint32_t want2)
 {
-    OPEN2(s);
     HWND w = sc_window(8, 8);
-    DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, 2, DXGI_SWAP_EFFECT_SEQUENTIAL);
+    DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, count, eff);
     IDXGISwapChain1 *sc = NULL;
-    if (!sc_okish(sc_create1(&s, w, &d, &sc))) { CHECK(0); DestroyWindow(w); sc_close(&s); return; }
+    if (!sc_okish(sc_create1(s, w, &d, &sc))) { CHECK(0); DestroyWindow(w); return; }
     const float c[4] = { 0, 1, 0, 1 };
-    sc_clear(&s, (IDXGISwapChain *)sc, 0, c, DXGI_FORMAT_UNKNOWN);
+    sc_clear(s, (IDXGISwapChain *)sc, 0, c, DXGI_FORMAT_UNKNOWN);
     EXPECT_HR(IDXGISwapChain1_Present(sc, 0, 0), S_OK);
     d3dh_image im;
-    if (SUCCEEDED(sc_readback(&s, (IDXGISwapChain *)sc, 0, &im))) {
-        CHECKF(d3dh_image_pixel32(&im, 4, 4) == 0xFF00FF00u, "after Present: 0x%08x", d3dh_image_pixel32(&im, 4, 4));
+    if (SUCCEEDED(sc_readback(s, (IDXGISwapChain *)sc, 0, &im))) {
+        CHECKF(d3dh_image_pixel32(&im, 4, 4) == want1, "eff %d count %u after Present: 0x%08x want 0x%08x", eff, count, d3dh_image_pixel32(&im, 4, 4), want1);
         d3dh_image_free(&im);
     } else CHECK(0);
     EXPECT_HR(IDXGISwapChain1_Present(sc, 0, 0), S_OK);
-    if (SUCCEEDED(sc_readback(&s, (IDXGISwapChain *)sc, 0, &im))) {
-        CHECKF(d3dh_image_pixel32(&im, 0, 0) == 0xFF00FF00u, "after second Present: 0x%08x", d3dh_image_pixel32(&im, 0, 0));
+    if (SUCCEEDED(sc_readback(s, (IDXGISwapChain *)sc, 0, &im))) {
+        CHECKF(d3dh_image_pixel32(&im, 0, 0) == want2, "eff %d count %u after second Present: 0x%08x want 0x%08x", eff, count, d3dh_image_pixel32(&im, 0, 0), want2);
         d3dh_image_free(&im);
     }
     SC_REL(sc);
     DestroyWindow(w);
-    sc_close(&s);
 }
-
-TEST(dxgi_swapchain_pixels_discard_after_present_is_note)
+TEST(dxgi_swapchain_pixels_sequential_content_by_buffer_count)
 {
     OPEN2(s);
-    HWND w = sc_window(8, 8);
-    DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM, 2, DXGI_SWAP_EFFECT_DISCARD);
-    IDXGISwapChain1 *sc = NULL;
-    if (!sc_okish(sc_create1(&s, w, &d, &sc))) { CHECK(0); DestroyWindow(w); sc_close(&s); return; }
-    const float c[4] = { 1, 0, 0, 1 };
-    sc_clear(&s, (IDXGISwapChain *)sc, 0, c, DXGI_FORMAT_UNKNOWN);
-    IDXGISwapChain1_Present(sc, 0, 0);
-    d3dh_image im;
-    if (SUCCEEDED(sc_readback(&s, (IDXGISwapChain *)sc, 0, &im))) {
-        t_note("DISCARD back buffer after Present reads 0x%08x (undefined by contract)", d3dh_image_pixel32(&im, 0, 0));
-        d3dh_image_free(&im);
-    }
-    SC_REL(sc);
-    DestroyWindow(w);
+    seq_content(&s, DXGI_SWAP_EFFECT_SEQUENTIAL, 1, 0xFF00FF00u, 0xFF00FF00u);
+    seq_content(&s, DXGI_SWAP_EFFECT_SEQUENTIAL, 2, 0x00000000u, 0xFF00FF00u);
+    seq_content(&s, DXGI_SWAP_EFFECT_SEQUENTIAL, 3, 0x00000000u, 0x00000000u);
+    sc_close(&s);
+}
+TEST(dxgi_swapchain_pixels_discard_content_by_buffer_count)
+{
+    OPEN2(s);
+    for (UINT n = 1; n <= 3; n++) seq_content(&s, DXGI_SWAP_EFFECT_DISCARD, n, 0xFF00FF00u, 0xFF00FF00u);
+    sc_close(&s);
+}
+TEST(dxgi_swapchain_pixels_flip_content_by_buffer_count)
+{
+    OPEN2(s);
+    seq_content(&s, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, 2, 0x00000000u, 0xFF00FF00u);
+    seq_content(&s, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, 3, 0x00000000u, 0x00000000u);
+    seq_content(&s, DXGI_SWAP_EFFECT_FLIP_DISCARD, 2, 0x00000000u, 0xFF00FF00u);
+    seq_content(&s, DXGI_SWAP_EFFECT_FLIP_DISCARD, 3, 0x00000000u, 0x00000000u);
     sc_close(&s);
 }
 
-TEST(dxgi_swapchain_pixels_flip_buffer_rotation_note)
+TEST(dxgi_swapchain_pixels_flip_buffer_rotation)
 {
     OPEN2(s);
     HWND w = sc_window(8, 8);
@@ -174,12 +179,14 @@ TEST(dxgi_swapchain_pixels_flip_buffer_rotation_note)
     const float c[4] = { 1, 0, 0, 1 };
     sc_clear(&s, (IDXGISwapChain *)sc, 0, c, DXGI_FORMAT_UNKNOWN);
     IDXGISwapChain1_Present(sc, 0, 0);
+    /* D3D11 flip chains present GetBuffer(0) and shift: the presented image is then found in the last buffer */
+    static const uint32_t want[3] = { 0x00000000u, 0x00000000u, 0xFF0000FFu };
     for (UINT j = 0; j < 3; j++) {
         d3dh_image im;
         if (SUCCEEDED(sc_readback(&s, (IDXGISwapChain *)sc, j, &im))) {
-            t_note("flip sequential, buffer %u after one Present reads 0x%08x", j, d3dh_image_pixel32(&im, 0, 0));
+            CHECKF(d3dh_image_pixel32(&im, 0, 0) == want[j], "flip sequential, buffer %u after one Present reads 0x%08x want 0x%08x", j, d3dh_image_pixel32(&im, 0, 0), want[j]);
             d3dh_image_free(&im);
-        }
+        } else CHECK(0);
     }
     SC_REL(sc);
     DestroyWindow(w);
@@ -243,12 +250,17 @@ TEST(dxgi_swapchain_pixels_copy_from_texture)
             CHECKF(bad == 0, "%d pixels differ after CopyResource into the back buffer", bad);
             d3dh_image_free(&im);
         } else CHECK(0);
-        /* the copy survives a Present on a SEQUENTIAL chain */
+        /* a 2-buffer SEQUENTIAL chain rotates on Present: buffer 0 is untouched after the first one, and holds the copy again after the second */
+        EXPECT_HR(IDXGISwapChain1_Present(sc, 0, 0), S_OK);
+        if (SUCCEEDED(sc_readback(&s, (IDXGISwapChain *)sc, 0, &im))) {
+            CHECKF(d3dh_image_pixel32(&im, 5, 7) == 0, "after one Present: 0x%08x", d3dh_image_pixel32(&im, 5, 7));
+            d3dh_image_free(&im);
+        } else CHECK(0);
         EXPECT_HR(IDXGISwapChain1_Present(sc, 0, 0), S_OK);
         if (SUCCEEDED(sc_readback(&s, (IDXGISwapChain *)sc, 0, &im))) {
             CHECK(d3dh_image_pixel32(&im, 5, 7) == src[7 * 16 + 5]);
             d3dh_image_free(&im);
-        }
+        } else CHECK(0);
     }
     SAFE_RELEASE(tx); SAFE_RELEASE(bb);
     SC_REL(sc);
@@ -414,7 +426,7 @@ TEST(dxgi_swapchain_surface_getdc_without_gdi_flag)
         HDC dc = NULL;
         HRESULT hr = IDXGISurface1_GetDC(su, FALSE, &dc);
         CHECKF(FAILED(hr), "GetDC on a chain without GDI_COMPATIBLE succeeded");
-        t_note("GetDC without GDI_COMPATIBLE -> %s", d3dh_hr_name(hr));
+        PIN_HR("GetDC without GDI_COMPATIBLE", hr, DXGI_ERROR_INVALID_CALL);
         if (SUCCEEDED(hr)) IDXGISurface1_ReleaseDC(su, NULL);
         SAFE_RELEASE(su);
     }
@@ -433,7 +445,7 @@ TEST(dxgi_swapchain_surface_map_not_cpu_accessible)
         DXGI_MAPPED_RECT mr; memset(&mr, 0, sizeof mr);
         HRESULT hr = IDXGISurface_Map(su, &mr, DXGI_MAP_READ);
         CHECKF(FAILED(hr), "mapping the back buffer succeeded");
-        t_note("IDXGISurface::Map(READ) on a back buffer -> %s", d3dh_hr_name(hr));
+        PIN_HR("IDXGISurface::Map(READ) on a back buffer", hr, E_INVALIDARG);
         if (SUCCEEDED(hr)) IDXGISurface_Unmap(su);
         SAFE_RELEASE(su);
     }
@@ -451,16 +463,16 @@ TEST(dxgi_swapchain_resource_eviction_priority_and_sharing)
     if (r) {
         UINT pri = 0;
         HRESULT hr = IDXGIResource_GetEvictionPriority(r, &pri);
-        t_note("back buffer eviction priority -> %s (%u)", d3dh_hr_name(hr), pri);
+        EXPECT_HR(hr, S_OK); EXPECT_EQ(pri, DXGI_RESOURCE_PRIORITY_NORMAL);
         HANDLE h = NULL;
         hr = IDXGIResource_GetSharedHandle(r, &h);
-        t_note("GetSharedHandle on a back buffer -> %s (%p)", d3dh_hr_name(hr), h);
+        EXPECT_HR(hr, E_INVALIDARG); CHECK(h == NULL);
         IDXGIDevice *dd = NULL;
         EXPECT_HR(IDXGIResource_GetDevice(r, &IID_IDXGIDevice, (void **)&dd), S_OK);
         SAFE_RELEASE(dd);
         void *par = NULL;
         hr = IDXGIResource_GetParent(r, &IID_IDXGIDevice, &par);
-        t_note("IDXGIResource::GetParent(IDXGIDevice) -> %s", d3dh_hr_name(hr));
+        PIN_HR("IDXGIResource::GetParent(IDXGIDevice)", hr, E_NOINTERFACE);
         if (par) ((IUnknown *)par)->lpVtbl->Release((IUnknown *)par);
         SAFE_RELEASE(r);
     }

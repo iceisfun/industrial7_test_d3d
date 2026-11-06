@@ -65,22 +65,20 @@ TEST(dxgi_swapchain_latency_set_get_roundtrip)
     if (!s2) { sc_close(&s); return; }
     EXPECT_HR(IDXGISwapChain2_SetMaximumFrameLatency(s2, 0), DXGI_ERROR_INVALID_CALL);
     UINT lat = 0;
-    for (UINT v = 1; v <= 3; v++) {
-        EXPECT_HR(IDXGISwapChain2_SetMaximumFrameLatency(s2, v), S_OK);
+    /* Win10 22H2: 1..40 are accepted (the documented DXGI maximum of 16 is not enforced), 41 and up are rejected. */
+    static const UINT okv[] = { 1, 2, 3, 4, 8, 15, 16, 17, 20, 39, 40 }, badv[] = { 41, 42, 64, 100, 0x7fffffff, 0xFFFFFFFF };
+    for (unsigned i = 0; i < ARRAY_SIZE_(okv); i++) {
+        EXPECT_HR(IDXGISwapChain2_SetMaximumFrameLatency(s2, okv[i]), S_OK);
         EXPECT_HR(IDXGISwapChain2_GetMaximumFrameLatency(s2, &lat), S_OK);
-        EXPECT_EQ(lat, v);
+        EXPECT_EQ(lat, okv[i]);
+    }
+    for (unsigned i = 0; i < ARRAY_SIZE_(badv); i++) {
+        EXPECT_HR(IDXGISwapChain2_SetMaximumFrameLatency(s2, badv[i]), DXGI_ERROR_INVALID_CALL);
+        IDXGISwapChain2_GetMaximumFrameLatency(s2, &lat);
+        EXPECT_EQ(lat, 40);               /* a rejected value does not change the stored one */
     }
     EXPECT_HR(IDXGISwapChain2_SetMaximumFrameLatency(s2, 0), DXGI_ERROR_INVALID_CALL);
-    IDXGISwapChain2_GetMaximumFrameLatency(s2, &lat);
-    t_note("device default max frame latency %u (documented 3)", lat);
-    HRESULT hr = IDXGISwapChain2_SetMaximumFrameLatency(s2, 17);
-    CHECK(FAILED(hr));
-    t_note("SetMaximumFrameLatency(17) on a 3-buffer chain -> %s", d3dh_hr_name(hr));
-    hr = IDXGISwapChain2_SetMaximumFrameLatency(s2, 0xFFFFFFFF);
-    CHECK(FAILED(hr));
-    hr = IDXGISwapChain2_GetMaximumFrameLatency(s2, NULL);
-    CHECK(FAILED(hr));
-    t_note("GetMaximumFrameLatency(NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetMaximumFrameLatency(NULL)", IDXGISwapChain2_GetMaximumFrameLatency(s2, NULL), DXGI_ERROR_INVALID_CALL);
     SC_REL(s2);
     sc_close(&s);
 }
@@ -179,7 +177,7 @@ TEST(dxgi_swapchain_rotation_bitblt_invalid)
         EXPECT_HR(IDXGISwapChain2_SetRotation(s2, DXGI_MODE_ROTATION_ROTATE90), DXGI_ERROR_INVALID_CALL);
         DXGI_MODE_ROTATION r = 0xFF;
         HRESULT hr = IDXGISwapChain2_GetRotation(s2, &r);
-        t_note("GetRotation on a bitblt chain -> %s (%d)", d3dh_hr_name(hr), r);
+        EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL); EXPECT_EQ(r, 0xFF);   /* the out value is not written */
         SC_REL(s2);
     }
     sc_close(&s);
@@ -192,9 +190,9 @@ TEST(dxgi_swapchain_rotation_flip)
     if (!s2) { sc_close(&s); return; }
     DXGI_MODE_ROTATION r = DXGI_MODE_ROTATION_UNSPECIFIED;
     HRESULT hr = IDXGISwapChain2_GetRotation(s2, &r);
-    t_note("default GetRotation -> %s (%d)", d3dh_hr_name(hr), r);
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(r, DXGI_MODE_ROTATION_IDENTITY);
     hr = IDXGISwapChain2_SetRotation(s2, DXGI_MODE_ROTATION_IDENTITY);
-    t_note("SetRotation(IDENTITY) on a windowed flip chain -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetRotation(IDENTITY) on a windowed flip chain", hr, S_OK);
     if (hr == S_OK) {
         r = 0xFF;
         EXPECT_HR(IDXGISwapChain2_GetRotation(s2, &r), S_OK);
@@ -202,16 +200,14 @@ TEST(dxgi_swapchain_rotation_flip)
         static const DXGI_MODE_ROTATION rots[] = { DXGI_MODE_ROTATION_ROTATE90, DXGI_MODE_ROTATION_ROTATE180, DXGI_MODE_ROTATION_ROTATE270 };
         for (unsigned i = 0; i < 3; i++) {
             hr = IDXGISwapChain2_SetRotation(s2, rots[i]);
-            t_note("SetRotation(%d) -> %s", rots[i], d3dh_hr_name(hr));
-            if (hr == S_OK) { r = 0xFF; IDXGISwapChain2_GetRotation(s2, &r); EXPECT_EQ(r, rots[i]); }
+            EXPECT_HR(hr, S_OK);
+            r = 0xFF; IDXGISwapChain2_GetRotation(s2, &r); EXPECT_EQ(r, rots[i]);
         }
         IDXGISwapChain2_SetRotation(s2, DXGI_MODE_ROTATION_IDENTITY);
         hr = IDXGISwapChain2_SetRotation(s2, (DXGI_MODE_ROTATION)5);
-        CHECK(FAILED(hr));
-        t_note("SetRotation(5) -> %s", d3dh_hr_name(hr));
+        PIN_HR("SetRotation(5)", hr, DXGI_ERROR_INVALID_CALL);
     }
-    hr = IDXGISwapChain2_GetRotation(s2, NULL);
-    CHECK(FAILED(hr));
+    EXPECT_HR(IDXGISwapChain2_GetRotation(s2, NULL), DXGI_ERROR_INVALID_CALL);
     SC_REL(s2);
     sc_close(&s);
 }
@@ -221,16 +217,25 @@ TEST(dxgi_swapchain_source_size_invalid)
     OPEN2(s);
     IDXGISwapChain2 *s2 = mk2(&s, DXGI_SWAP_EFFECT_FLIP_DISCARD, 0, 2);
     if (!s2) { sc_close(&s); return; }
-    HRESULT hr;
-    hr = IDXGISwapChain2_SetSourceSize(s2, 0, 0);          CHECK(FAILED(hr)); t_note("SetSourceSize(0,0) -> %s", d3dh_hr_name(hr));
-    hr = IDXGISwapChain2_SetSourceSize(s2, 0, 10);         CHECK(FAILED(hr));
-    hr = IDXGISwapChain2_SetSourceSize(s2, 10, 0);         CHECK(FAILED(hr));
-    hr = IDXGISwapChain2_SetSourceSize(s2, 65, 48);        CHECK(FAILED(hr)); t_note("SetSourceSize(65,48) on 64x48 -> %s", d3dh_hr_name(hr));
-    hr = IDXGISwapChain2_SetSourceSize(s2, 64, 49);        CHECK(FAILED(hr));
-    hr = IDXGISwapChain2_SetSourceSize(s2, 0xFFFFFFFF, 1); CHECK(FAILED(hr));
     UINT w = 0, h = 0;
-    hr = IDXGISwapChain2_GetSourceSize(s2, NULL, NULL);
-    CHECK(FAILED(hr));
+    /* larger than the buffer is rejected and leaves the stored size alone */
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 65, 48), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 64, 49), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 0xFFFFFFFF, 1), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 1, 0xFFFFFFFF), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, &w, &h), S_OK);
+    EXPECT_EQ(w, 64); EXPECT_EQ(h, 48);
+    /* Win10 stores zero-sized source rectangles without complaint (it is not documented to be an error either) */
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 0, 0), S_OK);
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, &w, &h), S_OK); EXPECT_EQ(w, 0); EXPECT_EQ(h, 0);
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 0, 10), S_OK);
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, &w, &h), S_OK); EXPECT_EQ(w, 0); EXPECT_EQ(h, 10);
+    EXPECT_HR(IDXGISwapChain2_SetSourceSize(s2, 10, 0), S_OK);
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, &w, &h), S_OK); EXPECT_EQ(w, 10); EXPECT_EQ(h, 0);
+    /* a NULL out-pointer anywhere is an error */
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, NULL, NULL), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, &w, NULL), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, NULL, &h), DXGI_ERROR_INVALID_CALL);
     SC_REL(s2);
     sc_close(&s);
 }
@@ -242,11 +247,10 @@ TEST(dxgi_swapchain_source_size_roundtrip)
     if (!s2) { sc_close(&s); return; }
     UINT w = 0, h = 0;
     HRESULT hr = IDXGISwapChain2_GetSourceSize(s2, &w, &h);
-    t_note("default GetSourceSize -> %s (%ux%u)", d3dh_hr_name(hr), w, h);
-    if (hr == S_OK) { EXPECT_EQ(w, 64); EXPECT_EQ(h, 48); }
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(w, 64); EXPECT_EQ(h, 48);
     hr = IDXGISwapChain2_SetSourceSize(s2, 32, 24);
-    t_note("SetSourceSize(32,24) -> %s", d3dh_hr_name(hr));
-    if (hr == S_OK) {
+    PIN_HR("SetSourceSize(32,24)", hr, S_OK);
+    {
         EXPECT_HR(IDXGISwapChain2_GetSourceSize(s2, &w, &h), S_OK);
         EXPECT_EQ(w, 32); EXPECT_EQ(h, 24);
         EXPECT_HR(IDXGISwapChain2_Present(s2, 0, 0), S_OK);
@@ -264,10 +268,10 @@ TEST(dxgi_swapchain_background_color)
     DXGI_SWAP_CHAIN_DESC1 d = sc_desc1(64, 48, DXGI_FORMAT_B8G8R8A8_UNORM, 2, DXGI_SWAP_EFFECT_FLIP_DISCARD);
     IDXGISwapChain1 *sc;
     if (!sc_okish(sc_create1(&s, s.hwnd, &d, &sc))) { CHECK(0); sc_close(&s); return; }
-    EXPECT_HR(IDXGISwapChain1_SetBackgroundColor(sc, NULL), E_INVALIDARG);
+    EXPECT_HR(IDXGISwapChain1_SetBackgroundColor(sc, NULL), DXGI_ERROR_INVALID_CALL);
     DXGI_RGBA bad[] = { { -0.01f, 0, 0, 1 }, { 0, 1.01f, 0, 1 }, { 0, 0, 2.0f, 1 }, { 0, 0, 0, -1.0f }, { 0, 0, 0, 1.5f } };
     for (unsigned i = 0; i < ARRAY_SIZE_(bad); i++)
-        EXPECT_HR(IDXGISwapChain1_SetBackgroundColor(sc, &bad[i]), E_INVALIDARG);
+        EXPECT_HR(IDXGISwapChain1_SetBackgroundColor(sc, &bad[i]), DXGI_ERROR_INVALID_CALL);
     DXGI_RGBA c = { 0.25f, 0.5f, 0.75f, 1.0f }, g = { 9, 9, 9, 9 };
     EXPECT_HR(IDXGISwapChain1_SetBackgroundColor(sc, &c), S_OK);
     EXPECT_HR(IDXGISwapChain1_GetBackgroundColor(sc, &g), S_OK);
@@ -282,8 +286,10 @@ TEST(dxgi_swapchain_background_color)
     IDXGISwapChain1_GetBackgroundColor(sc, &g);
     CHECK(g.r == 1 && g.g == 1 && g.b == 1 && g.a == 1);
     HRESULT hr = IDXGISwapChain1_GetBackgroundColor(sc, NULL);
-    CHECK(FAILED(hr));
-    t_note("GetBackgroundColor(NULL) -> %s", d3dh_hr_name(hr));
+    PIN_HR("GetBackgroundColor(NULL)", hr, DXGI_ERROR_INVALID_CALL);
+    /* The first Present of a flip chain rejects DO_NOT_SEQUENCE; after a plain Present it is accepted. */
+    EXPECT_HR(IDXGISwapChain1_Present(sc, 0, DXGI_PRESENT_DO_NOT_SEQUENCE), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain1_Present(sc, 0, 0), S_OK);
     EXPECT_HR(IDXGISwapChain1_Present(sc, 0, DXGI_PRESENT_DO_NOT_SEQUENCE), S_OK);
     SC_REL(sc);
     sc_close(&s);
@@ -296,7 +302,8 @@ TEST(dxgi_swapchain_background_color_default)
     if (!sc) { sc_close(&s); return; }
     DXGI_RGBA g = { 9, 9, 9, 9 };
     HRESULT hr = IDXGISwapChain1_GetBackgroundColor(sc, &g);
-    t_note("default background colour -> %s (%g %g %g %g)", d3dh_hr_name(hr), g.r, g.g, g.b, g.a);
+    EXPECT_HR(hr, S_OK);
+    CHECKF(g.r == 0 && g.g == 0 && g.b == 0 && g.a == 1, "default background colour (%g %g %g %g)", g.r, g.g, g.b, g.a);
     SC_REL(sc);
     sc_close(&s);
 }
@@ -328,11 +335,19 @@ TEST(dxgi_swapchain_matrix_transform_composition)
     EXPECT_HR(IDXGISwapChain2_GetMatrixTransform(s2, &g), S_OK);
     CHECK(g._11 == 2 && g._22 == 3 && g._31 == 10 && g._32 == 20 && g._12 == 0 && g._21 == 0);
     DXGI_MATRIX_3X2_F skew = { 1, 0.5f, 0, 1, 0, 0 };
-    EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, &skew), E_INVALIDARG);
+    EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, &skew), DXGI_ERROR_INVALID_CALL);
     DXGI_MATRIX_3X2_F rot = { 1, 0, 0.5f, 1, 0, 0 };
-    EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, &rot), E_INVALIDARG);
-    EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, NULL), E_INVALIDARG);
-    EXPECT_HR(IDXGISwapChain2_GetMatrixTransform(s2, NULL), E_INVALIDARG);
+    EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, &rot), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, NULL), DXGI_ERROR_INVALID_CALL);
+    EXPECT_HR(IDXGISwapChain2_GetMatrixTransform(s2, NULL), DXGI_ERROR_INVALID_CALL);
+    /* only the off-diagonal terms are validated: zero and negative scales are stored */
+    DXGI_MATRIX_3X2_F odd[] = { { 0, 0, 0, 0, 0, 0 }, { -1, 0, 0, 1, 0, 0 }, { 1, 0, 0, 1, 0, 0 } };
+    for (unsigned i = 0; i < 3; i++) {
+        DXGI_MATRIX_3X2_F gg = { 9, 9, 9, 9, 9, 9 };
+        EXPECT_HR(IDXGISwapChain2_SetMatrixTransform(s2, &odd[i]), S_OK);
+        EXPECT_HR(IDXGISwapChain2_GetMatrixTransform(s2, &gg), S_OK);
+        CHECK(!memcmp(&gg, &odd[i], sizeof gg));
+    }
     SC_REL(s2);
     sc_close(&s);
 }
@@ -376,7 +391,8 @@ TEST(dxgi_swapchain_colorspace_newer_enums)
     for (int cs = 21; cs <= 26; cs++) {
         UINT sup = 0xDEADBEEF;
         HRESULT hr = IDXGISwapChain3_CheckColorSpaceSupport(s3, (DXGI_COLOR_SPACE_TYPE)cs, &sup);
-        t_note("colour space %d -> %s support 0x%x", cs, d3dh_hr_name(hr), sup);
+        EXPECT_HR(hr, S_OK);   /* 21 is presentable, 22..26 are accepted enum values without support */
+        CHECKF(sup == (cs == 21 ? 1u : 0u), "colour space %d support 0x%x", cs, sup);
     }
     SC_REL(s3);
     sc_close(&s);
@@ -389,16 +405,13 @@ TEST(dxgi_swapchain_colorspace_out_of_range)
     if (!s3) { sc_close(&s); return; }
     UINT sup = 0xDEADBEEF;
     HRESULT hr = IDXGISwapChain3_CheckColorSpaceSupport(s3, (DXGI_COLOR_SPACE_TYPE)0xFFFF, &sup);
-    t_note("CheckColorSpaceSupport(0xFFFF) -> %s support 0x%x", d3dh_hr_name(hr), sup);
-    if (hr == S_OK) EXPECT_EQ(sup, 0);
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(sup, 0);   /* an out-of-range value is "supported by nothing", not an error */
     hr = IDXGISwapChain3_SetColorSpace1(s3, (DXGI_COLOR_SPACE_TYPE)0xFFFF);
-    CHECK(FAILED(hr));
-    t_note("SetColorSpace1(0xFFFF) -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetColorSpace1(0xFFFF)", hr, E_INVALIDARG);
     hr = IDXGISwapChain3_SetColorSpace1(s3, DXGI_COLOR_SPACE_CUSTOM);
-    t_note("SetColorSpace1(CUSTOM) -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetColorSpace1(CUSTOM)", hr, E_INVALIDARG);
     hr = IDXGISwapChain3_CheckColorSpaceSupport(s3, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, NULL);
-    CHECK(FAILED(hr));
-    t_note("CheckColorSpaceSupport(NULL out) -> %s", d3dh_hr_name(hr));
+    PIN_HR("CheckColorSpaceSupport(NULL out)", hr, E_INVALIDARG);
     /* sRGB full range must always be settable */
     EXPECT_HR(IDXGISwapChain3_SetColorSpace1(s3, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709), S_OK);
     SC_REL(s3);
@@ -417,12 +430,11 @@ TEST(dxgi_swapchain_colorspace_by_format)
         for (unsigned j = 0; j < 4; j++) {
             UINT sup = 0;
             HRESULT hr = IDXGISwapChain3_CheckColorSpaceSupport(s3, cs[j], &sup);
-            t_note("format %d colour space %d -> %s support 0x%x", fm[i], cs[j], d3dh_hr_name(hr), sup);
             EXPECT_HR(hr, S_OK);
+            /* Measured on Win10 22H2 (WARP, flip chain): 8-bit and 10-bit formats present sRGB, studio sRGB and HDR10; scRGB (linear) only on FP16. */
+            UINT want = (fm[i] == DXGI_FORMAT_R16G16B16A16_FLOAT) ? (cs[j] == DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) : (cs[j] != DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709);
+            CHECKF(sup == want, "format %d colour space %d: support 0x%x want 0x%x", fm[i], cs[j], sup, want);
         }
-        UINT sup = 0;
-        IDXGISwapChain3_CheckColorSpaceSupport(s3, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, &sup);
-        CHECKF(sup & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT, "format %d: sRGB colour space unsupported", fm[i]);
         SC_REL(s3);
     }
     sc_close(&s);
@@ -435,9 +447,9 @@ TEST(dxgi_swapchain_colorspace_bitblt)
     if (!s3) { sc_close(&s); return; }
     UINT sup = 0xDEADBEEF;
     HRESULT hr = IDXGISwapChain3_CheckColorSpaceSupport(s3, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, &sup);
-    t_note("bitblt CheckColorSpaceSupport(sRGB) -> %s support 0x%x", d3dh_hr_name(hr), sup);
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(sup, DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT);
     hr = IDXGISwapChain3_SetColorSpace1(s3, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
-    t_note("bitblt SetColorSpace1(sRGB) -> %s", d3dh_hr_name(hr));
+    PIN_HR("bitblt SetColorSpace1(sRGB)", hr, S_OK);
     SC_REL(s3);
     sc_close(&s);
 }
@@ -453,20 +465,17 @@ TEST(dxgi_swapchain_hdr_metadata)
     HRESULT hr = IDXGISwapChain4_SetHDRMetaData(s4, DXGI_HDR_METADATA_TYPE_NONE, 0, NULL);
     EXPECT_HR(hr, S_OK);
     hr = IDXGISwapChain4_SetHDRMetaData(s4, DXGI_HDR_METADATA_TYPE_NONE, 4, "abcd");
-    CHECK(FAILED(hr));
-    t_note("SetHDRMetaData(NONE, size 4) -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetHDRMetaData(NONE, size 4)", hr, E_INVALIDARG);
     hr = IDXGISwapChain4_SetHDRMetaData(s4, DXGI_HDR_METADATA_TYPE_HDR10, 0, NULL);
-    CHECK(FAILED(hr));
-    t_note("SetHDRMetaData(HDR10, size 0) -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetHDRMetaData(HDR10, size 0)", hr, E_INVALIDARG);
     DXGI_HDR_METADATA_HDR10 md; memset(&md, 0, sizeof md);
     md.MaxMasteringLuminance = 1000; md.MinMasteringLuminance = 1; md.MaxContentLightLevel = 1000; md.MaxFrameAverageLightLevel = 400;
     hr = IDXGISwapChain4_SetHDRMetaData(s4, DXGI_HDR_METADATA_TYPE_HDR10, sizeof md, &md);
-    t_note("SetHDRMetaData(HDR10) without an HDR colour space -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetHDRMetaData(HDR10) without an HDR colour space", hr, S_OK);
     hr = IDXGISwapChain4_SetHDRMetaData(s4, DXGI_HDR_METADATA_TYPE_HDR10, sizeof md - 1, &md);
     CHECK(FAILED(hr));
     hr = IDXGISwapChain4_SetHDRMetaData(s4, (DXGI_HDR_METADATA_TYPE)9, sizeof md, &md);
-    CHECK(FAILED(hr));
-    t_note("SetHDRMetaData(type 9) -> %s", d3dh_hr_name(hr));
+    PIN_HR("SetHDRMetaData(type 9)", hr, E_INVALIDARG);
     SC_REL(s4);
     sc_close(&s);
 }
