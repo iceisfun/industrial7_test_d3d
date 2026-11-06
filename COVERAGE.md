@@ -2,9 +2,11 @@
 
 ## Results on Windows 10 22H2 (build 19045, Basic Display Adapter + WARP, Graphics Tools installed)
 
-Every exe in `build/` runs to completion on the reference VM. Standard-user and elevated runs are identical (2 fresh VMs per mode in the final pass; no test changed outcome between runs, and
-dxgi_swapchain logs one extra check when a fullscreen switch reports the transient NOT_CURRENTLY_AVAILABLE). `dx_gap_*` (state-changing, opt-in) are not part of this table; they pass in a separate `run_all.bat /destructive` pass (`dx_gap_00` 24 tests,
-`dx_gap_01` 13, `dx_gap_02` 6, `dx_gap_03` 14). The two failing tests are documented WARP divergences (see `HANDOFF.md`).
+Every exe in `build/` runs to completion on the reference VM with 0 failed tests. Final verification on the final build: 3 fresh VMs as a standard user, 3 as elevated administrator
+and 2 with the destructive areas enabled (`run_all.bat /destructive`); every area reaches its SUMMARY line, no timeouts or crashes, and the per-test outcomes of all eight runs are
+identical (0 flaky tests). The only run-to-run difference is dxgi_swapchain logging one extra passed check when a fullscreen switch reports the transient NOT_CURRENTLY_AVAILABLE
+(checks passed 409693 vs 409694). `dx_gap_*` (state-changing, opt-in) are not part of this table; they pass in the destructive pass (`dx_gap_00` 24 tests, `dx_gap_01` 13,
+`dx_gap_02` 6, `dx_gap_03` 14: 12516 tests in total, 0 failed, 415 skipped). The two former WARP-divergence failures are now pinned on the Microsoft adapter (see `HANDOFF.md`).
 
 | area | tests | failed | skipped | checks passed | checks failed |
 |---|---:|---:|---:|---:|---:|
@@ -19,14 +21,14 @@ dxgi_swapchain logs one extra check when a fullscreen switch reports the transie
 | d3d11_device_create | 348 | 0 | 2 | 2405 | 0 |
 | d3d11_gapfill | 3 | 0 | 0 | 70 | 0 |
 | d3d11_interfaces_video | 172 | 0 | 72 | 1356 | 0 |
-| d3d11_render_exec | 158 | 1 | 0 | 7436 | 4 |
+| d3d11_render_exec | 158 | 0 | 0 | 7440 | 0 |
 | d3d11_shaders | 341 | 0 | 0 | 6068 | 0 |
 | d3d11_state_objects | 261 | 0 | 0 | 5608 | 0 |
 | d3d11_textures | 1312 | 0 | 0 | 8359 | 0 |
 | d3d11_views | 192 | 0 | 5 | 3052 | 0 |
 | d3d12_cmdlist_ext | 21 | 0 | 0 | 209 | 0 |
 | d3d12_entry_points | 211 | 0 | 0 | 1363 | 0 |
-| d3d12_objects | 274 | 1 | 0 | 4648 | 2 |
+| d3d12_objects | 274 | 0 | 0 | 4650 | 0 |
 | d3d12_rootsig_cpu | 452 | 0 | 0 | 6694 | 0 |
 | d3d9_core | 241 | 0 | 2 | 3325 | 0 |
 | d3d9_device_resources | 214 | 0 | 0 | 3667 | 0 |
@@ -52,7 +54,7 @@ dxgi_swapchain logs one extra check when a fullscreen switch reports the transie
 | gap_03 | 133 | 0 | 0 | 3915 | 0 |
 | gap_04 | 21 | 0 | 0 | 208 | 0 |
 | hlsl_semantics_exec | 458 | 0 | 0 | 160357 | 0 |
-| total | 12459 | 2 | 415 | 409688 | 6 |
+| total | 12459 | 0 | 415 | 409694 | 0 |
 
 
 Skips are measured and explained in `HANDOFF.md` ("Expected skips"); nothing skips because a device could not be created.
