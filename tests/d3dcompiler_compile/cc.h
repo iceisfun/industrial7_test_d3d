@@ -227,7 +227,7 @@ static inline int cc_has_error(const char *t, int code) { return cc_has_msg(t, "
 static inline int cc_has_warning(const char *t, int code) { return cc_has_msg(t, "warning", code); }
 
 /* Win10 d3dcompiler_47 prefixes every diagnostic with the source name run through GetFullPathName: a relative name
- * resolves against the current directory and '/' becomes '\\' (probed: "t.hlsl" -> "C:\\i7work\\t.hlsl"). */
+ * resolves against the current directory and '/' becomes '\\' (probed: "t.hlsl" -> "C:\\somedir\\t.hlsl" for a process running in C:\\somedir). */
 static inline void cc_fullname(const char *name, char *out, size_t cap)
 {
     DWORD n = GetFullPathNameA(name, (DWORD)cap, out, NULL);
