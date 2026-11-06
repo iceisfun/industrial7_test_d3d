@@ -215,7 +215,7 @@ TEST(gap3_open_adapter_in_two_modules) {
     if (t_is_wine() && !(pa && pb)) { t_skip("emulator"); return; }
     CHECK(pa && pb); CHECK(pa != pb);
 }
-/* identical-code folding visible in the export tables (verified against the reference decompilation) */
+/* identical-code folding visible in the export tables (verified on the reference Windows 10 build) */
 static void same_addr(const char *dll, const char *a, const char *b, const char *c) {
     HMODULE m = t_module(dll); if (!m) { t_skip("%s", dll); return; }
     FARPROC pa = GetProcAddress(m, a), pb = GetProcAddress(m, b), pc = GetProcAddress(m, c);
