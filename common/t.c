@@ -117,10 +117,12 @@ int main(int argc, char **argv) {
         return 0xC0DE0001;
     }
     if (argc > 1 && !strcmp(argv[1], "--list")) { for (int i = 0; i < g_nt; i++) printf("%s\n", g_t[i].n); return 0; }
+    int exact = 0;   /* a filter equal to one test name selects only that test (not its prefix-sharing siblings) */
+    if (filter) for (int i = 0; i < g_nt; i++) if (!strcmp(g_t[i].n, filter)) exact = 1;
     AddVectoredExceptionHandler(1, veh);
     if (!t_module(g_mods[0])) { printf("FATAL cannot load %s\n", g_mods[0]); return 2; }
     for (int i = 0; i < g_nt; i++) {
-        if (filter && !strstr(g_t[i].n, filter)) continue;
+        if (filter && (exact ? strcmp(g_t[i].n, filter) : !strstr(g_t[i].n, filter))) continue;
         g_cur = g_t[i].n; g_cur_fail = g_cur_skip = 0;
         printf("RUN  %s\n", g_cur);
         SetLastError(0);
