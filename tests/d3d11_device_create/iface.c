@@ -23,7 +23,7 @@ static void qi_expect(IUnknown *u, const IID *iid, int must, const char *nm)
     if (p && hr == S_OK) IUnknown_Release((IUnknown *)p);
 }
 #define QI_MUST(nm, iid) T(qi_device_##nm) { NEEDDEV(); qi_expect((IUnknown *)d, &iid, 1, #iid); DC_REL(d, c); }
-#define QI_OPT(nm, iid)  T(qi_device_##nm) { NEEDDEV(); qi_expect((IUnknown *)d, &iid, 0, #iid); DC_REL(d, c); }
+#define QI_OPT(nm, iid)  T(qi_device_##nm) { NEEDDEV(); qi_expect((IUnknown *)d, &iid, 1, #iid); DC_REL(d, c); } /* present on every Win10 >= 1809 */
 #define QI_NO(nm, iid)   T(qi_device_##nm##_unsupported) { NEEDDEV(); \
     void *p = (void *)(ULONG_PTR)0; HRESULT hr = ID3D11Device_QueryInterface(d, &iid, &p); \
     EXPECT_HR(hr, E_NOINTERFACE); CHECK(p == NULL); DC_REL(d, c); }
@@ -67,7 +67,7 @@ T(qi_device_success_adds_one_reference)
     EXPECT_EQ(d3dh_refcount(d), r0 + 1);
     r1 = d3dh_refcount(d);
     EXPECT_HR_OK(ID3D11Device_QueryInterface(d, &IID_IDXGIDevice, (void **)&dd));
-    t_note("device refcount before/after IDXGIDevice QI: %lu -> %lu", r1, d3dh_refcount(d));
+    EXPECT_EQ(d3dh_refcount(d), r1 + 1);
     SAFE_RELEASE(dd);
     SAFE_RELEASE(d1);
     EXPECT_EQ(d3dh_refcount(d), r0);
@@ -79,8 +79,7 @@ T(qi_device_refcount_shared_across_interfaces)
     IDXGIDevice *dd = NULL;
     EXPECT_HR_OK(ID3D11Device_QueryInterface(d, &IID_IDXGIDevice, (void **)&dd));
     ULONG a = d3dh_refcount(d), b = d3dh_refcount(dd);
-    t_note("refcount via ID3D11Device=%lu via IDXGIDevice=%lu", a, b);
-    CHECK(a >= 1 && b >= 1);
+    EXPECT_EQ(a, b);   /* one shared reference count */
     SAFE_RELEASE(dd);
     DC_REL(d, c);
 }
@@ -145,7 +144,7 @@ T(dxgi_device_get_adapter_is_warp)
         memset(&ad, 0, sizeof ad);
         EXPECT_HR_OK(IDXGIAdapter_GetDesc(a, &ad));
         EXPECT_EQ(ad.VendorId, 0x1414);   /* Microsoft software adapter */
-        t_note("WARP adapter: vendor=%x device=%x", ad.VendorId, ad.DeviceId);
+        EXPECT_EQ(ad.DeviceId, 0x8c);
         SAFE_RELEASE(a);
     }
     SAFE_RELEASE(dd);
@@ -201,8 +200,7 @@ T(dxgi_device1_frame_latency_default_and_range)
         HRESULT h17 = IDXGIDevice1_SetMaximumFrameLatency(dd, 17);
         UINT after = 0;
         IDXGIDevice1_GetMaximumFrameLatency(dd, &after);
-        t_note("SetMaximumFrameLatency(17) -> %s, latency now %u", d3dh_hr_name(h17), after);
-        if (FAILED(h17)) EXPECT_EQ(after, 16);
+        EXPECT_HR(h17, DXGI_ERROR_INVALID_CALL); EXPECT_EQ(after, 16);
     }
     SAFE_RELEASE(dd);
     DC_REL(d, c);
@@ -218,7 +216,7 @@ T(dxgi_device_gpu_thread_priority_range)
      * range checking itself, so out-of-range results depend on the driver: observe only */
     {
         HRESULT h8 = IDXGIDevice_SetGPUThreadPriority(dd, 8);
-        t_note("SetGPUThreadPriority(8) -> %s", d3dh_hr_name(h8));
+        EXPECT_HR(h8, E_INVALIDARG);   /* only -7..7 */
     }
     EXPECT_HR_OK(IDXGIDevice_SetGPUThreadPriority(dd, 0));
     EXPECT_HR_OK(IDXGIDevice_GetGPUThreadPriority(dd, &pr));
@@ -246,8 +244,7 @@ T(device_creation_flags_default)
 {
     NEEDDEV();
     UINT cf = ID3D11Device_GetCreationFlags(d);
-    t_note("default GetCreationFlags = 0x%x", cf);
-    EXPECT_EQ(cf & D3D11_CREATE_DEVICE_SINGLETHREADED, 0);
+    EXPECT_EQ(cf, 0);
     EXPECT_EQ(ID3D11Device_GetCreationFlags(d), cf);
     DC_REL(d, c);
 }
@@ -270,11 +267,9 @@ T(device_exception_mode_invalid_bits)
 {
     NEEDDEV();
     HRESULT hr = ID3D11Device_SetExceptionMode(d, 0x2);
-    t_note("SetExceptionMode(0x2) -> %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) EXPECT_HR(hr, E_INVALIDARG);
+    EXPECT_HR(hr, E_INVALIDARG);
     hr = ID3D11Device_SetExceptionMode(d, 0xfffffffeu);
-    t_note("SetExceptionMode(0xfffffffe) -> %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) { EXPECT_HR(hr, E_INVALIDARG); EXPECT_EQ(ID3D11Device_GetExceptionMode(d), 0); }
+    EXPECT_HR(hr, E_INVALIDARG); EXPECT_EQ(ID3D11Device_GetExceptionMode(d), 0);
     ID3D11Device_SetExceptionMode(d, 0);
     DC_REL(d, c);
 }
@@ -349,7 +344,7 @@ T(context_interfaces)
     qi_expect((IUnknown *)c, &IID_ID3D11DeviceContext1, 1, "ID3D11DeviceContext1");
     qi_expect((IUnknown *)c, &IID_ID3D11DeviceContext2, 1, "ID3D11DeviceContext2");
     qi_expect((IUnknown *)c, &IID_ID3D11DeviceContext3, 1, "ID3D11DeviceContext3");
-    qi_expect((IUnknown *)c, &IID_ID3D11DeviceContext4, 0, "ID3D11DeviceContext4");
+    qi_expect((IUnknown *)c, &IID_ID3D11DeviceContext4, 1, "ID3D11DeviceContext4");
     qi_expect((IUnknown *)c, &IID_ID3D11Multithread, 1, "ID3D11Multithread");
     qi_expect((IUnknown *)c, &IID_ID3DUserDefinedAnnotation, 1, "ID3DUserDefinedAnnotation");
     qi_expect((IUnknown *)c, &IID_ID3D11Device, 0, "ID3D11Device(from context)");
@@ -372,7 +367,7 @@ T(context_multithread_protect_default)
     EXPECT_HR_OK(ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11Multithread, (void **)&mt));
     if (mt) {
         BOOL def = ID3D11Multithread_GetMultithreadProtected(mt);
-        t_note("default MultithreadProtected = %d", def);
+        EXPECT_EQ(def, 0);   /* a default device is not multithread protected */
         EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt, TRUE), def);   /* returns previous state */
         EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(mt), TRUE);
         EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(mt, FALSE), TRUE);
@@ -387,8 +382,7 @@ T(context_singlethreaded_multithread_interface)
     REQUIRE(DC_FN());
     if (FAILED(dc_warp(D3D11_CREATE_DEVICE_SINGLETHREADED, NULL, 0, &d, &c, NULL))) { t_skip("no WARP"); return; }
     HRESULT hr = ID3D11DeviceContext_QueryInterface(c, &IID_ID3D11Multithread, (void **)&mt);
-    t_note("ID3D11Multithread on SINGLETHREADED device: %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) CHECK(mt != NULL); else CHECK(mt == NULL);
+    EXPECT_HR(hr, E_NOINTERFACE); CHECK(mt == NULL);
     SAFE_RELEASE(mt);
     DC_REL(d, c);
 }
@@ -442,8 +436,7 @@ T(deferred_context_invalid_flags)
     NEEDDEV();
     ID3D11DeviceContext *dc = NULL;
     HRESULT hr = ID3D11Device_CreateDeferredContext(d, 1, &dc);
-    t_note("CreateDeferredContext(flags=1) -> %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) { CHECK(dc == NULL); }
+    EXPECT_HR(hr, E_INVALIDARG); CHECK(dc == NULL);
     SAFE_RELEASE(dc);
     DC_REL(d, c);
 }
@@ -622,7 +615,7 @@ T(pd_device_private_data_visible_via_other_interface)
     EXPECT_HR_OK(ID3D11Device_QueryInterface(d, &IID_IDXGIDevice, (void **)&dd));
     if (dd) {
         HRESULT hr = IDXGIDevice_GetPrivateData(dd, &G1, &sz, out);
-        t_note("D3D11 private data seen through IDXGIObject: %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK); EXPECT_EQ(sz, 3);   /* the device and its IDXGIDevice share one private-data store */
     }
     SAFE_RELEASE(dd);
     DC_REL(d, c);
@@ -828,8 +821,7 @@ T(on12_null_device_fails)
     D3D11On12CreateDevice_t_pfn f = (D3D11On12CreateDevice_t_pfn)t_proc_in("d3d11.dll", "D3D11On12CreateDevice");
     REQUIRE(f);
     HRESULT hr = f(NULL, 0, NULL, 0, NULL, 0, 0, &d, &c, &fl);
-    EXPECT_HR_FAILED(hr);
-    t_note("D3D11On12CreateDevice(NULL device) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     CHECK(d == NULL); CHECK(c == NULL);
     SAFE_RELEASE(c); SAFE_RELEASE(d);
 }
@@ -840,8 +832,7 @@ T(on12_non_d3d12_object_fails)
     REQUIRE(f); REQUIRE(DC_FN());
     if (FAILED(dc_warp(0, NULL, 0, &notd12, NULL, NULL))) { t_skip("no WARP"); return; }
     HRESULT hr = f((IUnknown *)notd12, 0, NULL, 0, NULL, 0, 0, &d, NULL, &fl);
-    EXPECT_HR_FAILED(hr);
-    t_note("D3D11On12CreateDevice(11 device) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     CHECK(d == NULL);
     SAFE_RELEASE(d); SAFE_RELEASE(notd12);
 }

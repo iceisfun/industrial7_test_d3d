@@ -9,7 +9,7 @@ static void drv_probe(D3D_DRIVER_TYPE dt, const char *name)
     ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
     HRESULT hr = DC_FN()(NULL, dt, NULL, 0, NULL, 0, D3D11_SDK_VERSION, &d, &fl, &c);
     if (FAILED(hr)) {
-        t_note("%s not available: %s", name, d3dh_hr_name(hr));
+        t_check(hr == DXGI_ERROR_UNSUPPORTED || hr == S_OK, __FILE__, __LINE__, "driver type unavailable", "%s: %s", name, d3dh_hr_name(hr));
         CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
         t_skip("%s device cannot be created here", name);
         return;
@@ -114,7 +114,7 @@ T(driver_warp_twice_independent_devices)
     if (FAILED(hr)) { t_skip("WARP with " #f ": %s", d3dh_hr_name(hr)); return; } \
     CHECK(d && c); CHECK(dc_fl_known(fl)); \
     UINT cf = ID3D11Device_GetCreationFlags(d); \
-    t_note(#nm ": GetCreationFlags=0x%x", cf); \
+    EXPECT_EQ(cf, (f)); \
     DC_REL(d, c); }
 FLAG_OK(singlethreaded, D3D11_CREATE_DEVICE_SINGLETHREADED)
 FLAG_OK(prevent_internal_threading, D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS)
@@ -164,7 +164,7 @@ T(flag_debug_layer_present_or_missing)
     REQUIRE(DC_FN());
     HRESULT hr = dc_warp(D3D11_CREATE_DEVICE_DEBUG, NULL, 0, &d, &c, &fl);
     if (SUCCEEDED(hr)) {
-        t_note("debug layer installed");
+
         CHECK(d && c); CHECK(dc_fl_known(fl));
         CHECK(ID3D11Device_GetCreationFlags(d) & D3D11_CREATE_DEVICE_DEBUG);
         ID3D11Debug *dbg = NULL; ID3D11InfoQueue *iq = NULL;
@@ -172,7 +172,7 @@ T(flag_debug_layer_present_or_missing)
         EXPECT_HR_OK(ID3D11Device_QueryInterface(d, &IID_ID3D11InfoQueue, (void **)&iq));
         SAFE_RELEASE(dbg); SAFE_RELEASE(iq);
     } else {
-        t_note("debug device creation: %s", d3dh_hr_name(hr));
+
         EXPECT_HR(hr, DXGI_ERROR_SDK_COMPONENT_MISSING);
         CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
     }
@@ -221,8 +221,7 @@ T(flag_increased_priority)
     HRESULT hr = dc_warp(0x1000, NULL, 0, &d, NULL, &fl);
     if (FAILED(hr)) {
         /* without SeIncBasePriority the call is rejected as an invalid argument */
-        t_note("INCREASED_PRIORITY: %s", d3dh_hr_name(hr));
-        EXPECT_HR(hr, E_INVALIDARG);   /* decomp: missing SeIncBasePriority -> 0x80070057 */
+        EXPECT_HR(hr, E_INVALIDARG);   /* SeIncreaseBasePriorityPrivilege missing from the token -> 0x80070057 */
         CHECK(d == NULL); EXPECT_EQ(fl, 0);
     } else {
         t_note("INCREASED_PRIORITY accepted (privilege held)");
@@ -234,7 +233,7 @@ T(flag_switch_to_ref_reserved)
     ID3D11Device *d = NULL;
     REQUIRE(DC_FN());
     HRESULT hr = dc_warp(D3D11_CREATE_DEVICE_SWITCH_TO_REF, NULL, 0, &d, NULL, NULL);
-    t_note("SWITCH_TO_REF (reserved) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* the reserved flag is ignored on Win10 22H2 */
     SAFE_RELEASE(d);
 }
 T(flag_unknown_high_bits)
@@ -242,7 +241,7 @@ T(flag_unknown_high_bits)
     ID3D11Device *d = NULL;
     REQUIRE(DC_FN());
     HRESULT hr = dc_warp(0x00400000, NULL, 0, &d, NULL, NULL);
-    t_note("undefined flag bit 0x400000 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* undefined flag bits are ignored on Win10 22H2 */
     SAFE_RELEASE(d);
 }
 
@@ -412,7 +411,7 @@ T(swapchain_without_desc_creates_device_only)
     CHECK(d != NULL);
     SAFE_RELEASE(d);
     hr = sc_create(NULL, &sc, &d, NULL, NULL, 0);
-    t_note("NULL desc with non-NULL ppSwapChain -> %s (sc=%p)", d3dh_hr_name(hr), (void *)sc);
+    EXPECT_HR(hr, S_OK); CHECK(sc == NULL); CHECK(d != NULL);   /* no description: device only, swap chain output untouched */
     SAFE_RELEASE(sc); SAFE_RELEASE(d);
 }
 T(swapchain_device_pointer_null_swapchain_keeps_device_alive)
@@ -438,24 +437,50 @@ T(swapchain_null_window_fails_and_clears)
     REQUIRE(DC_SC_FN());
     DXGI_SWAP_CHAIN_DESC sd = sc_desc(NULL, 64, 64);
     HRESULT hr = sc_create(&sd, &sc, &d, &c, &fl, 0);
-    EXPECT_HR_FAILED(hr);
-    t_note("windowed swap chain with NULL OutputWindow -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);
     CHECK(sc == NULL); CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
     SAFE_RELEASE(sc); DC_REL(d, c);
 }
-T(swapchain_invalid_buffer_count_fails_and_clears)
+/* BufferCount outside 1..16 is not validated by D3D11CreateDeviceAndSwapChain on Win10 22H2 (dxgi raises an access
+ * violation for 0 and for any count above DXGI_MAX_SWAP_CHAIN_BUFFERS), so each count is tried in a child process.
+ * An implementation must not report success; failing cleanly or faulting like Windows are both accepted. */
+CHILD(sc_bufcount)
 {
-    HWND h; IDXGISwapChain *sc = NULL; ID3D11Device *d = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
-    REQUIRE(DC_SC_FN());
+    HWND h; IDXGISwapChain *sc = NULL; ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
+    if (argc < 2 || !DC_SC_FN()) return 3;
     h = d3dh_create_hidden_window();
     DXGI_SWAP_CHAIN_DESC sd = sc_desc(h, 64, 64);
-    sd.BufferCount = 1000;
-    HRESULT hr = sc_create(&sd, &sc, &d, NULL, &fl, 0);
-    EXPECT_HR_FAILED(hr);
-    t_note("BufferCount 1000 -> %s", d3dh_hr_name(hr));
-    CHECK(sc == NULL); CHECK(d == NULL); EXPECT_EQ(fl, 0);
-    SAFE_RELEASE(sc); SAFE_RELEASE(d);
-    d3dh_destroy_window(h);
+    sd.BufferCount = (UINT)strtoul(argv[1], NULL, 0);
+    HRESULT hr = sc_create(&sd, &sc, &d, &c, &fl, 0);
+    if (FAILED(hr)) return (sc == NULL && d == NULL && c == NULL && fl == 0) ? 0 : 4;
+    return 1;
+}
+static void sc_bufcount_case(const char *n)
+{
+    DWORD rc = t_run_child("sc_bufcount", n, 60000);
+    t_note("BufferCount %s child exit %#lx (Win10: 0xc0000005)", n, rc);
+    t_check(rc == 0 || rc == 0xC0000005, __FILE__, __LINE__, "invalid BufferCount fails or faults", "BufferCount %s: child exit %#lx", n, rc);
+}
+T(swapchain_invalid_buffer_count_fails_and_clears)
+{
+    REQUIRE(DC_SC_FN());
+    sc_bufcount_case("0"); sc_bufcount_case("17"); sc_bufcount_case("100"); sc_bufcount_case("1000"); sc_bufcount_case("0xffffffff");
+}
+T(swapchain_buffer_count_1_to_16)
+{
+    static const UINT counts[] = { 1, 2, 3, 16 };
+    REQUIRE(DC_SC_FN());
+    for (unsigned i = 0; i < sizeof counts / sizeof *counts; i++) {
+        HWND h; IDXGISwapChain *sc = NULL; ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = 0; DXGI_SWAP_CHAIN_DESC got;
+        h = d3dh_create_hidden_window();
+        DXGI_SWAP_CHAIN_DESC sd = sc_desc(h, 64, 64);
+        sd.BufferCount = counts[i];
+        HRESULT hr = sc_create(&sd, &sc, &d, &c, &fl, 0);
+        t_check(hr == S_OK && sc && d && c, __FILE__, __LINE__, "swap chain with BufferCount", "%u: %s", counts[i], d3dh_hr_name(hr));
+        if (sc) { memset(&got, 0, sizeof got); EXPECT_HR(IDXGISwapChain_GetDesc(sc, &got), S_OK); EXPECT_EQ(got.BufferCount, counts[i]); }
+        SAFE_RELEASE(sc); DC_REL(d, c);
+        d3dh_destroy_window(h);
+    }
 }
 T(swapchain_invalid_format_fails_and_clears)
 {

@@ -26,16 +26,22 @@ SINGLE(10_1, D3D_FEATURE_LEVEL_10_1)
 SINGLE(11_0, D3D_FEATURE_LEVEL_11_0)
 
 /* levels whose availability depends on the WARP/driver version: result must be consistent either way */
-#define SINGLE_OPT(nm, lvl) T(level_only_##nm) { \
+/* Win10 22H2 WARP: 11_1 is available; 12_0 and 12_1 are not (DXGI_ERROR_UNSUPPORTED, all outputs cleared). */
+#define SINGLE_AVAIL(nm, lvl) T(level_only_##nm) { \
     D3D_FEATURE_LEVEL l = lvl, fl = DC_FL_SENTINEL; ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; \
     REQUIRE(DC_FN()); \
     HRESULT hr = mk(&l, 1, &d, &c, &fl); \
-    if (SUCCEEDED(hr)) { EXPECT_EQ(fl, lvl); CHECK(d && c); if (d) EXPECT_EQ(ID3D11Device_GetFeatureLevel(d), lvl); } \
-    else { t_note(#nm " not available on WARP: %s", d3dh_hr_name(hr)); CHECK(!d && !c); EXPECT_EQ(fl, 0); } \
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(fl, lvl); CHECK(d && c); if (d) EXPECT_EQ(ID3D11Device_GetFeatureLevel(d), lvl); \
     DC_REL(d, c); }
-SINGLE_OPT(11_1, D3D_FEATURE_LEVEL_11_1)
-SINGLE_OPT(12_0, D3D_FEATURE_LEVEL_12_0)
-SINGLE_OPT(12_1, D3D_FEATURE_LEVEL_12_1)
+#define SINGLE_UNAVAIL(nm, lvl) T(level_only_##nm) { \
+    D3D_FEATURE_LEVEL l = lvl, fl = DC_FL_SENTINEL; ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; \
+    REQUIRE(DC_FN()); \
+    HRESULT hr = mk(&l, 1, &d, &c, &fl); \
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED); CHECK(!d && !c); EXPECT_EQ(fl, 0); \
+    DC_REL(d, c); }
+SINGLE_AVAIL(11_1, D3D_FEATURE_LEVEL_11_1)
+SINGLE_UNAVAIL(12_0, D3D_FEATURE_LEVEL_12_0)
+SINGLE_UNAVAIL(12_1, D3D_FEATURE_LEVEL_12_1)
 
 /* order: the first entry that can be satisfied wins, even if a higher one is available later */
 #define ORDER2(nm, a, b, want) T(order_##nm) { \
@@ -62,8 +68,7 @@ T(order_full_descending_list)
     REQUIRE(DC_FN());
     HRESULT hr = mk(l, 9, &d, NULL, &fl);
     if (FAILED(hr)) { t_skip("no WARP: %s", d3dh_hr_name(hr)); return; }
-    CHECK(fl >= D3D_FEATURE_LEVEL_11_0);       /* WARP implements at least 11_0 on Windows 10 */
-    t_note("full descending list on WARP -> %s", dc_fl_name(fl));
+    EXPECT_EQ(fl, D3D_FEATURE_LEVEL_11_1);     /* Win10 22H2 WARP tops out at 11_1; the 12_x entries are skipped */
     if (d) EXPECT_EQ(ID3D11Device_GetFeatureLevel(d), fl);
     SAFE_RELEASE(d);
 }
@@ -150,12 +155,8 @@ T(levels_unsupported_returns_failure_and_clears)
     D3D_FEATURE_LEVEL l = D3D_FEATURE_LEVEL_12_1, fl = DC_FL_SENTINEL; ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL;
     REQUIRE(DC_FN());
     HRESULT hr = mk(&l, 1, &d, &c, &fl);
-    if (FAILED(hr)) {
-        t_note("12_1 only on WARP -> %s", d3dh_hr_name(hr));
-        CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
-    } else {
-        EXPECT_EQ(fl, D3D_FEATURE_LEVEL_12_1);
-    }
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);
+    CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
     DC_REL(d, c);
 }
 T(levels_12_x_request_on_unsupported_not_invalid_arg)
@@ -165,8 +166,7 @@ T(levels_12_x_request_on_unsupported_not_invalid_arg)
     ID3D11Device *d = NULL;
     REQUIRE(DC_FN());
     HRESULT hr = mk(l, 1, &d, NULL, NULL);
-    t_note("12_0 only on WARP -> %s", d3dh_hr_name(hr));
-    CHECK(hr != E_INVALIDARG);
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);
     SAFE_RELEASE(d);
 }
 T(levels_11_1_request_not_invalid_arg)
@@ -176,7 +176,7 @@ T(levels_11_1_request_not_invalid_arg)
     REQUIRE(DC_FN());
     HRESULT hr = mk(l, 2, &d, NULL, &fl);
     if (FAILED(hr)) { t_skip("no WARP: %s", d3dh_hr_name(hr)); return; }
-    CHECK(fl == D3D_FEATURE_LEVEL_11_1 || fl == D3D_FEATURE_LEVEL_11_0);
+    EXPECT_EQ(fl, D3D_FEATURE_LEVEL_11_1);
     SAFE_RELEASE(d);
 }
 
@@ -193,11 +193,29 @@ static HRESULT tex2d_validate(ID3D11Device *d, UINT w, UINT h, UINT arr)
     REQUIRE(DC_FN()); \
     if (FAILED(mk(&l, 1, &d, NULL, &fl))) { t_skip("no WARP at " #nm); return; } \
     HRESULT ok = tex2d_validate(d, maxdim, 1, 1), bad = tex2d_validate(d, (maxdim) + 1, 1, 1); \
-    CHECK(SUCCEEDED(ok)); EXPECT_HR(bad, E_INVALIDARG); \
+    EXPECT_HR(ok, S_FALSE); \
+    /* WARP (d3d10warp) does not enforce the per-level 2D size limit: one past the documented maximum still validates. */ \
+    EXPECT_HR(bad, S_FALSE); \
     SAFE_RELEASE(d); }
+/* The 2D size limit enforced by WARP: 4096 on every 9_x level (documented 2048/2048/4096), 8388608 (2^23) from 10_0 up */
+#define WLIMIT(nm, lvl, maxdim) T(enforced_texture2d_##nm) { \
+    D3D_FEATURE_LEVEL l = lvl, fl = 0; ID3D11Device *d = NULL; \
+    REQUIRE(DC_FN()); \
+    if (FAILED(mk(&l, 1, &d, NULL, &fl))) { t_skip("no WARP at " #nm); return; } \
+    EXPECT_HR(tex2d_validate(d, maxdim, 1, 1), S_FALSE); \
+    EXPECT_HR(tex2d_validate(d, (maxdim) + 1, 1, 1), E_INVALIDARG); \
+    EXPECT_HR(tex2d_validate(d, 1, (maxdim) + 1, 1), E_INVALIDARG); \
+    SAFE_RELEASE(d); }
+WLIMIT(9_1, D3D_FEATURE_LEVEL_9_1, 4096)
+WLIMIT(9_2, D3D_FEATURE_LEVEL_9_2, 4096)
+WLIMIT(9_3, D3D_FEATURE_LEVEL_9_3, 4096)
+WLIMIT(10_0, D3D_FEATURE_LEVEL_10_0, 8388608)
+WLIMIT(10_1, D3D_FEATURE_LEVEL_10_1, 8388608)
+WLIMIT(11_0, D3D_FEATURE_LEVEL_11_0, 8388608)
+WLIMIT(11_1, D3D_FEATURE_LEVEL_11_1, 8388608)
+
 LIMIT(9_1, D3D_FEATURE_LEVEL_9_1, 2048)
 LIMIT(9_2, D3D_FEATURE_LEVEL_9_2, 2048)
-LIMIT(9_3, D3D_FEATURE_LEVEL_9_3, 4096)
 LIMIT(10_0, D3D_FEATURE_LEVEL_10_0, 8192)
 LIMIT(10_1, D3D_FEATURE_LEVEL_10_1, 8192)
 LIMIT(11_0, D3D_FEATURE_LEVEL_11_0, 16384)
@@ -207,7 +225,7 @@ T(limit_texture_array_size_10_0)
     D3D_FEATURE_LEVEL l = D3D_FEATURE_LEVEL_10_0, fl = 0; ID3D11Device *d = NULL;
     REQUIRE(DC_FN());
     if (FAILED(mk(&l, 1, &d, NULL, &fl))) { t_skip("no WARP"); return; }
-    CHECK(SUCCEEDED(tex2d_validate(d, 16, 16, 512)));
+    EXPECT_HR(tex2d_validate(d, 16, 16, 512), S_FALSE);
     EXPECT_HR(tex2d_validate(d, 16, 16, 513), E_INVALIDARG);
     SAFE_RELEASE(d);
 }
@@ -218,10 +236,34 @@ T(check_feature_support_bad_size)
     if (FAILED(mk(NULL, 0, &d, NULL, &fl))) { t_skip("no WARP"); return; }
     D3D11_FEATURE_DATA_THREADING th = { 0 };
     EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, &th, 1), E_INVALIDARG);
+    EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, &th, 0), E_INVALIDARG);
     EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, &th, sizeof th + 4), E_INVALIDARG);
-    CHECK(FAILED(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, NULL, sizeof th)));
+    EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, NULL, 0), E_INVALIDARG);
     EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, (D3D11_FEATURE)0x7777, &th, sizeof th), E_INVALIDARG);
+    {   D3D11_FEATURE_DATA_DOUBLES db; D3D11_FEATURE_DATA_FORMAT_SUPPORT fs = { DXGI_FORMAT_R8G8B8A8_UNORM };
+        EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_DOUBLES, &db, 1), E_INVALIDARG);
+        EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_DOUBLES, &db, sizeof db + 1), E_INVALIDARG);
+        EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_FORMAT_SUPPORT, &fs, 1), E_INVALIDARG);
+        EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs - 1), E_INVALIDARG);
+        EXPECT_HR(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs + 1), E_INVALIDARG);
+    }
     SAFE_RELEASE(d);
+}
+/* A NULL data pointer with a valid size is not validated by Win10 22H2 (access violation); child process, an implementation
+ * must not report success. */
+CHILD(cfs_null_data)
+{
+    D3D_FEATURE_LEVEL fl = 0; ID3D11Device *d = NULL; D3D11_FEATURE_DATA_THREADING th;
+    if (FAILED(mk(NULL, 0, &d, NULL, &fl))) return 3;
+    HRESULT hr = ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, NULL, sizeof th);
+    return SUCCEEDED(hr) ? 1 : 0;
+}
+T(check_feature_support_null_data)
+{
+    REQUIRE(DC_FN());
+    DWORD rc = t_run_child("cfs_null_data", NULL, 60000);
+    t_note("CheckFeatureSupport(NULL data, valid size) child exit %#lx (Win10: 0xc0000005)", rc);
+    t_check(rc == 0 || rc == 0xC0000005, __FILE__, __LINE__, "NULL data fails or faults", "child exit %#lx", rc);
 }
 T(check_feature_support_threading_warp_values)
 {
@@ -230,8 +272,8 @@ T(check_feature_support_threading_warp_values)
     if (FAILED(mk(NULL, 0, &d, NULL, &fl))) { t_skip("no WARP"); return; }
     D3D11_FEATURE_DATA_THREADING th = { 7, 7 };
     EXPECT_HR_OK(ID3D11Device_CheckFeatureSupport(d, D3D11_FEATURE_THREADING, &th, sizeof th));
-    CHECK(th.DriverConcurrentCreates == 0 || th.DriverConcurrentCreates == 1);
-    CHECK(th.DriverCommandLists == 0 || th.DriverCommandLists == 1);
+    EXPECT_EQ(th.DriverConcurrentCreates, 1);   /* Win10 22H2 WARP */
+    EXPECT_EQ(th.DriverCommandLists, 0);
     SAFE_RELEASE(d);
 }
 T(check_format_support_baseline)

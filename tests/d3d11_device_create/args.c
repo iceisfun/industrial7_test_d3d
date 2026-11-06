@@ -89,21 +89,44 @@ T(software_without_module_with_flags)
 T(software_with_non_driver_module)
 {
     NEED();
-    /* kernel32 is not a rasteriser: creation must fail (exact code is an implementation detail of the loader) */
-    dc_expect_fail_cleared(0, NULL, D3D_DRIVER_TYPE_SOFTWARE, GetModuleHandleA("kernel32.dll"), 0, NULL, 0,
+    /* kernel32 exports no rasteriser entry point: the loader's GetProcAddress failure is returned (Win10 22H2) */
+    dc_expect_fail_cleared(HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND), NULL, D3D_DRIVER_TYPE_SOFTWARE, GetModuleHandleA("kernel32.dll"), 0, NULL, 0,
                            D3D11_SDK_VERSION, "SOFTWARE, kernel32 as rasteriser");
+    dc_expect_fail_cleared(HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND), NULL, D3D_DRIVER_TYPE_SOFTWARE, t_module("dxgi.dll"), 0, NULL, 0,
+                           D3D11_SDK_VERSION, "SOFTWARE, dxgi as rasteriser");
 }
 T(software_with_exe_module)
 {
     NEED();
-    dc_expect_fail_cleared(0, NULL, D3D_DRIVER_TYPE_SOFTWARE, GetModuleHandleA(NULL), 0, NULL, 0, D3D11_SDK_VERSION,
+    dc_expect_fail_cleared(HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND), NULL, D3D_DRIVER_TYPE_SOFTWARE, GetModuleHandleA(NULL), 0, NULL, 0, D3D11_SDK_VERSION,
                            "SOFTWARE, the exe as rasteriser");
 }
-T(software_with_d3d11_module)
+/* Any module that exports the user-mode-driver entry point works as the "software rasteriser". Win10 22H2: d3d11.dll and
+ * d3d10warp.dll both give a feature-level 11_0 device, d3d10core.dll one limited to feature level 10_1. */
+static void sw_module_ok(const char *dll, D3D_FEATURE_LEVEL want_fl)
+{
+    ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
+    HMODULE m = t_module(dll);
+    if (!m) { t_skip("%s not loadable", dll); return; }
+    HRESULT hr = DC_FN()(NULL, D3D_DRIVER_TYPE_SOFTWARE, m, 0, NULL, 0, D3D11_SDK_VERSION, &d, &fl, &c);
+    t_check(hr == S_OK && d && c, __FILE__, __LINE__, "SOFTWARE with module", "%s: %s", dll, d3dh_hr_name(hr));
+    t_check(fl == want_fl, __FILE__, __LINE__, "SOFTWARE feature level", "%s: got %#x want %#x", dll, (unsigned)fl, (unsigned)want_fl);
+    SAFE_RELEASE(c); SAFE_RELEASE(d);
+}
+T(software_with_d3d11_module) { NEED(); sw_module_ok("d3d11.dll", D3D_FEATURE_LEVEL_11_0); }
+T(software_with_d3d10warp_module) { NEED(); sw_module_ok("d3d10warp.dll", D3D_FEATURE_LEVEL_11_0); }
+T(software_with_d3d10core_module) { NEED(); sw_module_ok("d3d10core.dll", D3D_FEATURE_LEVEL_10_1); }
+T(software_with_missing_module_handle_value)
 {
     NEED();
-    dc_expect_fail_cleared(0, NULL, D3D_DRIVER_TYPE_SOFTWARE, t_module("d3d11.dll"), 0, NULL, 0, D3D11_SDK_VERSION,
-                           "SOFTWARE, d3d11 as rasteriser");
+    /* a module handle that is not a loaded module: the GetProcAddress inside the runtime fails */
+    dc_expect_fail_cleared(0, NULL, D3D_DRIVER_TYPE_SOFTWARE, (HMODULE)(ULONG_PTR)0x10000, 0, NULL, 0, D3D11_SDK_VERSION, "SOFTWARE, bogus module handle");
+}
+T(hardware_and_warp_with_software_module_rejected)
+{
+    NEED();
+    dc_expect_fail_cleared(E_INVALIDARG, NULL, D3D_DRIVER_TYPE_HARDWARE, GetModuleHandleA(NULL), 0, NULL, 0, D3D11_SDK_VERSION, "HARDWARE + module");
+    dc_expect_fail_cleared(E_INVALIDARG, NULL, D3D_DRIVER_TYPE_WARP, GetModuleHandleA(NULL), 0, NULL, 0, D3D11_SDK_VERSION, "WARP + module");
 }
 
 #define SWMOD(nm, drv) T(software_module_with_##nm) { NEED(); \
@@ -231,8 +254,8 @@ T(levels_empty_array_nonnull)
     NEED();
     HRESULT hr = DC_FN()(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0, l, 0, D3D11_SDK_VERSION, &d, &fl, NULL);
     /* with no level to try no device can be produced */
-    t_note("non-NULL array with count 0 -> %s (fl=0x%x dev=%p)", d3dh_hr_name(hr), (unsigned)fl, (void *)d);
-    if (FAILED(hr)) { CHECK(d == NULL); EXPECT_EQ(fl, 0); }
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);
+    CHECK(d == NULL); EXPECT_EQ(fl, 0);
     SAFE_RELEASE(d);
 }
 
@@ -290,7 +313,7 @@ T(outputs_all_null_with_levels)
     NEED();
     HRESULT hr = DC_FN()(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0, l, 1, D3D11_SDK_VERSION, NULL, NULL, NULL);
     if (FAILED(hr)) { t_skip("no WARP: %s", d3dh_hr_name(hr)); return; }
-    t_note("all outputs NULL -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE);   /* validation-only call: success, nothing created */
 }
 T(outputs_all_null_invalid_args_still_fail)
 {

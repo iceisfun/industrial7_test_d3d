@@ -157,7 +157,7 @@ T(interop_device_from_dxgi_device)
     EXPECT_HR_OK(ID3D11Device_QueryInterface(d, &IID_IDXGIDevice, (void **)&dd));
     if (dd) {
         HRESULT hr = f(dd, &insp);
-        t_note("CreateDirect3D11DeviceFromDXGIDevice -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);
         if (SUCCEEDED(hr)) {
             CHECK(insp != NULL);
             if (insp) {
@@ -165,7 +165,7 @@ T(interop_device_from_dxgi_device)
                 /* IDXGIInterfaceAccess {A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1} */
                 static const GUID iid_access = { 0xA9B3D012, 0x3DF2, 0x4EE3, { 0xB8, 0xD1, 0x86, 0x95, 0xF4, 0x57, 0xD3, 0xC1 } };
                 HRESULT h2 = IUnknown_QueryInterface((IUnknown *)insp, &iid_access, &access);
-                t_note("QI IDXGIInterfaceAccess -> %s", d3dh_hr_name(h2));
+                EXPECT_HR(h2, S_OK);
                 if (SUCCEEDED(h2)) IUnknown_Release((IUnknown *)access);
                 IUnknown_Release((IUnknown *)insp);
             }
