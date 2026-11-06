@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     if (argc > 2 && !strcmp(argv[1], "--child")) {
+        AddVectoredExceptionHandler(1, veh);   /* lets child code use t_try() to observe access violations */
         for (int i = 0; i < g_nc; i++) if (!strcmp(g_c[i].n, argv[2])) return g_c[i].f(argc - 2, argv + 2);
         return 0xC0DE0001;
     }
