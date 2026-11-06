@@ -223,7 +223,7 @@ TEST(dxva2_monitor_video_cfg_gle_deterministic) {
     SET_ERR(0); f(NULL, 0x10, 0); DWORD a = GetLastError();
     SET_ERR(0); f(NULL, 0x10, 0); DWORD b = GetLastError();
     EXPECT_EQ(a, b);
-    t_note("SetVCPFeature(NULL) last error = 0x%lx (%lu)", a, a);
+    EXPECT_EQ(a, 0xc026258c);   /* STATUS_GRAPHICS_DDCCI_INVALID_... as reported through GetLastError */
 }
 TEST(dxva2_monitor_video_cfg_gle_overwritten_not_preserved) {
     BOOL (WINAPI *f)(HANDLE, BYTE, DWORD) = U(SetVCPFeature); REQUIRE(f);
@@ -324,7 +324,7 @@ TEST(dxva2_monitor_video_cfg_live_capabilities) {
     if (r) {
         t_note("monitor caps 0x%lx temps 0x%lx", caps, temps);
         if (!(caps & MC_CAPS_COLOR_TEMPERATURE)) EXPECT_EQ(temps, 0);
-    } else t_note("GetMonitorCapabilities failed GLE=%lu (monitor without DDC/CI)", GetLastError());
+    } else EXPECT_ERR(ERROR_NOT_SUPPORTED);   /* monitor without DDC/CI */
     release_phys(&pm);
 }
 TEST(dxva2_monitor_video_cfg_live_brightness_contrast_ranges) {
@@ -338,9 +338,9 @@ TEST(dxva2_monitor_video_cfg_live_brightness_contrast_ranges) {
         EXPECT_EQ(mn, 0);                  /* the minimum is always normalised to 0 */
         CHECK(cu <= mx);
         t_note("brightness %lu/%lu", cu, mx);
-    } else t_note("GetMonitorBrightness failed GLE=%lu", GetLastError());
+    } else EXPECT_ERR(ERROR_NOT_SUPPORTED);
     if (c(pm.hPhysicalMonitor, &mn, &cu, &mx)) { EXPECT_EQ(mn, 0); CHECK(cu <= mx); t_note("contrast %lu/%lu", cu, mx); }
-    else t_note("GetMonitorContrast failed GLE=%lu", GetLastError());
+    else EXPECT_ERR(ERROR_NOT_SUPPORTED);
     release_phys(&pm);
 }
 TEST(dxva2_monitor_video_cfg_live_technology_type) {
@@ -349,7 +349,7 @@ TEST(dxva2_monitor_video_cfg_live_technology_type) {
     if (!first_phys(&hm, &pm)) { t_skip("no single physical monitor on the primary display"); return; }
     MC_DISPLAY_TECHNOLOGY_TYPE t = (MC_DISPLAY_TECHNOLOGY_TYPE)-1;
     if (f(pm.hPhysicalMonitor, &t)) { CHECK((int)t >= 0 && (int)t <= 8); t_note("technology type %d", (int)t); }
-    else t_note("GetMonitorTechnologyType failed GLE=0x%lx", GetLastError());
+    else EXPECT_ERR(ERROR_NOT_SUPPORTED);
     release_phys(&pm);
 }
 TEST(dxva2_monitor_video_cfg_live_color_temperature) {
@@ -358,7 +358,7 @@ TEST(dxva2_monitor_video_cfg_live_color_temperature) {
     if (!first_phys(&hm, &pm)) { t_skip("no single physical monitor on the primary display"); return; }
     MC_COLOR_TEMPERATURE t = (MC_COLOR_TEMPERATURE)-1;
     if (f(pm.hPhysicalMonitor, &t)) { CHECK((int)t >= 0 && (int)t <= 8); t_note("color temperature %d", (int)t); }
-    else t_note("GetMonitorColorTemperature failed GLE=%lu", GetLastError());
+    else EXPECT_ERR(ERROR_NOT_SUPPORTED);
     release_phys(&pm);
 }
 TEST(dxva2_monitor_video_cfg_live_capstring_length_consistency) {

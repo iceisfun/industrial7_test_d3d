@@ -29,6 +29,26 @@ DXM_GUID(DXM_IID_Bogus,   0x7a1d0e55, 0x1234, 0x4abc, 0x9d,0x00,0x11,0x22,0x33,0
 #define DXM_E_VIDEO_DEVICE_LOCKED 0x80041002
 
 /* ---- D3D9 device fixture ---- */
+/* The shared d3dh helpers try NULLREF first; hal.c needs a device of an explicit class. */
+static inline void dxm_pp(D3DPRESENT_PARAMETERS *pp, HWND hw)
+{
+    memset(pp, 0, sizeof *pp);
+    pp->Windowed = TRUE; pp->SwapEffect = D3DSWAPEFFECT_DISCARD; pp->BackBufferFormat = D3DFMT_UNKNOWN;
+    pp->BackBufferWidth = 64; pp->BackBufferHeight = 64; pp->hDeviceWindow = hw;
+}
+static inline HRESULT dxm_make9(IDirect3D9 **d3d, IDirect3DDevice9 **dev, HWND *hw_out, D3DDEVTYPE type)
+{
+    __typeof__(&Direct3DCreate9) c = d3dh_Direct3DCreate9();
+    HWND hw = d3dh_create_hidden_window();
+    HRESULT hr;
+    *d3d = NULL; *dev = NULL; *hw_out = hw;
+    if (!c) return E_FAIL;
+    *d3d = c(D3D_SDK_VERSION);
+    if (!*d3d) return D3DERR_NOTAVAILABLE;
+    { D3DPRESENT_PARAMETERS pp; dxm_pp(&pp, hw);
+      hr = IDirect3D9_CreateDevice(*d3d, D3DADAPTER_DEFAULT, type, hw, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &pp, dev); }
+    return hr;
+}
 typedef struct { IDirect3D9 *d3d; IDirect3DDevice9 *dev; HWND hwnd; D3DDEVTYPE type; } DXMD9;
 static inline int dxm_d9_open(DXMD9 *d)
 {

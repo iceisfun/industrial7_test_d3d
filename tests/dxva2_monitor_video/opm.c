@@ -26,7 +26,8 @@ TEST(dxva2_monitor_video_opm_target_unknown_adapter) {
         HRESULT hr = f(&luid, 0, (OPM_VIDEO_OUTPUT_SEMANTICS)sem, &out);
         CHECKF(FAILED(hr), "semantics %d -> %s", sem, d3dh_hr_name(hr));
         CHECK(out == NULL);
-        t_note("unknown LUID, semantics %d -> %s", sem, d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);
+        EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     }
 }
 TEST(dxva2_monitor_video_opm_target_zero_luid_each_semantics) {
@@ -77,7 +78,7 @@ TEST(dxva2_monitor_video_opm_hmonitor_primary) {
                 }
             }
             CoTaskMemFree(arr);
-        } else t_note("semantics %d -> %s (no protected output)", sem, d3dh_hr_name(hr));
+        } else EXPECT_HR(hr, HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));   /* no protected output */
     }
 }
 TEST(dxva2_monitor_video_opm_hmonitor_primary_invalid_semantics) {
@@ -99,7 +100,7 @@ TEST(dxva2_monitor_video_opm_d3d9_object) {
         t_note("%lu OPM output(s) from D3D9 device", n);
         for (ULONG i = 0; i < n; i++) if (arr && arr[i]) IOPMVideoOutput_Release(arr[i]);
         if (arr) CoTaskMemFree(arr);
-    } else t_note("OPMGetVideoOutputsFromIDirect3DDevice9Object -> %s", d3dh_hr_name(hr));
+    } else EXPECT_HR(hr, HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
     DXM_D9_END(d);
 }
 TEST(dxva2_monitor_video_opm_d3d9_object_invalid_semantics) {
@@ -108,7 +109,8 @@ TEST(dxva2_monitor_video_opm_d3d9_object_invalid_semantics) {
     ULONG n = 0; IOPMVideoOutput **arr = NULL;
     HRESULT hr = f(d.dev, (OPM_VIDEO_OUTPUT_SEMANTICS)9, &n, &arr);
     CHECK(FAILED(hr));
-    t_note("invalid semantics on D3D9 device -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     DXM_D9_END(d);
 }
 TEST(dxva2_monitor_video_opm_d3d9_refcount_balanced) {

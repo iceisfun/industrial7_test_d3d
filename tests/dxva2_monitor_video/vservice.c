@@ -191,7 +191,7 @@ TEST(dxva2_monitor_video_svc_createsurface_zero_size) {
     IDirect3DSurface9 *surf = NULL;
     HRESULT hr = IDirectXVideoDecoderService_CreateSurface(s.dec, 0, 0, 0, DXM_NV12, D3DPOOL_DEFAULT, 0, DXVA2_VideoSoftwareRenderTarget, &surf, NULL);
     CHECK(FAILED(hr));
-    if (SUCCEEDED(hr)) REL(surf); else t_note("0x0 surface -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_INVALIDCALL); if (SUCCEEDED(hr)) REL(surf);
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_svc_createsurface_unknown_format) {
@@ -199,7 +199,7 @@ TEST(dxva2_monitor_video_svc_createsurface_unknown_format) {
     IDirect3DSurface9 *surf = NULL;
     HRESULT hr = IDirectXVideoDecoderService_CreateSurface(s.dec, 64, 64, 0, D3DFMT_UNKNOWN, D3DPOOL_DEFAULT, 0, DXVA2_VideoSoftwareRenderTarget, &surf, NULL);
     CHECK(FAILED(hr));
-    if (SUCCEEDED(hr)) REL(surf); else t_note("D3DFMT_UNKNOWN surface -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_INVALIDCALL); if (SUCCEEDED(hr)) REL(surf);
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_svc_createsurface_releases_device_refs) {
@@ -226,7 +226,7 @@ TEST(dxva2_monitor_video_dec_guids_count_only) {
     HRESULT hr = IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, NULL);
     EXPECT_HR(hr, S_OK);
     CHECK(n < 1024);
-    t_note("decoder device GUID count: %u", n);
+    EXPECT_EQ(n, 0);   /* Basic Render Driver: no hardware decoders */
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_dec_guids_array) {
@@ -271,7 +271,7 @@ TEST(dxva2_monitor_video_dec_rendertargets_unknown_guid) {
 TEST(dxva2_monitor_video_dec_rendertargets_for_each_guid) {
     DEC_OPEN(s);
     UINT n = 0; GUID *g = NULL;
-    if (FAILED(IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, &g)) || n == 0) { t_skip("no decoder devices on this machine"); svc_close(&s); return; }
+    if (FAILED(IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, &g)) || n == 0) { t_skip("no decoder devices: GetDecoderDeviceGuids -> E_FAIL, n=0 on the Basic Render Driver (see hal.c)"); svc_close(&s); return; }
     for (UINT i = 0; i < n && i < 32; i++) {
         UINT cnt = 0; D3DFORMAT *f = NULL;
         HRESULT hr = IDirectXVideoDecoderService_GetDecoderRenderTargets(s.dec, &g[i], &cnt, NULL);
@@ -302,7 +302,7 @@ TEST(dxva2_monitor_video_dec_configs_invalid_desc) {
 TEST(dxva2_monitor_video_dec_configs_for_each_guid) {
     DEC_OPEN(s);
     UINT n = 0; GUID *g = NULL;
-    if (FAILED(IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, &g)) || n == 0) { t_skip("no decoder devices"); svc_close(&s); return; }
+    if (FAILED(IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, &g)) || n == 0) { t_skip("no decoder devices: GetDecoderDeviceGuids -> E_FAIL, n=0 on the Basic Render Driver (see hal.c)"); svc_close(&s); return; }
     DXVA2_VideoDesc desc = dxm_desc(1280, 720, DXM_NV12);
     for (UINT i = 0; i < n && i < 16; i++) {
         UINT cnt = 0; DXVA2_ConfigPictureDecode *cfg = NULL;
@@ -341,7 +341,7 @@ TEST(dxva2_monitor_video_dec_create_decoder_invalid_desc) {
 TEST(dxva2_monitor_video_dec_create_decoder_full_flow) {
     DEC_OPEN(s);
     UINT n = 0; GUID *g = NULL;
-    if (FAILED(IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, &g)) || n == 0) { t_skip("no decoder devices"); svc_close(&s); return; }
+    if (FAILED(IDirectXVideoDecoderService_GetDecoderDeviceGuids(s.dec, &n, &g)) || n == 0) { t_skip("no decoder devices: GetDecoderDeviceGuids -> E_FAIL, n=0 on the Basic Render Driver (see hal.c)"); svc_close(&s); return; }
     DXVA2_VideoDesc desc = dxm_desc(640, 480, DXM_NV12);
     int done = 0;
     for (UINT i = 0; i < n && !done; i++) {
@@ -539,8 +539,7 @@ TEST(dxva2_monitor_video_proc_caps_unknown_guid) {
     DXVA2_VideoDesc desc = dxm_desc(64, 64, DXM_NV12);
     DXVA2_VideoProcessorCaps caps;
     HRESULT hr = IDirectXVideoProcessorService_GetVideoProcessorCaps(s.proc, &DXM_IID_Bogus, &desc, D3DFMT_X8R8G8B8, &caps);
-    CHECK(FAILED(hr));
-    t_note("unknown processor GUID caps -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_INVALIDCALL);   /* NULLREF device; the HAL device answers S_OK (see hal.c) */
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_proc_rendertargets_software_device) {
@@ -592,7 +591,8 @@ TEST(dxva2_monitor_video_proc_create_unknown_guid) {
     HRESULT hr = IDirectXVideoProcessorService_CreateVideoProcessor(s.proc, &DXM_IID_Bogus, &desc, D3DFMT_X8R8G8B8, 0, &p);
     CHECK(FAILED(hr));
     CHECK(p == NULL);
-    t_note("unknown processor GUID create -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D3DERR_INVALIDCALL);
+    EXPECT_HR(hr, D3DERR_INVALIDCALL);   /* Win10 22H2 */
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_proc_create_software_processor) {
@@ -629,7 +629,7 @@ TEST(dxva2_monitor_video_proc_processor_keeps_service_alive) {
     ULONG rc2 = UNK(s.proc)->lpVtbl->AddRef(UNK(s.proc));
     UNK(s.proc)->lpVtbl->Release(UNK(s.proc));
     CHECK(rc2 <= rc);
-    t_note("service refcount with processor alive %lu, after release %lu", rc, rc2);
+    EXPECT_EQ(rc, 3); EXPECT_EQ(rc2, 2);
     svc_close(&s);
 }
 TEST(dxva2_monitor_video_proc_procamp_via_processor_object) {
@@ -639,7 +639,8 @@ TEST(dxva2_monitor_video_proc_procamp_via_processor_object) {
     if (FAILED(IDirectXVideoProcessorService_CreateVideoProcessor(s.proc, &DXM_SwProc, &desc, D3DFMT_X8R8G8B8, 0, &p)) || !p) { t_skip("cannot create a software processor"); svc_close(&s); return; }
     DXVA2_ValueRange r;
     HRESULT hr = IDirectXVideoProcessor_GetProcAmpRange(p, 3, &r);
-    t_note("processor object GetProcAmpRange(3) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     for (UINT cap = 1; cap <= 8; cap <<= 1) {
         DXVA2_ValueRange a, b; memset(&a, 0, sizeof a); memset(&b, 1, sizeof b);
         HRESULT h1 = IDirectXVideoProcessor_GetProcAmpRange(p, cap, &a);

@@ -60,6 +60,23 @@ TEST(dxva2_monitor_video_mon_num_each_monitor) {
     EnumDisplayMonitors(NULL, NULL, enum_cb, (LPARAM)&c);
     t_note("%d HMONITOR(s), %d answered GetNumberOfPhysicalMonitorsFromHMONITOR", c.n, c.ok);
 }
+/* A monitor without DDC/CI (the oracle's virtual "Generic PnP Monitor") comes back as a physical-monitor entry with a NULL handle: the
+ * enumeration succeeds, nothing can be configured through it (low-level calls fail with ERROR_NOT_SUPPORTED) and DestroyPhysicalMonitors
+ * accepts it. A real DDC/CI monitor has a non-NULL handle. */
+static void phys_handle_rules(HANDLE h, const WCHAR *desc)
+{
+    if (h) return;
+    {
+        BOOL (WINAPI *caps)(HANDLE, LPDWORD, LPDWORD) = U(GetMonitorCapabilities);
+        DWORD c = 0xdead, col = 0xdead;
+        EXPECT_WSTR(desc, L"Generic PnP Monitor");
+        if (caps) {
+            SET_ERR(0);
+            CHECK(caps(NULL, &c, &col) == FALSE);
+            EXPECT_ERR(ERROR_NOT_SUPPORTED);
+        }
+    }
+}
 TEST(dxva2_monitor_video_mon_get_null_hmonitor) {
     BOOL (WINAPI *f)(HMONITOR, DWORD, LPPHYSICAL_MONITOR) = U(GetPhysicalMonitorsFromHMONITOR); REQUIRE(f);
     PHYSICAL_MONITOR pm[2]; memset(pm, 0xCC, sizeof pm);
@@ -94,7 +111,7 @@ TEST(dxva2_monitor_video_mon_get_roundtrip) {
     CHECKF(r, "GetPhysicalMonitorsFromHMONITOR failed GLE=%lu", GetLastError());
     if (!r) return;
     for (DWORD i = 0; i < n; i++) {
-        CHECK(pm[i].hPhysicalMonitor != NULL);
+        phys_handle_rules(pm[i].hPhysicalMonitor, pm[i].szPhysicalMonitorDescription);
         size_t len = wcsnlen(pm[i].szPhysicalMonitorDescription, PHYSICAL_MONITOR_DESCRIPTION_SIZE);
         CHECK(len < PHYSICAL_MONITOR_DESCRIPTION_SIZE);   /* NUL terminated within 128 WCHARs */
         t_note("physical monitor %lu: handle %p, \"%ls\"", i, pm[i].hPhysicalMonitor, pm[i].szPhysicalMonitorDescription);
@@ -228,7 +245,7 @@ TEST(dxva2_monitor_video_mon_d3d9_get_roundtrip) {
     hr = get(d.dev, n, pm);
     EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
-        for (DWORD i = 0; i < n; i++) { CHECK(pm[i].hPhysicalMonitor != NULL); CHECK(wcsnlen(pm[i].szPhysicalMonitorDescription, 128) < 128); }
+        for (DWORD i = 0; i < n; i++) { phys_handle_rules(pm[i].hPhysicalMonitor, pm[i].szPhysicalMonitorDescription); CHECK(wcsnlen(pm[i].szPhysicalMonitorDescription, 128) < 128); }
         CHECK(ds(n, pm) == TRUE);
     }
     DXM_D9_END(d);
@@ -244,6 +261,6 @@ TEST(dxva2_monitor_video_mon_d3d9_get_wrong_count) {
     HRESULT hr = get(d.dev, n + 1, pm);
     CHECK(FAILED(hr));
     if (SUCCEEDED(hr)) { BOOL (WINAPI *ds)(DWORD, LPPHYSICAL_MONITOR) = U(DestroyPhysicalMonitors); if (ds) ds(n + 1, pm); }
-    else t_note("count+1 -> %s", d3dh_hr_name(hr));
+    else EXPECT_HR(hr, E_FAIL);
     DXM_D9_END(d);
 }

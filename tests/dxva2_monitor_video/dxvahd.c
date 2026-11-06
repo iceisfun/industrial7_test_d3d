@@ -79,7 +79,7 @@ TEST(dxva2_monitor_video_hd_device_refcount_and_qi) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     DXM_EQ(IDXVAHD_Device_AddRef(dev), 2);
     DXM_EQ(IDXVAHD_Device_Release(dev), 1);
     void *p = (void *)(ULONG_PTR)1;
@@ -93,7 +93,7 @@ TEST(dxva2_monitor_video_hd_device_caps_consistency) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     DXVAHD_VPDEVCAPS caps; memset(&caps, 0, sizeof caps);
     EXPECT_HR(IDXVAHD_Device_GetVideoProcessorDeviceCaps(dev, &caps), S_OK);
     /* the creation code rejects a device with no processors, output formats or input formats */
@@ -110,7 +110,7 @@ TEST(dxva2_monitor_video_hd_formats_count_protocol) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     DXVAHD_VPDEVCAPS caps; IDXVAHD_Device_GetVideoProcessorDeviceCaps(dev, &caps);
     D3DFORMAT *f = (D3DFORMAT *)calloc(caps.OutputFormatCount + caps.InputFormatCount + 2, sizeof *f);
     if (f) {
@@ -131,7 +131,7 @@ TEST(dxva2_monitor_video_hd_vpcaps_count_protocol) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     DXVAHD_VPDEVCAPS caps; IDXVAHD_Device_GetVideoProcessorDeviceCaps(dev, &caps);
     DXVAHD_VPCAPS *vp = (DXVAHD_VPCAPS *)calloc(caps.VideoProcessorCount + 2, sizeof *vp);
     if (vp) {
@@ -156,7 +156,7 @@ TEST(dxva2_monitor_video_hd_filter_range_selectors) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     DXVAHD_VPDEVCAPS caps; IDXVAHD_Device_GetVideoProcessorDeviceCaps(dev, &caps);
     static const UINT invalid[] = { 7, 8, 100, 0xFFFFFFFF };
     for (size_t i = 0; i < sizeof invalid / sizeof *invalid; i++) {
@@ -181,7 +181,7 @@ TEST(dxva2_monitor_video_hd_custom_rates_zero_count) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     DXVAHD_VPDEVCAPS caps; IDXVAHD_Device_GetVideoProcessorDeviceCaps(dev, &caps);
     DXVAHD_VPCAPS *vp = (DXVAHD_VPCAPS *)calloc(caps.VideoProcessorCount + 1, sizeof *vp);
     if (vp && SUCCEEDED(IDXVAHD_Device_GetVideoProcessorCaps(dev, caps.VideoProcessorCount, vp)) && caps.VideoProcessorCount) {
@@ -202,7 +202,7 @@ TEST(dxva2_monitor_video_hd_create_unknown_processor) {
     DXM_D9X(d);
     DXVAHD_CONTENT_DESC desc = good_desc();
     IDXVAHD_Device *dev = NULL;
-    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device on this machine"); DXM_D9X_END(d); return; }
+    if (FAILED(c(d.dev, &desc, DXVAHD_DEVICE_USAGE_PLAYBACK_NORMAL, NULL, &dev)) || !dev) { t_skip("no DXVA-HD device: DXVAHD_CreateDevice -> E_NOINTERFACE on the Basic Render Driver (NULLREF and HAL), see hal.c"); DXM_D9X_END(d); return; }
     IDXVAHD_VideoProcessor *p = (IDXVAHD_VideoProcessor *)(ULONG_PTR)1;
     HRESULT hr = IDXVAHD_Device_CreateVideoProcessor(dev, &DXM_IID_Bogus, &p);
     CHECK(FAILED(hr));

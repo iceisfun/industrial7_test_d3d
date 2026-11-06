@@ -59,10 +59,22 @@ TEST(dxva2_monitor_video_export_ordinal_out_of_range) {
     HMODULE m = t_module("dxva2.dll"); if (!m) { t_skip("no dxva2.dll"); return; }
     SET_ERR(0);
     CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0) == NULL);
+    EXPECT_ERR(ERROR_INVALID_PARAMETER);   /* ordinal 0 */
+    SET_ERR(0);
     CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)39) == NULL);
-    EXPECT_ERR(ERROR_PROC_NOT_FOUND);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);     /* an ordinal past the export table is not "proc not found" */
+    SET_ERR(0);
+    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)40) == NULL);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);
+    SET_ERR(0);
+    CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)100) == NULL);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);
     SET_ERR(0);
     CHECK(GetProcAddress(m, (LPCSTR)(ULONG_PTR)0xFFFF) == NULL);
+    EXPECT_ERR(ERROR_INVALID_ORDINAL);
+    SET_ERR(0);
+    CHECK(GetProcAddress(m, "NoSuchDxva2Export") == NULL);
+    EXPECT_ERR(ERROR_PROC_NOT_FOUND);      /* by name it is */
 }
 TEST(dxva2_monitor_video_export_unknown_names) {
     HMODULE m = t_module("dxva2.dll"); if (!m) { t_skip("no dxva2.dll"); return; }
