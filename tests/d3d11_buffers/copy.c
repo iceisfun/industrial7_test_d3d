@@ -33,6 +33,9 @@ static D3D11_BOX box(UINT l, UINT r)
     return b;
 }
 
+/* Behaviours the runtime leaves to the driver are pinned only on the oracle adapter (Basic Render Driver); elsewhere they are logged. */
+#define BRD_CHECK(c) do { if (bufh_is_brd(g_dev)) CHECK(c); else t_note("non-BRD adapter: %s", #c); } while (0)
+
 /* ================= UpdateSubresource ================= */
 static void upd_full(UINT bw, UINT bind, UINT misc, UINT stride, UINT rp, UINT dp)
 {
@@ -193,7 +196,8 @@ TEST(d3d11_buffers_update_dynamic_note)
     if (!b) { CHECK(b != NULL); return; }
     memset(a, 0xff, 64);
     ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 0, NULL, a, 0, 0);
-    t_note("UpdateSubresource on DYNAMIC buffer %s the data", bufh_matches(b, a, 64) ? "applied" : "ignored");
+    /* BRD: UpdateSubresource on a DYNAMIC buffer is silently ignored */
+    BRD_CHECK(bufh_matches_pattern(b, 0x32));
     SAFE_RELEASE(b);
 }
 
@@ -205,7 +209,7 @@ TEST(d3d11_buffers_update_staging_note)
     if (!b) { CHECK(b != NULL); return; }
     memset(a, 0xff, 64);
     ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 0, NULL, a, 0, 0);
-    t_note("UpdateSubresource on STAGING buffer %s the data", bufh_matches(b, a, 64) ? "applied" : "ignored");
+    BRD_CHECK(bufh_matches_pattern(b, 0x33));   /* ignored */
     SAFE_RELEASE(b);
 }
 
@@ -221,21 +225,31 @@ TEST(d3d11_buffers_update_cb_box_note)
     bufh_pattern(want, 64, 0x34);
     ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 0, &bx, a, 0, 0);
     memcpy(want + 16, a, 16);
-    t_note("UpdateSubresource box on constant buffer %s", bufh_matches(b, want, 64) ? "applied at the box offset" : "did not behave like a plain box update");
+    /* BRD: a box update of a DEFAULT constant buffer is dropped completely (buffer unchanged); only UpdateSubresource1 does partial CB updates */
+    BRD_CHECK(bufh_matches_pattern(b, 0x34));
     SAFE_RELEASE(b);
 }
 
 TEST(d3d11_buffers_update_box_out_of_range_note)
 {
-    ID3D11Buffer *b = mk(64, DEF, VB, 0, 0, 0, 1, 0x35);
+    /* BRD: a box that runs past the end of the buffer removes the device, so use a private one */
+    ID3D11Device *dev, *sdev = g_dev;
+    ID3D11DeviceContext *ctx, *sctx = g_ctx;
+    ID3D11Buffer *b;
     unsigned char a[64];
     D3D11_BOX bx = box(48, 80);
     NEED_DEV();
-    if (!b) { CHECK(b != NULL); return; }
+    if (FAILED(bufh_priv_device(0, &dev, &ctx))) { t_skip("no private device"); return; }
+    g_dev = dev; g_ctx = ctx;
+    b = mk(64, DEF, VB, 0, 0, 0, 1, 0x35);
     memset(a, 0xcd, 64);
-    ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 0, &bx, a, 0, 0);
-    t_note("out-of-range box update: buffer %s", bufh_matches_pattern(b, 0x35) ? "unchanged" : "modified");
+    ID3D11DeviceContext_UpdateSubresource(ctx, RES(b), 0, &bx, a, 0, 0);
+    ID3D11DeviceContext_Flush(ctx);
+    if (bufh_is_brd(dev)) EXPECT_HR(ID3D11Device_GetDeviceRemovedReason(dev), DXGI_ERROR_DEVICE_REMOVED);
+    else t_note("non-BRD: removed reason %s", bufh_hrn(ID3D11Device_GetDeviceRemovedReason(dev)));
     SAFE_RELEASE(b);
+    ID3D11DeviceContext_ClearState(ctx); ID3D11DeviceContext_Release(ctx); ID3D11Device_Release(dev);
+    g_dev = sdev; g_ctx = sctx;
 }
 
 TEST(d3d11_buffers_update_box_empty_note)
@@ -247,7 +261,7 @@ TEST(d3d11_buffers_update_box_empty_note)
     if (!b) { CHECK(b != NULL); return; }
     memset(a, 0xcd, 64);
     ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 0, &bx, a, 0, 0);
-    t_note("empty box update: buffer %s", bufh_matches_pattern(b, 0x36) ? "unchanged" : "modified");
+    BRD_CHECK(bufh_matches_pattern(b, 0x36));   /* unchanged */
     SAFE_RELEASE(b);
 }
 
@@ -260,7 +274,8 @@ TEST(d3d11_buffers_update_box_inverted_note)
     if (!b) { CHECK(b != NULL); return; }
     memset(a, 0xcd, 64);
     ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 0, &bx, a, 0, 0);
-    t_note("inverted box update: buffer %s", bufh_matches_pattern(b, 0x37) ? "unchanged" : "modified");
+    BRD_CHECK(bufh_matches_pattern(b, 0x37));   /* unchanged, device not removed */
+    EXPECT_HR(ID3D11Device_GetDeviceRemovedReason(g_dev), S_OK);
     SAFE_RELEASE(b);
 }
 
@@ -272,7 +287,7 @@ TEST(d3d11_buffers_update_subresource_index_note)
     if (!b) { CHECK(b != NULL); return; }
     memset(a, 0xcd, 64);
     ID3D11DeviceContext_UpdateSubresource(g_ctx, RES(b), 1, NULL, a, 0, 0);
-    t_note("update of buffer subresource 1: buffer %s", bufh_matches_pattern(b, 0x38) ? "unchanged" : "modified");
+    BRD_CHECK(bufh_matches_pattern(b, 0x38));   /* unchanged */
     SAFE_RELEASE(b);
 }
 
@@ -424,7 +439,7 @@ TEST(d3d11_buffers_copyres_size_mismatch_note)
     NEED_DEV();
     if (s && d) {
         ID3D11DeviceContext_CopyResource(g_ctx, RES(d), RES(s));
-        t_note("CopyResource with different ByteWidth: destination %s", bufh_matches_pattern(d, 0xc1) ? "unchanged" : "modified");
+        BRD_CHECK(bufh_matches_pattern(d, 0xc1));   /* mismatched sizes: copy dropped, destination unchanged */
     } else CHECK(0);
     SAFE_RELEASE(s); SAFE_RELEASE(d);
 }
@@ -435,7 +450,7 @@ TEST(d3d11_buffers_copyres_size_mismatch_smaller_dst_note)
     NEED_DEV();
     if (s && d) {
         ID3D11DeviceContext_CopyResource(g_ctx, RES(d), RES(s));
-        t_note("CopyResource into smaller buffer: destination %s", bufh_matches_pattern(d, 0xc3) ? "unchanged" : "modified");
+        BRD_CHECK(bufh_matches_pattern(d, 0xc3));   /* dropped */
     } else CHECK(0);
     SAFE_RELEASE(s); SAFE_RELEASE(d);
 }
@@ -457,7 +472,7 @@ TEST(d3d11_buffers_copyres_to_dynamic_note)
     NEED_DEV();
     if (s && d) {
         ID3D11DeviceContext_CopyResource(g_ctx, RES(d), RES(s));
-        t_note("CopyResource into DYNAMIC buffer: destination %s", bufh_matches_pattern(d, 0xc6) ? "updated" : "not updated");
+        BRD_CHECK(bufh_matches_pattern(d, 0xc6));   /* the copy is applied */
     } else CHECK(0);
     SAFE_RELEASE(s); SAFE_RELEASE(d);
 }
@@ -570,7 +585,7 @@ TEST(d3d11_buffers_copyregion_same_buffer_overlap_note)
     memmove(exp + 16, orig, 32);
     ID3D11DeviceContext_CopySubresourceRegion(g_ctx, RES(b), 0, 16, 0, 0, RES(b), 0, &bx);
     got = bufh_read(b, &sz);
-    t_note("overlapping same-buffer copy: %s", got && !memcmp(got, exp, 64) ? "memmove semantics" : (got && !memcmp(got, orig, 64) ? "no-op" : "other result"));
+    BRD_CHECK(got && !memcmp(got, exp, 64));   /* memmove semantics (documented as undefined) */
     free(got);
     SAFE_RELEASE(b);
 }
@@ -609,28 +624,61 @@ TEST(d3d11_buffers_copyregion_sequence_tiles)
     SAFE_RELEASE(s); SAFE_RELEASE(d);
 }
 
-static void csr_bad(const char *what, UINT dx, UINT dy, UINT dz, UINT dsub, UINT ssub, const D3D11_BOX *bx)
+/* Invalid CopySubresourceRegion arguments on a buffer. The retail runtime does not validate them; what happens is up to the driver.
+ * On the oracle (Basic Render Driver / WARP) an out-of-range or malformed box removes the device (DXGI_ERROR_DEVICE_REMOVED) while an
+ * empty box or a nonzero subresource index is ignored. Each case therefore runs on its own private device so it cannot poison the others. */
+enum { CSR_IGNORED, CSR_REMOVED };
+static void csr_bad(const char *what, UINT dx, UINT dy, UINT dz, UINT dsub, UINT ssub, const D3D11_BOX *bx, int brd_expect)
 {
-    ID3D11Buffer *s = mk(64, DEF, VB, 0, 0, 0, 1, 0x01), *d = mk(64, DEF, VB, 0, 0, 0, 1, 0x02);
+    ID3D11Device *dev, *sdev = g_dev;
+    ID3D11DeviceContext *ctx, *sctx = g_ctx;
+    ID3D11Buffer *s = NULL, *d = NULL;
+    D3D11_BUFFER_DESC bd = bufh_desc(64, DEF, VB, 0, 0, 0);
+    HRESULT rr;
+    int brd, pass;
     NEED_DEV();
-    if (s && d) {
-        ID3D11DeviceContext_CopySubresourceRegion(g_ctx, RES(d), dsub, dx, dy, dz, RES(s), ssub, bx);
-        t_note("%s: destination %s", what, bufh_matches_pattern(d, 0x02) ? "unchanged" : "modified");
-        CHECK(bufh_matches_pattern(s, 0x01));
-    } else CHECK(0);
-    SAFE_RELEASE(s); SAFE_RELEASE(d);
+    for (pass = 0; pass < 3; pass++) {
+        if (FAILED(bufh_priv_device(0, &dev, &ctx))) { t_skip("cannot create a private device"); return; }
+        g_dev = dev; g_ctx = ctx;
+        brd = bufh_is_brd(dev);
+        CHECK(SUCCEEDED(bufh_create(&bd, 1, 0x01, &s)) && SUCCEEDED(bufh_create(&bd, 1, 0x02, &d)));
+        ID3D11DeviceContext_CopySubresourceRegion(ctx, RES(d), dsub, dx, dy, dz, RES(s), ssub, bx);
+        ID3D11DeviceContext_Flush(ctx);
+        rr = ID3D11Device_GetDeviceRemovedReason(dev);
+        if (brd) {
+            if (brd_expect == CSR_REMOVED) {
+                EXPECT_HR(rr, DXGI_ERROR_DEVICE_REMOVED);
+                {   /* a removed device refuses every further creation with the same code */
+                    ID3D11Buffer *e = NULL;
+                    EXPECT_HR(ID3D11Device_CreateBuffer(dev, &bd, NULL, &e), DXGI_ERROR_DEVICE_REMOVED);
+                    SAFE_RELEASE(e);
+                }
+            } else {
+                EXPECT_HR(rr, S_OK);
+                CHECK(bufh_matches_pattern(d, 0x02));
+                CHECK(bufh_matches_pattern(s, 0x01));
+            }
+        } else {
+            t_note("%s: non-BRD adapter, removed reason %s (driver-defined)", what, bufh_hrn(rr));
+        }
+        SAFE_RELEASE(s); SAFE_RELEASE(d);
+        ID3D11DeviceContext_ClearState(ctx);
+        ID3D11DeviceContext_Release(ctx);
+        ID3D11Device_Release(dev);
+        g_dev = sdev; g_ctx = sctx;
+    }
 }
-TEST(d3d11_buffers_copyregion_src_box_exceeds_note) { D3D11_BOX b = box(32, 96); csr_bad("source box beyond buffer", 0, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_dst_overflow_note) { D3D11_BOX b = box(0, 32); csr_bad("destination range beyond buffer", 48, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_dstx_beyond_note) { D3D11_BOX b = box(0, 4); csr_bad("DstX beyond buffer", 64, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_dsty_nonzero_note) { D3D11_BOX b = box(0, 16); csr_bad("DstY=1", 0, 1, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_dstz_nonzero_note) { D3D11_BOX b = box(0, 16); csr_bad("DstZ=1", 0, 0, 1, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_empty_box_note) { D3D11_BOX b = box(16, 16); csr_bad("empty box", 0, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_inverted_box_note) { D3D11_BOX b = box(32, 16); csr_bad("inverted box", 0, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_bottom2_note) { D3D11_BOX b = box(0, 16); b.bottom = 2; csr_bad("box.bottom=2", 0, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_back2_note) { D3D11_BOX b = box(0, 16); b.back = 2; csr_bad("box.back=2", 0, 0, 0, 0, 0, &b); }
-TEST(d3d11_buffers_copyregion_dst_subres1_note) { D3D11_BOX b = box(0, 16); csr_bad("dst subresource 1", 0, 0, 0, 1, 0, &b); }
-TEST(d3d11_buffers_copyregion_src_subres1_note) { D3D11_BOX b = box(0, 16); csr_bad("src subresource 1", 0, 0, 0, 0, 1, &b); }
+TEST(d3d11_buffers_copyregion_src_box_exceeds_note) { D3D11_BOX b = box(32, 96); csr_bad("source box beyond buffer", 0, 0, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_dst_overflow_note) { D3D11_BOX b = box(0, 32); csr_bad("destination range beyond buffer", 48, 0, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_dstx_beyond_note) { D3D11_BOX b = box(0, 4); csr_bad("DstX beyond buffer", 64, 0, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_dsty_nonzero_note) { D3D11_BOX b = box(0, 16); csr_bad("DstY=1", 0, 1, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_dstz_nonzero_note) { D3D11_BOX b = box(0, 16); csr_bad("DstZ=1", 0, 0, 1, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_empty_box_note) { D3D11_BOX b = box(16, 16); csr_bad("empty box", 0, 0, 0, 0, 0, &b, CSR_IGNORED); }
+TEST(d3d11_buffers_copyregion_inverted_box_note) { D3D11_BOX b = box(32, 16); csr_bad("inverted box", 0, 0, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_bottom2_note) { D3D11_BOX b = box(0, 16); b.bottom = 2; csr_bad("box.bottom=2", 0, 0, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_back2_note) { D3D11_BOX b = box(0, 16); b.back = 2; csr_bad("box.back=2", 0, 0, 0, 0, 0, &b, CSR_REMOVED); }
+TEST(d3d11_buffers_copyregion_dst_subres1_note) { D3D11_BOX b = box(0, 16); csr_bad("dst subresource 1", 0, 0, 0, 1, 0, &b, CSR_IGNORED); }
+TEST(d3d11_buffers_copyregion_src_subres1_note) { D3D11_BOX b = box(0, 16); csr_bad("src subresource 1", 0, 0, 0, 0, 1, &b, CSR_IGNORED); }
 
 TEST(d3d11_buffers_copyregion_dest_immutable_unchanged)
 {
@@ -710,7 +758,8 @@ TEST(d3d11_buffers_clear_uav_raw_uint)
             UINT i, same = 0;
             CHECK(*(UINT *)got == 0xdeadbeef);
             for (i = 0; i < 16; i++) same += ((UINT *)got)[i] == ((UINT *)got)[0];
-            t_note("raw buffer clear: %u of 16 dwords equal dword 0 (dword1=%08x)", same, ((UINT *)got)[1]);
+            /* Win10: the raw clear replicates Values[0] over the whole buffer */
+            EXPECT_EQ(same, 16);
             free(got);
         }
     }
@@ -842,7 +891,11 @@ TEST(d3d11_buffers_clear_uav_structured_note)
     if (v) {
         ID3D11DeviceContext_ClearUnorderedAccessViewUint(g_ctx, v, vals);
         got = (UINT *)bufh_read(b, &sz);
-        if (got) { t_note("structured clear: dwords %08x %08x %08x %08x", got[0], got[1], got[2], got[3]); free(got); }
+        if (got) {   /* Win10: structured clear replicates Values[0] into every dword of the buffer */
+            UINT i;
+            for (i = 0; i < 12; i++) EXPECT_EQ(got[i], 0x01010101);
+            free(got);
+        }
     }
     SAFE_RELEASE(v); SAFE_RELEASE(b);
 }

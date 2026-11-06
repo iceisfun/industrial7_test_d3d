@@ -31,6 +31,8 @@ TEST(d3d11_buffers_extra_validate_matches_create_matrix)
         SAFE_RELEASE(buf);
     }
     t_note("matrix: %u created, %u rejected", ok, rejected);
+    EXPECT_EQ(ok, 35);          /* Win10 22H2 (D3D11 runtime, MapOnDefaultBuffers adapter) */
+    EXPECT_EQ(rejected, 157);
     EXPECT_EQ(bad, 0);
     CHECK(ok > 0);
     CHECK(rejected > 0);

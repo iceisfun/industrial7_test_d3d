@@ -103,3 +103,23 @@ int bufh_matches_pattern(ID3D11Buffer *b, unsigned seed)
 }
 
 const char *bufh_hrn(HRESULT hr) { return d3dh_hr_name(hr); }
+
+HRESULT bufh_priv_device(UINT flags, ID3D11Device **dev, ID3D11DeviceContext **ctx)
+{
+    D3D_FEATURE_LEVEL fl;
+    *dev = NULL; *ctx = NULL;
+    return d3dh_make_device11(dev, ctx, &fl, NULL, flags);
+}
+
+int bufh_is_brd(ID3D11Device *dev)
+{
+    IDXGIDevice *dd = NULL;
+    IDXGIAdapter *ad = NULL;
+    DXGI_ADAPTER_DESC desc;
+    int r = 0;
+    if (FAILED(ID3D11Device_QueryInterface(dev, &IID_IDXGIDevice, (void **)&dd))) return 0;
+    if (SUCCEEDED(IDXGIDevice_GetAdapter(dd, &ad)) && SUCCEEDED(IDXGIAdapter_GetDesc(ad, &desc))) r = desc.VendorId == 0x1414;
+    if (ad) IDXGIAdapter_Release(ad);
+    IDXGIDevice_Release(dd);
+    return r;
+}

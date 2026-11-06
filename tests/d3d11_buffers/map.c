@@ -17,7 +17,15 @@
 #define MD D3D11_MAP_WRITE_DISCARD
 #define MN D3D11_MAP_WRITE_NO_OVERWRITE
 
-enum { M_OK, M_BAD, M_NOTE };
+enum { M_OK, M_BAD, M_NOTE, M_CAP_NOOVERWRITE_CB, M_CAP_NOOVERWRITE_SRV };
+
+static int opt_bool(int which)
+{
+    D3D11_FEATURE_DATA_D3D11_OPTIONS o;
+    memset(&o, 0, sizeof o);
+    if (FAILED(ID3D11Device_CheckFeatureSupport(g_dev, D3D11_FEATURE_D3D11_OPTIONS, &o, sizeof o))) return 0;
+    return which == M_CAP_NOOVERWRITE_CB ? o.MapNoOverwriteOnDynamicConstantBuffer : o.MapNoOverwriteOnDynamicBufferSRV;
+}
 
 static void map_case(D3D11_USAGE usage, UINT bind, UINT cpu, UINT bw, D3D11_MAP type, UINT flags, int want)
 {
@@ -30,12 +38,14 @@ static void map_case(D3D11_USAGE usage, UINT bind, UINT cpu, UINT bw, D3D11_MAP 
     if (!b) return;
     memset(&m, 0xcc, sizeof m);
     hr = ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 0, type, flags, &m);
+    /* MAP_WRITE_NO_OVERWRITE on dynamic constant / shader-resource buffers is gated by D3D11_FEATURE_DATA_D3D11_OPTIONS */
+    if (want == M_CAP_NOOVERWRITE_CB || want == M_CAP_NOOVERWRITE_SRV) want = opt_bool(want) ? M_OK : M_BAD;
     if (want == M_OK) {
         EXPECT_HR(hr, S_OK);
         if (SUCCEEDED(hr)) {
             CHECK(m.pData != NULL);
             CHECK(((ULONG_PTR)m.pData & 3) == 0);
-            if (((ULONG_PTR)m.pData & 15) != 0) t_note("mapped pointer %p not 16-byte aligned", m.pData);
+            CHECKF(((ULONG_PTR)m.pData & 15) == 0, "mapped pointer %p not 16-byte aligned", m.pData);
             ID3D11DeviceContext_Unmap(g_ctx, (ID3D11Resource *)b, 0);
         }
     } else if (want == M_BAD) {
@@ -71,16 +81,16 @@ MC(dyn_vb_nooverwrite, DYN, VB, CW, MN, 0, M_OK)
 MC(dyn_ib_discard, DYN, IB, CW, MD, 0, M_OK)
 MC(dyn_ib_nooverwrite, DYN, IB, CW, MN, 0, M_OK)
 MC(dyn_cb_discard, DYN, CB, CW, MD, 0, M_OK)
-MC(dyn_cb_nooverwrite, DYN, CB, CW, MN, 0, M_NOTE)
+MC(dyn_cb_nooverwrite, DYN, CB, CW, MN, 0, M_CAP_NOOVERWRITE_CB)
 MC(dyn_srv_discard, DYN, SR, CW, MD, 0, M_OK)
-MC(dyn_srv_nooverwrite, DYN, SR, CW, MN, 0, M_NOTE)
-MC(dyn_write, DYN, VB, CW, MW, 0, M_NOTE)
+MC(dyn_srv_nooverwrite, DYN, SR, CW, MN, 0, M_CAP_NOOVERWRITE_SRV)
+MC(dyn_write, DYN, VB, CW, MW, 0, M_BAD)
 MC(dyn_read, DYN, VB, CW, MR, 0, M_BAD)
 MC(dyn_rw, DYN, VB, CW, MRW, 0, M_BAD)
-MC(dyn_cb_write, DYN, CB, CW, MW, 0, M_NOTE)
+MC(dyn_cb_write, DYN, CB, CW, MW, 0, M_BAD)
 MC(dyn_cb_read, DYN, CB, CW, MR, 0, M_BAD)
-MC(dyn_discard_donotwait, DYN, VB, CW, MD, D3D11_MAP_FLAG_DO_NOT_WAIT, M_NOTE)
-MC(dyn_nooverwrite_donotwait, DYN, VB, CW, MN, D3D11_MAP_FLAG_DO_NOT_WAIT, M_NOTE)
+MC(dyn_discard_donotwait, DYN, VB, CW, MD, D3D11_MAP_FLAG_DO_NOT_WAIT, M_BAD)
+MC(dyn_nooverwrite_donotwait, DYN, VB, CW, MN, D3D11_MAP_FLAG_DO_NOT_WAIT, M_BAD)
 /* STAGING read only */
 MC(stg_r_read, STG, 0, CR, MR, 0, M_OK)
 MC(stg_r_write, STG, 0, CR, MW, 0, M_BAD)
@@ -130,7 +140,7 @@ TEST(d3d11_buffers_map_unknown_flags_note)
     EXPECT_HR(ID3D11Device_CreateBuffer(g_dev, &d, NULL, &b), S_OK);
     if (!b) return;
     hr = ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 0, MR, 0x2, &m);
-    t_note("Map with MapFlags=0x2: %s", bufh_hrn(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(g_ctx, (ID3D11Resource *)b, 0);
     SAFE_RELEASE(b);
 }
@@ -145,7 +155,7 @@ TEST(d3d11_buffers_map_subresource_1_note)
     EXPECT_HR(ID3D11Device_CreateBuffer(g_dev, &d, NULL, &b), S_OK);
     if (!b) return;
     hr = ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 1, MR, 0, &m);
-    t_note("Map of buffer subresource 1: %s", bufh_hrn(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(g_ctx, (ID3D11Resource *)b, 1);
     SAFE_RELEASE(b);
 }
@@ -401,7 +411,9 @@ TEST(d3d11_buffers_map_double_map_note)
     if (!b) return;
     EXPECT_HR(ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 0, MR, 0, &m), S_OK);
     hr = ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 0, MR, 0, &m2);
-    t_note("second Map without Unmap: %s", bufh_hrn(hr));
+    /* Win10: a second Map of the same subresource without an Unmap is accepted (and returns the same view of the memory) */
+    EXPECT_HR(hr, S_OK);
+    if (SUCCEEDED(hr)) CHECK(m2.pData == m.pData);
     ID3D11DeviceContext_Unmap(g_ctx, (ID3D11Resource *)b, 0);
     SAFE_RELEASE(b);
 }
@@ -441,7 +453,8 @@ TEST(d3d11_buffers_map_pitches_note)
     if (!b) return;
     memset(&m, 0xcc, sizeof m);
     if (SUCCEEDED(ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 0, MR, 0, &m))) {
-        t_note("buffer Map RowPitch=%u DepthPitch=%u pData=%p", m.RowPitch, m.DepthPitch, m.pData);
+        EXPECT_EQ(m.RowPitch, 64);     /* both pitches report the ByteWidth */
+        EXPECT_EQ(m.DepthPitch, 64);
         ID3D11DeviceContext_Unmap(g_ctx, (ID3D11Resource *)b, 0);
     }
     SAFE_RELEASE(b);
@@ -460,7 +473,7 @@ TEST(d3d11_buffers_map_alignment_many)
         if (!b) continue;
         if (SUCCEEDED(ID3D11DeviceContext_Map(g_ctx, (ID3D11Resource *)b, 0, MRW, 0, &m))) {
             CHECK(((ULONG_PTR)m.pData & 3) == 0);
-            if ((ULONG_PTR)m.pData & 15) t_note("size %u: pData %p not 16-aligned", sizes[i], m.pData);
+            CHECKF(((ULONG_PTR)m.pData & 15) == 0, "size %u: pData %p not 16-aligned", sizes[i], m.pData);
             ID3D11DeviceContext_Unmap(g_ctx, (ID3D11Resource *)b, 0);
         }
         SAFE_RELEASE(b);

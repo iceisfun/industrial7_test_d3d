@@ -18,7 +18,16 @@
 #define STRUCT D3D11_RESOURCE_MISC_BUFFER_STRUCTURED
 #define DIA D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS
 
-enum { W_OK, W_BAD, W_NOTE };
+enum { W_OK, W_BAD, W_NOTE, W_MAPDEF };
+
+/* MapOnDefaultBuffers (D3D11_FEATURE_D3D11_OPTIONS1): DEFAULT buffers may carry CPU access flags, restricted to SRV/UAV binds. */
+static int map_on_default(void)
+{
+    D3D11_FEATURE_DATA_D3D11_OPTIONS1 o;
+    memset(&o, 0, sizeof o);
+    if (FAILED(ID3D11Device_CheckFeatureSupport(g_dev, D3D11_FEATURE_D3D11_OPTIONS1, &o, sizeof o))) return 0;
+    return o.MapOnDefaultBuffers != 0;
+}
 
 static void run_case(UINT bw, D3D11_USAGE usage, UINT bind, UINT cpu, UINT misc, UINT stride, int want, int needs11)
 {
@@ -29,6 +38,8 @@ static void run_case(UINT bw, D3D11_USAGE usage, UINT bind, UINT cpu, UINT misc,
     HRESULT hrv, hrc;
     int hard = want != W_NOTE;
     NEED_DEV();
+    if (want == W_MAPDEF) want = map_on_default() ? W_OK : W_BAD;
+    hard = want != W_NOTE;
     if (needs11 && g_fl < D3D_FEATURE_LEVEL_11_0) hard = 0;
     mem = calloc(1, bw ? bw : 1);
     memset(&sd, 0, sizeof sd);
@@ -90,8 +101,8 @@ CASE(def_vb_so, 64, DEF, VB | SO, 0, 0, 0, W_OK, 0)
 CASE(def_srv_so, 64, DEF, SR | SO, 0, 0, 0, W_OK, 0)
 CASE(def_srv_uav, 64, DEF, SR | UA, 0, 0, 0, W_OK, 1)
 CASE(def_vb_ib_srv_so, 64, DEF, VB | IB | SR | SO, 0, 0, 0, W_OK, 0)
-CASE(def_vb_ib_srv_so_uav, 64, DEF, VB | IB | SR | SO | UA, 0, 0, 0, W_OK, 1)
-CASE(def_bind0, 64, DEF, 0, 0, 0, 0, W_NOTE, 0)
+CASE(def_vb_ib_srv_so_uav, 64, DEF, VB | IB | SR | SO | UA, 0, 0, 0, W_BAD, 1)
+CASE(def_bind0, 64, DEF, 0, 0, 0, 0, W_OK, 0)
 CASE(dyn_vb, 64, DYN, VB, CW, 0, 0, W_OK, 0)
 CASE(dyn_ib, 64, DYN, IB, CW, 0, 0, W_OK, 0)
 CASE(dyn_cb, 64, DYN, CB, CW, 0, 0, W_OK, 0)
@@ -126,7 +137,7 @@ CASE(cb_bw31, 31, DEF, CB, 0, 0, 0, W_BAD, 0)
 CASE(cb_bw100, 100, DEF, CB, 0, 0, 0, W_BAD, 0)
 CASE(cb_dyn_bw20, 20, DYN, CB, CW, 0, 0, W_BAD, 0)
 CASE(cb_imm_bw20, 20, IMM, CB, 0, 0, 0, W_BAD, 0)
-CASE(cb_bw65552, 65552, DEF, CB, 0, 0, 0, W_NOTE, 0)
+CASE(cb_bw65552, 65552, DEF, CB, 0, 0, 0, W_OK, 0)
 CASE(srv_bw_not_mult4, 6, DEF, SR, 0, 0, 0, W_OK, 0)
 /* ---- constant buffer exclusivity ---- */
 CASE(cb_vb, 64, DEF, CB | VB, 0, 0, 0, W_BAD, 0)
@@ -141,17 +152,39 @@ CASE(cb_dyn_vb, 64, DYN, CB | VB, CW, 0, 0, W_BAD, 0)
 /* ---- usage rules ---- */
 CASE(imm_cpu_write, 64, IMM, VB, CW, 0, 0, W_BAD, 0)
 CASE(imm_cpu_read, 64, IMM, VB, CR, 0, 0, W_BAD, 0)
-CASE(imm_bind0, 64, IMM, 0, 0, 0, 0, W_NOTE, 0)
+CASE(imm_bind0, 64, IMM, 0, 0, 0, 0, W_BAD, 0)
 CASE(def_cpu_write, 64, DEF, VB, CW, 0, 0, W_BAD, 0)
 CASE(def_cpu_read, 64, DEF, VB, CR, 0, 0, W_BAD, 0)
 CASE(def_cpu_rw, 64, DEF, VB, CR | CW, 0, 0, W_BAD, 0)
-CASE(def_srv_cpu_write, 64, DEF, SR, CW, 0, 0, W_BAD, 0)
+CASE(def_srv_cpu_write, 64, DEF, SR, CW, 0, 0, W_MAPDEF, 0)
+CASE(def_srv_cpu_read, 64, DEF, SR, CR, 0, 0, W_MAPDEF, 0)
+CASE(def_srv_cpu_rw, 64, DEF, SR, CR | CW, 0, 0, W_MAPDEF, 0)
+CASE(def_uav_cpu_write, 64, DEF, UA, CW, 0, 0, W_MAPDEF, 1)
+CASE(def_uav_cpu_read, 64, DEF, UA, CR, 0, 0, W_MAPDEF, 1)
+CASE(def_srv_uav_cpu_rw, 64, DEF, SR | UA, CR | CW, 0, 0, W_MAPDEF, 1)
+CASE(def_srv_raw_cpu_write, 64, DEF, SR, CW, RAW, 0, W_MAPDEF, 1)
+CASE(def_srv_struct_cpu_write, 64, DEF, SR, CW, STRUCT, 16, W_MAPDEF, 1)
+CASE(def_srv_vb_cpu_write, 64, DEF, SR | VB, CW, 0, 0, W_BAD, 0)
+CASE(def_srv_ib_cpu_write, 64, DEF, SR | IB, CW, 0, 0, W_BAD, 0)
+CASE(def_srv_so_cpu_write, 64, DEF, SR | SO, CW, 0, 0, W_BAD, 0)
+CASE(def_cb_cpu_write, 64, DEF, CB, CW, 0, 0, W_BAD, 0)
+CASE(def_bind0_cpu_write, 64, DEF, 0, CW, 0, 0, W_BAD, 0)
+CASE(def_so_uav, 64, DEF, SO | UA, 0, 0, 0, W_BAD, 1)
+CASE(def_vb_so_uav, 64, DEF, VB | SO | UA, 0, 0, 0, W_BAD, 1)
+CASE(def_srv_so_uav, 64, DEF, SR | SO | UA, 0, 0, 0, W_BAD, 1)
+CASE(def_depth_stencil_vb, 64, DEF, D3D11_BIND_DEPTH_STENCIL | VB, 0, 0, 0, W_BAD, 0)
+CASE(def_vb_ib_rt, 64, DEF, VB | IB | RT, 0, 0, 0, W_OK, 0)
+CASE(def_rt_uav, 64, DEF, RT | UA, 0, 0, 0, W_OK, 1)
+CASE(def_rt_so, 64, DEF, RT | SO, 0, 0, 0, W_OK, 0)
+CASE(def_decoder_vb, 64, DEF, D3D11_BIND_DECODER | VB, 0, 0, 0, W_OK, 0)
+CASE(def_cb_rt, 64, DEF, CB | RT, 0, 0, 0, W_BAD, 0)
+CASE(def_cb_decoder, 64, DEF, CB | D3D11_BIND_DECODER, 0, 0, 0, W_BAD, 0)
 CASE(dyn_cpu0, 64, DYN, VB, 0, 0, 0, W_BAD, 0)
 CASE(dyn_cpu_read, 64, DYN, VB, CR, 0, 0, W_BAD, 0)
 CASE(dyn_cpu_rw, 64, DYN, VB, CR | CW, 0, 0, W_BAD, 0)
 CASE(dyn_so, 64, DYN, SO, CW, 0, 0, W_BAD, 0)
 CASE(dyn_uav, 64, DYN, UA, CW, 0, 0, W_BAD, 0)
-CASE(dyn_rt, 64, DYN, RT, CW, 0, 0, W_NOTE, 0)
+CASE(dyn_rt, 64, DYN, RT, CW, 0, 0, W_BAD, 0)
 CASE(dyn_vb_so, 64, DYN, VB | SO, CW, 0, 0, W_BAD, 0)
 CASE(stg_cpu0, 64, STG, 0, 0, 0, 0, W_BAD, 0)
 CASE(stg_vb, 64, STG, VB, CR, 0, 0, W_BAD, 0)
@@ -161,8 +194,8 @@ CASE(stg_srv, 64, STG, SR, CR, 0, 0, W_BAD, 0)
 CASE(stg_so, 64, STG, SO, CR, 0, 0, W_BAD, 0)
 CASE(stg_uav, 64, STG, UA, CR, 0, 0, W_BAD, 0)
 CASE(stg_rt, 64, STG, RT, CR, 0, 0, W_BAD, 0)
-CASE(stg_structured, 64, STG, 0, CR, STRUCT, 16, W_NOTE, 1)
-CASE(stg_raw, 64, STG, 0, CR, RAW, 0, W_NOTE, 1)
+CASE(stg_structured, 64, STG, 0, CR, STRUCT, 16, W_OK, 1)
+CASE(stg_raw, 64, STG, 0, CR, RAW, 0, W_BAD, 1)
 /* ---- undefined values ---- */
 CASE(usage_5, 64, 5, VB, 0, 0, 0, W_BAD, 0)
 CASE(usage_ffff, 64, 0xffff, VB, 0, 0, 0, W_BAD, 0)
@@ -176,9 +209,9 @@ CASE(misc_generate_mips, 64, DEF, SR | RT, 0, D3D11_RESOURCE_MISC_GENERATE_MIPS,
 CASE(misc_generate_mips_srv, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_GENERATE_MIPS, 0, W_BAD, 0)
 CASE(misc_texturecube, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_TEXTURECUBE, 0, W_BAD, 0)
 CASE(misc_gdi_compatible, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_GDI_COMPATIBLE, 0, W_BAD, 0)
-CASE(misc_shared, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_SHARED, 0, W_NOTE, 0)
-CASE(misc_shared_keyed, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, 0, W_NOTE, 0)
-CASE(misc_resource_clamp, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_RESOURCE_CLAMP, 0, W_NOTE, 0)
+CASE(misc_shared, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_SHARED, 0, W_OK, 0)
+CASE(misc_shared_keyed, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, 0, W_OK, 0)
+CASE(misc_resource_clamp, 64, DEF, SR, 0, D3D11_RESOURCE_MISC_RESOURCE_CLAMP, 0, W_BAD, 0)
 /* ---- raw / structured / indirect ---- */
 CASE(raw_srv_4, 4, DEF, SR, 0, RAW, 0, W_OK, 1)
 CASE(raw_srv_64, 64, DEF, SR, 0, RAW, 0, W_OK, 1)
@@ -186,11 +219,11 @@ CASE(raw_uav_64, 64, DEF, UA, 0, RAW, 0, W_OK, 1)
 CASE(raw_srv_uav_64, 64, DEF, SR | UA, 0, RAW, 0, W_OK, 1)
 CASE(raw_vb_srv, 64, DEF, VB | SR, 0, RAW, 0, W_OK, 1)
 CASE(raw_imm_srv, 64, IMM, SR, 0, RAW, 0, W_OK, 1)
-CASE(raw_bw6, 6, DEF, SR, 0, RAW, 0, W_NOTE, 1)
-CASE(raw_bw1, 1, DEF, SR, 0, RAW, 0, W_NOTE, 1)
-CASE(raw_vb_only, 64, DEF, VB, 0, RAW, 0, W_NOTE, 1)
-CASE(raw_bind0, 64, DEF, 0, 0, RAW, 0, W_NOTE, 1)
-CASE(raw_cb, 64, DEF, CB, 0, RAW, 0, W_NOTE, 1)
+CASE(raw_bw6, 6, DEF, SR, 0, RAW, 0, W_OK, 1)
+CASE(raw_bw1, 1, DEF, SR, 0, RAW, 0, W_OK, 1)
+CASE(raw_vb_only, 64, DEF, VB, 0, RAW, 0, W_BAD, 1)
+CASE(raw_bind0, 64, DEF, 0, 0, RAW, 0, W_BAD, 1)
+CASE(raw_cb, 64, DEF, CB, 0, RAW, 0, W_BAD, 1)
 CASE(raw_and_structured, 64, DEF, SR, 0, RAW | STRUCT, 16, W_BAD, 1)
 CASE(struct_srv_4, 16, DEF, SR, 0, STRUCT, 4, W_OK, 1)
 CASE(struct_srv_16, 64, DEF, SR, 0, STRUCT, 16, W_OK, 1)
@@ -199,7 +232,7 @@ CASE(struct_srv_uav_8, 64, DEF, SR | UA, 0, STRUCT, 8, W_OK, 1)
 CASE(struct_stride_2048, 2048, DEF, SR, 0, STRUCT, 2048, W_OK, 1)
 CASE(struct_stride_2048_x4, 8192, DEF, SR | UA, 0, STRUCT, 2048, W_OK, 1)
 CASE(struct_imm_srv, 64, IMM, SR, 0, STRUCT, 16, W_OK, 1)
-CASE(struct_dyn_srv, 64, DYN, SR, CW, STRUCT, 16, W_NOTE, 1)
+CASE(struct_dyn_srv, 64, DYN, SR, CW, STRUCT, 16, W_OK, 1)
 CASE(struct_stride0, 64, DEF, SR, 0, STRUCT, 0, W_BAD, 1)
 CASE(struct_stride1, 64, DEF, SR, 0, STRUCT, 1, W_BAD, 1)
 CASE(struct_stride2, 64, DEF, SR, 0, STRUCT, 2, W_BAD, 1)
@@ -209,25 +242,25 @@ CASE(struct_stride10, 60, DEF, SR, 0, STRUCT, 10, W_BAD, 1)
 CASE(struct_bw_not_multiple, 20, DEF, SR, 0, STRUCT, 12, W_BAD, 1)
 CASE(struct_bw_lt_stride, 8, DEF, SR, 0, STRUCT, 16, W_BAD, 1)
 CASE(struct_bw_plus1, 65, DEF, SR, 0, STRUCT, 16, W_BAD, 1)
-CASE(struct_stride_2052, 2052, DEF, SR, 0, STRUCT, 2052, W_NOTE, 1)
-CASE(struct_stride_4096, 4096, DEF, SR, 0, STRUCT, 4096, W_NOTE, 1)
-CASE(struct_vb_only, 64, DEF, VB, 0, STRUCT, 16, W_NOTE, 1)
-CASE(struct_bind0, 64, DEF, 0, 0, STRUCT, 16, W_NOTE, 1)
+CASE(struct_stride_2052, 2052, DEF, SR, 0, STRUCT, 2052, W_BAD, 1)
+CASE(struct_stride_4096, 4096, DEF, SR, 0, STRUCT, 4096, W_BAD, 1)
+CASE(struct_vb_only, 64, DEF, VB, 0, STRUCT, 16, W_BAD, 1)
+CASE(struct_bind0, 64, DEF, 0, 0, STRUCT, 16, W_OK, 1)
 CASE(struct_cb, 64, DEF, CB, 0, STRUCT, 16, W_BAD, 1)
-CASE(struct_so_srv, 64, DEF, SR | SO, 0, STRUCT, 16, W_NOTE, 1)
-CASE(stride_without_structured, 64, DEF, SR, 0, 0, 16, W_NOTE, 0)
-CASE(stride_without_structured_vb, 64, DEF, VB, 0, 0, 4, W_NOTE, 0)
+CASE(struct_so_srv, 64, DEF, SR | SO, 0, STRUCT, 16, W_BAD, 1)
+CASE(stride_without_structured, 64, DEF, SR, 0, 0, 16, W_OK, 0)
+CASE(stride_without_structured_vb, 64, DEF, VB, 0, 0, 4, W_OK, 0)
 CASE(indirect_uav, 64, DEF, UA, 0, DIA, 0, W_OK, 1)
-CASE(indirect_srv, 64, DEF, SR, 0, DIA, 0, W_NOTE, 1)
-CASE(indirect_bind0, 16, DEF, 0, 0, DIA, 0, W_NOTE, 1)
-CASE(indirect_imm, 16, IMM, 0, 0, DIA, 0, W_NOTE, 1)
-CASE(indirect_srv_uav_raw, 64, DEF, SR | UA, 0, DIA | RAW, 0, W_NOTE, 1)
+CASE(indirect_srv, 64, DEF, SR, 0, DIA, 0, W_OK, 1)
+CASE(indirect_bind0, 16, DEF, 0, 0, DIA, 0, W_OK, 1)
+CASE(indirect_imm, 16, IMM, 0, 0, DIA, 0, W_BAD, 1)
+CASE(indirect_srv_uav_raw, 64, DEF, SR | UA, 0, DIA | RAW, 0, W_OK, 1)
 CASE(indirect_structured, 64, DEF, SR, 0, DIA | STRUCT, 16, W_BAD, 1)
-CASE(indirect_dyn, 16, DYN, SR, CW, DIA, 0, W_NOTE, 1)
-CASE(bind_render_target, 64, DEF, RT, 0, 0, 0, W_NOTE, 0)
-CASE(bind_render_target_srv, 64, DEF, RT | SR, 0, 0, 0, W_NOTE, 0)
-CASE(bind_decoder, 64, DEF, D3D11_BIND_DECODER, 0, 0, 0, W_NOTE, 0)
-CASE(bind_video_encoder, 64, DEF, D3D11_BIND_VIDEO_ENCODER, 0, 0, 0, W_NOTE, 0)
+CASE(indirect_dyn, 16, DYN, SR, CW, DIA, 0, W_OK, 1)
+CASE(bind_render_target, 64, DEF, RT, 0, 0, 0, W_OK, 0)
+CASE(bind_render_target_srv, 64, DEF, RT | SR, 0, 0, 0, W_OK, 0)
+CASE(bind_decoder, 64, DEF, D3D11_BIND_DECODER, 0, 0, 0, W_OK, 0)
+CASE(bind_video_encoder, 64, DEF, D3D11_BIND_VIDEO_ENCODER, 0, 0, 0, W_OK, 0)
 CASE(bind_depth_stencil, 64, DEF, D3D11_BIND_DEPTH_STENCIL, 0, 0, 0, W_BAD, 0)
 CASE(bind_depth_stencil_srv, 64, DEF, D3D11_BIND_DEPTH_STENCIL | SR, 0, 0, 0, W_BAD, 0)
 
@@ -473,8 +506,8 @@ TEST(d3d11_buffers_getdesc_stride_nonstructured_note)
     HRESULT hr;
     NEED_DEV();
     hr = ID3D11Device_CreateBuffer(g_dev, &d, NULL, &b);
-    t_note("non-structured buffer with StructureByteStride=16: %s", bufh_hrn(hr));
-    if (b) { ID3D11Buffer_GetDesc(b, &g); t_note("GetDesc stride=%u", g.StructureByteStride); SAFE_RELEASE(b); }
+    EXPECT_HR(hr, S_OK);   /* the stride is ignored for non-structured buffers... */
+    if (b) { ID3D11Buffer_GetDesc(b, &g); EXPECT_EQ(g.StructureByteStride, 0); SAFE_RELEASE(b); }   /* ...and reads back as 0 */
 }
 
 TEST(d3d11_buffers_gettype_buffer)
@@ -619,12 +652,80 @@ TEST(d3d11_buffers_create_large_validate_only)
     EXPECT_HR(ID3D11Device_CreateBuffer(g_dev, &d, NULL, NULL), S_FALSE);
 }
 
-TEST(d3d11_buffers_create_validate_only_bw_ffffffff_note)
+/* ByteWidth 0xffffffff: the validate-only call applies no size ceiling (S_FALSE) while a real allocation fails with E_OUTOFMEMORY. On the Basic
+ * Render Driver either call leaves the device in a state that is removed as soon as it does real work (a readback reports
+ * DXGI_ERROR_DEVICE_REMOVED). It runs on a private device for that reason. */
+TEST(d3d11_buffers_create_bw_ffffffff_oom_private_device)
 {
-    D3D11_BUFFER_DESC d = bufh_desc(0xffffffffu, DEF, SR, 0, 0, 0);
-    HRESULT hr;
+    D3D11_BUFFER_DESC d = bufh_desc(0xffffffffu, DEF, SR, 0, 0, 0), sm = bufh_desc(64, DEF, VB, 0, 0, 0);
+    ID3D11Device *dev;
+    ID3D11DeviceContext *ctx;
+    ID3D11Buffer *b = (ID3D11Buffer *)(ULONG_PTR)1, *c = NULL;
+    HRESULT hr, hr2, rr;
     NEED_DEV();
-    hr = ID3D11Device_CreateBuffer(g_dev, &d, NULL, NULL);
-    t_note("validate-only ByteWidth=0xffffffff: %s", bufh_hrn(hr));
-    CHECK(hr != S_FALSE);
+    if (FAILED(bufh_priv_device(0, &dev, &ctx))) { t_skip("no private device"); return; }
+    EXPECT_HR(ID3D11Device_CreateBuffer(dev, &d, NULL, NULL), S_FALSE);
+    hr = ID3D11Device_CreateBuffer(dev, &d, NULL, &b);
+    EXPECT_HR(hr, E_OUTOFMEMORY);
+    CHECK(b == NULL);
+    {
+        ID3D11Device *sdev = g_dev;
+        ID3D11DeviceContext *sctx = g_ctx;
+        unsigned char *rb;
+        g_dev = dev; g_ctx = ctx;
+        hr2 = bufh_create(&sm, 1, 0x77, &c);
+        rb = hr2 == S_OK ? bufh_read(c, NULL) : NULL;
+        ID3D11DeviceContext_Flush(ctx);
+        rr = ID3D11Device_GetDeviceRemovedReason(dev);
+        t_note("after the OOM: small CreateBuffer %s, readback %s, removed reason %s", bufh_hrn(hr2), rb ? "ok" : "failed", bufh_hrn(rr));
+        EXPECT_HR(hr2, S_OK);
+        if (bufh_is_brd(dev)) { CHECK(rb == NULL); EXPECT_HR(rr, DXGI_ERROR_DEVICE_REMOVED); }
+        free(rb);
+        g_dev = sdev; g_ctx = sctx;
+    }
+    SAFE_RELEASE(c);
+    ID3D11DeviceContext_ClearState(ctx); ID3D11DeviceContext_Release(ctx); ID3D11Device_Release(dev);
+}
+
+/* Whole-matrix pins (WARP/BRD == the default hardware adapter on the oracle): every subset of the bind flags for a DEFAULT buffer. */
+static int default_bind_valid(UINT b)
+{
+    if (b & D3D11_BIND_CONSTANT_BUFFER) return b == D3D11_BIND_CONSTANT_BUFFER;
+    if ((b & SO) && (b & UA)) return 0;
+    return 1;
+}
+TEST(d3d11_buffers_create_bind_matrix_default)
+{
+    static const UINT bits[] = { VB, IB, CB, SR, SO, RT, UA, D3D11_BIND_DECODER };
+    UINT m, bad = 0;
+    NEED_FL11();
+    for (m = 0; m < 256; m++) {
+        UINT bind = 0, k;
+        D3D11_BUFFER_DESC d;
+        HRESULT hr;
+        for (k = 0; k < 8; k++) if (m & (1u << k)) bind |= bits[k];
+        d = bufh_desc(64, DEF, bind, 0, 0, 0);
+        hr = ID3D11Device_CreateBuffer(g_dev, &d, NULL, NULL);
+        if (hr != (default_bind_valid(bind) ? S_FALSE : E_INVALIDARG)) { bad++; t_check(0, __FILE__, __LINE__, "bind matrix", "bind=0x%x got %s", bind, bufh_hrn(hr)); }
+    }
+    CHECK(bad == 0);
+}
+/* DYNAMIC + CPU write: only VB/IB/SRV (any mix) or a lone CB; nothing else. */
+TEST(d3d11_buffers_create_bind_matrix_dynamic)
+{
+    static const UINT bits[] = { VB, IB, CB, SR, SO, RT, UA };
+    UINT m, bad = 0;
+    NEED_FL11();
+    for (m = 0; m < 128; m++) {
+        UINT bind = 0, k;
+        D3D11_BUFFER_DESC d;
+        HRESULT hr;
+        int valid;
+        for (k = 0; k < 7; k++) if (m & (1u << k)) bind |= bits[k];
+        valid = bind && !(bind & (SO | RT | UA)) && (!(bind & CB) || bind == CB);
+        d = bufh_desc(64, DYN, bind, CW, 0, 0);
+        hr = ID3D11Device_CreateBuffer(g_dev, &d, NULL, NULL);
+        if (hr != (valid ? S_FALSE : E_INVALIDARG)) { bad++; t_check(0, __FILE__, __LINE__, "dyn bind matrix", "bind=0x%x got %s", bind, bufh_hrn(hr)); }
+    }
+    CHECK(bad == 0);
 }

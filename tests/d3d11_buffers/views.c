@@ -69,7 +69,16 @@ SRV_T(typed_unknown_format, 64, SR, 0, 0, BUF, DXGI_FORMAT_UNKNOWN, 0, 16, 0, E_
 SRV_T(typed_dim_mismatch_tex2d, 64, SR, 0, 0, D3D11_SRV_DIMENSION_TEXTURE2D, DXGI_FORMAT_R32_FLOAT, 0, 1, 0, E_INVALIDARG, 0)
 SRV_T(typed_dim_unknown, 64, SR, 0, 0, D3D11_SRV_DIMENSION_UNKNOWN, DXGI_FORMAT_R32_FLOAT, 0, 1, 0, E_INVALIDARG, 0)
 SRV_T(raw_ok, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 0, 16, D3D11_BUFFEREX_SRV_FLAG_RAW, S_OK, 1)
-SRV_T(raw_partial, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 2, 8, D3D11_BUFFEREX_SRV_FLAG_RAW, S_OK, 1)
+SRV_T(raw_partial, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 4, 8, D3D11_BUFFEREX_SRV_FLAG_RAW, S_OK, 1)
+/* raw views: FirstElement (4-byte units) must be a multiple of 4 (16-byte aligned offset) on Win10 */
+SRV_T(raw_first1, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 1, 8, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
+SRV_T(raw_first2, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 2, 8, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
+SRV_T(raw_first3, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 3, 1, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
+SRV_T(raw_first5, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 5, 1, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
+SRV_T(raw_first8_last, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 8, 8, D3D11_BUFFEREX_SRV_FLAG_RAW, S_OK, 1)
+SRV_T(raw_first8_overflow, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 8, 9, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
+SRV_T(raw_first4_n12, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 4, 12, D3D11_BUFFEREX_SRV_FLAG_RAW, S_OK, 1)
+SRV_T(raw_first4_n13, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 4, 13, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
 SRV_T(raw_overflow, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 0, 17, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
 SRV_T(raw_on_nonraw_buffer, 64, SR, 0, 0, BUFEX, DXGI_FORMAT_R32_TYPELESS, 0, 16, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
 SRV_T(raw_wrong_format, 64, SR, RAW, 0, BUFEX, DXGI_FORMAT_R32_FLOAT, 0, 16, D3D11_BUFFEREX_SRV_FLAG_RAW, E_INVALIDARG, 1)
@@ -165,7 +174,7 @@ TEST(d3d11_buffers_srv_getdesc_roundtrip)
         EXPECT_EQ(g.Format, DXGI_FORMAT_R32_FLOAT);
         EXPECT_EQ(g.Buffer.FirstElement, 3);
         EXPECT_EQ(g.Buffer.NumElements, 7);
-        t_note("SRV ViewDimension reported as %d (BUFFER=%d BUFFEREX=%d)", g.ViewDimension, BUF, BUFEX);
+        EXPECT_EQ(g.ViewDimension, BUF);
     }
     SAFE_RELEASE(v); SAFE_RELEASE(b);
 }
@@ -198,7 +207,8 @@ TEST(d3d11_buffers_srv_outlives_buffer_release)
     CHECK(b != NULL);
     if (!b) return;
     EXPECT_HR(srv(b, BUF, DXGI_FORMAT_R32_FLOAT, 0, 16, 0, &v), S_OK);
-    t_note("buffer Release with a live view returned %lu", (unsigned long)D3DH_RELEASE_RC(b));
+    /* a live view holds only an internal reference: the application's last Release drops the public count to 0 */
+    EXPECT_EQ(D3DH_RELEASE_RC(b), 0);
     b = NULL;
     if (v) {
         ID3D11View_GetResource((ID3D11View *)v, &r);
@@ -245,7 +255,8 @@ TEST(d3d11_buffers_srv_null_desc_note)
     CHECK(b != NULL);
     if (!b) return;
     hr = ID3D11Device_CreateShaderResourceView(g_dev, RES(b), NULL, &v);
-    t_note("SRV with NULL desc on a plain buffer: %s", bufh_hrn(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* a typed buffer view needs a format, so no default desc exists */
+    CHECK(v == NULL);
     SAFE_RELEASE(v); SAFE_RELEASE(b);
 }
 
@@ -259,7 +270,15 @@ TEST(d3d11_buffers_srv_null_desc_structured_note)
     CHECK(b != NULL);
     if (!b) return;
     hr = ID3D11Device_CreateShaderResourceView(g_dev, RES(b), NULL, &v);
-    t_note("SRV with NULL desc on a structured buffer: %s", bufh_hrn(hr));
+    EXPECT_HR(hr, S_OK);   /* structured: the default view is the whole buffer */
+    if (v) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC g;
+        memset(&g, 0, sizeof g);
+        ID3D11ShaderResourceView_GetDesc(v, &g);
+        EXPECT_EQ(g.Format, DXGI_FORMAT_UNKNOWN);
+        EXPECT_EQ(g.Buffer.FirstElement, 0);
+        EXPECT_EQ(g.Buffer.NumElements, 8);
+    }
     SAFE_RELEASE(v); SAFE_RELEASE(b);
 }
 

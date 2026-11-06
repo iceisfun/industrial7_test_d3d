@@ -106,7 +106,14 @@ TEST(d3d11_buffers_com_iunknown_identity)
     EXPECT_HR(ID3D11Buffer_QueryInterface(b, &IID_ID3D11Resource, (void **)&r), S_OK);
     if (r) EXPECT_HR(ID3D11Resource_QueryInterface(r, &IID_IUnknown, (void **)&u2), S_OK);
     CHECK(u1 && u2 && u1 == u2);
-    CHECK((void *)u1 == (void *)b);
+    /* Win10: the IUnknown identity of a D3D11 buffer is a distinct interface pointer, not the ID3D11Buffer pointer itself */
+    CHECK((void *)u1 != (void *)b);
+    {
+        IUnknown *u3 = NULL;
+        EXPECT_HR(ID3D11Buffer_QueryInterface(b, &IID_IUnknown, (void **)&u3), S_OK);
+        CHECK(u3 == u1);
+        if (u3) u3->lpVtbl->Release(u3);
+    }
     if (u1) u1->lpVtbl->Release(u1);
     if (u2) u2->lpVtbl->Release(u2);
     SAFE_RELEASE(r);
@@ -122,11 +129,11 @@ TEST(d3d11_buffers_com_qi_dxgi_note)
     CHECK(b != NULL);
     if (!b) return;
     hr = ID3D11Buffer_QueryInterface(b, &IID_IDXGIObject, (void **)&o);
-    t_note("buffer QI IDXGIObject: %s", bufh_hrn(hr)); if (o) { o->lpVtbl->Release(o); o = NULL; }
+    EXPECT_HR(hr, S_OK); if (o) { o->lpVtbl->Release(o); o = NULL; }
     hr = ID3D11Buffer_QueryInterface(b, &IID_IDXGIResource, (void **)&o);
-    t_note("buffer QI IDXGIResource: %s", bufh_hrn(hr)); if (o) { o->lpVtbl->Release(o); o = NULL; }
+    EXPECT_HR(hr, S_OK); if (o) { o->lpVtbl->Release(o); o = NULL; }
     hr = ID3D11Buffer_QueryInterface(b, &IID_IDXGISurface, (void **)&o);
-    t_note("buffer QI IDXGISurface: %s", bufh_hrn(hr)); if (o) { o->lpVtbl->Release(o); o = NULL; }
+    EXPECT_HR(hr, S_OK);   /* Win10: the QI succeeds even for a buffer (its methods then fail; see dxgi_objects_resources) */ if (o) { o->lpVtbl->Release(o); o = NULL; }
     SAFE_RELEASE(b);
 }
 
@@ -186,7 +193,7 @@ TEST(d3d11_buffers_private_data_size_query)
     if (!b) return;
     EXPECT_HR(ID3D11Buffer_SetPrivateData(b, &G1, 12, in), S_OK);
     EXPECT_HR(ID3D11Buffer_GetPrivateData(b, &G1, &sz, NULL), S_OK);
-    t_note("GetPrivateData(NULL data): size=%u", sz);
+    EXPECT_EQ(sz, 12);
     sz = 4;
     EXPECT_HR(ID3D11Buffer_GetPrivateData(b, &G1, &sz, out), DXGI_ERROR_MORE_DATA);
     EXPECT_EQ(sz, 12);
@@ -300,9 +307,10 @@ TEST(d3d11_buffers_private_data_zero_size_nonnull)
     CHECK(b != NULL);
     if (!b) return;
     hr = ID3D11Buffer_SetPrivateData(b, &G1, 0, a);
-    t_note("SetPrivateData size 0 with non-NULL data: %s", bufh_hrn(hr));
+    EXPECT_HR(hr, S_OK);
     hr = ID3D11Buffer_GetPrivateData(b, &G1, &sz, out);
-    t_note("then GetPrivateData: %s size=%u", bufh_hrn(hr), sz);
+    EXPECT_HR(hr, S_OK);   /* size-0 data is stored as an empty entry */
+    EXPECT_EQ(sz, 0);
     SAFE_RELEASE(b);
 }
 
@@ -431,7 +439,7 @@ TEST(d3d11_buffers_eviction_set_get_note)
         UINT got;
         ID3D11Buffer_SetEvictionPriority(b, vals[i]);
         got = ID3D11Buffer_GetEvictionPriority(b);
-        t_note("SetEvictionPriority(0x%08x) -> Get 0x%08x", vals[i], got);
+        EXPECT_EQ(got, vals[i]);   /* Win10 stores the value unmodified */
         EXPECT_EQ(ID3D11Buffer_GetEvictionPriority(b), got);   /* stable */
     }
     SAFE_RELEASE(b);
@@ -474,11 +482,14 @@ TEST(d3d11_buffers_bind_vertex_buffer_addrefs)
     NEED_DEV();
     CHECK(b != NULL);
     if (!b) return;
+    /* Win10: binding does not change the public refcount (the context keeps a private reference); Get* returns an AddRef'd pointer */
     ID3D11DeviceContext_IASetVertexBuffers(g_ctx, 0, 1, &b, &stride, &off);
-    EXPECT_EQ(d3dh_refcount(b), 2);
+    EXPECT_EQ(d3dh_refcount(b), 1);
     ID3D11DeviceContext_IAGetVertexBuffers(g_ctx, 0, 1, g, gs, go);
-    EXPECT_EQ(d3dh_refcount(b), 3);
+    EXPECT_EQ(d3dh_refcount(b), 2);
+    CHECK(g[0] == b);
     SAFE_RELEASE(g[0]);
+    EXPECT_EQ(d3dh_refcount(b), 1);
     ID3D11DeviceContext_IASetVertexBuffers(g_ctx, 0, 1, (ID3D11Buffer *[]){ NULL }, &stride, &off);
     EXPECT_EQ(d3dh_refcount(b), 1);
     SAFE_RELEASE(b);
@@ -633,7 +644,7 @@ TEST(d3d11_buffers_bind_constant_buffer1_default_whole)
     ID3D11DeviceContext1_VSGetConstantBuffers1(c1, 0, 1, &g, &gf, &gn);
     CHECK(g == b);
     EXPECT_EQ(gf, 0);
-    t_note("VSGetConstantBuffers1 after plain Set: first=%u num=%u", gf, gn);
+    EXPECT_EQ(gn, 4096);   /* a plain Set binds the whole buffer, reported as the maximum element count */
     SAFE_RELEASE(g);
     ID3D11DeviceContext1_Release(c1);
     ID3D11DeviceContext_ClearState(g_ctx);
@@ -667,8 +678,8 @@ TEST(d3d11_buffers_bind_clearstate_releases)
         ID3D11DeviceContext_IASetVertexBuffers(g_ctx, 0, 1, &b, &stride, &off);
         ID3D11DeviceContext_IASetIndexBuffer(g_ctx, b, DXGI_FORMAT_R16_UINT, 0);
         ID3D11DeviceContext_VSSetConstantBuffers(g_ctx, 0, 1, &c);
-        EXPECT_EQ(d3dh_refcount(b), 3);
-        EXPECT_EQ(d3dh_refcount(c), 2);
+        EXPECT_EQ(d3dh_refcount(b), 1);   /* binds are invisible to the public refcount on Win10 */
+        EXPECT_EQ(d3dh_refcount(c), 1);
         ID3D11DeviceContext_ClearState(g_ctx);
         EXPECT_EQ(d3dh_refcount(b), 1);
         EXPECT_EQ(d3dh_refcount(c), 1);
