@@ -4,8 +4,9 @@ UDECL(void, ShaderCache_GetDesc, (void *cache, void *desc));
 UDECL(HRESULT, ShaderCache_Create, (void *desc, void **out));
 UDECL(HRESULT, ShaderCache_Destroy, (void *cache, unsigned flags));
 
-#define DESC_QWORDS 7
-/* Fake object: GetDesc copies 0x38 bytes from object+0x20 to the output. */
+#define DESC_QWORDS 8
+/* Fake object: GetDesc copies 0x40 bytes (8 qwords) from object+0x20 to the output (measured on Win10 22H2: output bytes
+ * 0..0x3f are written, nothing beyond). */
 static void fill_obj(unsigned char *o, size_t n) { for (size_t i = 0; i < n; i++) o[i] = (unsigned char)(i * 7 + 3); }
 
 TEST(gap4_getdesc_resolves) {
@@ -44,19 +45,19 @@ TEST(gap4_getdesc_null_output_no_crash) {
     f(NULL, NULL);
     CHECK(1);
 }
-TEST(gap4_getdesc_copies_56_bytes_from_offset_0x20) {
+TEST(gap4_getdesc_copies_64_bytes_from_offset_0x20) {
     ShaderCache_GetDesc_pfn f = (ShaderCache_GetDesc_pfn)t_proc_in("d3dscache.dll", "ShaderCache_GetDesc");
     REQUIRE(f);
     unsigned char obj[0x80]; fill_obj(obj, sizeof obj);
     unsigned char out[0x48]; memset(out, 0xEE, sizeof out);
     f(obj, out);
-    CHECK(memcmp(out, obj + 0x20, 0x38) == 0);
-    for (int i = 0x38; i < 0x48; i++) CHECK(out[i] == 0xEE);   /* nothing written past the 7 qwords */
+    CHECK(memcmp(out, obj + 0x20, 0x40) == 0);
+    for (int i = 0x40; i < 0x48; i++) CHECK(out[i] == 0xEE);   /* nothing written past the 8 qwords */
 }
 TEST(gap4_getdesc_does_not_modify_object) {
     ShaderCache_GetDesc_pfn f = (ShaderCache_GetDesc_pfn)t_proc_in("d3dscache.dll", "ShaderCache_GetDesc");
     REQUIRE(f);
-    unsigned char obj[0x80], ref[0x80], out[0x38];
+    unsigned char obj[0x80], ref[0x80], out[0x40];
     fill_obj(obj, sizeof obj); memcpy(ref, obj, sizeof obj);
     f(obj, out);
     CHECK(memcmp(obj, ref, sizeof obj) == 0);
@@ -76,7 +77,7 @@ TEST(gap4_getdesc_fields_before_0x20_ignored) {
     ShaderCache_GetDesc_pfn f = (ShaderCache_GetDesc_pfn)t_proc_in("d3dscache.dll", "ShaderCache_GetDesc");
     REQUIRE(f);
     unsigned long long obj[12], out[DESC_QWORDS];
-    memset(obj, 0xFF, sizeof obj); memset(&obj[4], 0, 0x38);
+    memset(obj, 0xFF, sizeof obj); memset(&obj[4], 0, 0x40);
     memset(out, 0x55, sizeof out);
     f(obj, out);
     for (int k = 0; k < DESC_QWORDS; k++) CHECK(out[k] == 0);
@@ -85,7 +86,7 @@ TEST(gap4_getdesc_repeatable) {
     ShaderCache_GetDesc_pfn f = (ShaderCache_GetDesc_pfn)t_proc_in("d3dscache.dll", "ShaderCache_GetDesc");
     REQUIRE(f);
     unsigned char obj[0x80]; fill_obj(obj, sizeof obj);
-    unsigned char a[0x38], b[0x38];
+    unsigned char a[0x40], b[0x40];
     f(obj, a); f(obj, b);
     CHECK(memcmp(a, b, sizeof a) == 0);
 }
