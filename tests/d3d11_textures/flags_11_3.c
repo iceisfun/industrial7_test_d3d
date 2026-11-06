@@ -496,7 +496,11 @@ static int tx_video_supported(tx_ctx *c, DXGI_FORMAT f) {
 }
 static void tx_video_dims(tx_ctx *c, DXGI_FORMAT f, UINT w, UINT h, int want_ok, const char *file, int line) {
     ID3D11Texture2D *t = NULL; HRESULT hr;
-    if (!tx_video_supported(c, f)) { t_skip("format %u texture creation not supported", f); return; }
+    if (!tx_video_supported(c, f)) {   /* WARP: P010/P016/Y210... have no CheckFormatSupport answer: every size is E_INVALIDARG */
+        hr = tx_mk2d(c, w, h, 1, 1, f, U_DEF, B_SRV, 0, 0, NULL, &t);
+        t_check(hr == E_INVALIDARG && !t, file, line, "unsupported video format", "format %u %ux%u -> %s", f, w, h, d3dh_hr_name(hr));
+        return;
+    }
     hr = tx_mk2d(c, 16, 16, 1, 1, f, U_DEF, B_SRV, 0, 0, NULL, &t);
     if (FAILED(hr)) { t_note("%s:%d baseline 16x16 SRV texture of format %u not creatable: %s", file, line, f, d3dh_hr_name(hr)); return; }
     ID3D11Texture2D_Release(t); t = NULL;

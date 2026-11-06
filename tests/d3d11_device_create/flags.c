@@ -9,7 +9,7 @@ static void drv_probe(D3D_DRIVER_TYPE dt, const char *name)
     ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
     HRESULT hr = DC_FN()(NULL, dt, NULL, 0, NULL, 0, D3D11_SDK_VERSION, &d, &fl, &c);
     if (FAILED(hr)) {
-        t_check(hr == DXGI_ERROR_UNSUPPORTED || hr == S_OK, __FILE__, __LINE__, "driver type unavailable", "%s: %s", name, d3dh_hr_name(hr));
+        t_check(hr == DXGI_ERROR_UNSUPPORTED, __FILE__, __LINE__, "driver type unavailable", "%s: %s", name, d3dh_hr_name(hr));
         CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
         t_skip("%s device cannot be created here", name);
         return;
@@ -121,8 +121,34 @@ FLAG_OK(prevent_internal_threading, D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADI
 FLAG_OK(bgra_support, D3D11_CREATE_DEVICE_BGRA_SUPPORT)
 FLAG_OK(prevent_altering_layer_settings, D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY)
 FLAG_OK(disable_gpu_timeout, D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT)
-FLAG_OK(video_support, D3D11_CREATE_DEVICE_VIDEO_SUPPORT)
-FLAG_OK(debuggable, D3D11_CREATE_DEVICE_DEBUGGABLE)
+/* Win10 22H2 WARP has no video decoder: D3D11_CREATE_DEVICE_VIDEO_SUPPORT is refused with DXGI_ERROR_UNSUPPORTED (outputs cleared). */
+T(flag_video_support)
+{
+    ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
+    REQUIRE(DC_FN());
+    HRESULT hr = dc_warp(D3D11_CREATE_DEVICE_VIDEO_SUPPORT, NULL, 0, &d, &c, &fl);
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED);
+    CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0);
+    DC_REL(d, c);
+}
+/* Flags that make the runtime load the SDK debug layers: without the Graphics Tools feature installed (plain Win10) the creation fails with
+ * DXGI_ERROR_SDK_COMPONENT_MISSING and clears its outputs, with them it succeeds. */
+static int dc_layers_installed(void)
+{
+    ID3D11Device *d = NULL; HRESULT hr = dc_warp(D3D11_CREATE_DEVICE_DEBUG, NULL, 0, &d, NULL, NULL);
+    SAFE_RELEASE(d);
+    return SUCCEEDED(hr);
+}
+static void layer_flag_case(UINT f)
+{
+    ID3D11Device *d = NULL; ID3D11DeviceContext *c = NULL; D3D_FEATURE_LEVEL fl = DC_FL_SENTINEL;
+    REQUIRE(DC_FN());
+    HRESULT hr = dc_warp(f, NULL, 0, &d, &c, &fl);
+    if (dc_layers_installed()) { EXPECT_HR(hr, S_OK); CHECK(d != NULL && c != NULL); }
+    else { EXPECT_HR(hr, DXGI_ERROR_SDK_COMPONENT_MISSING); CHECK(d == NULL); CHECK(c == NULL); EXPECT_EQ(fl, 0); }
+    DC_REL(d, c);
+}
+T(flag_debuggable) { layer_flag_case(D3D11_CREATE_DEVICE_DEBUGGABLE); }
 FLAG_OK(combined_common, D3D11_CREATE_DEVICE_SINGLETHREADED | D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY)
 
 #define FLAG_STICKS(nm, f) T(creation_flags_##nm) { \
@@ -232,17 +258,15 @@ T(flag_switch_to_ref_reserved)
 {
     ID3D11Device *d = NULL;
     REQUIRE(DC_FN());
-    HRESULT hr = dc_warp(D3D11_CREATE_DEVICE_SWITCH_TO_REF, NULL, 0, &d, NULL, NULL);
-    EXPECT_HR(hr, S_OK);   /* the reserved flag is ignored on Win10 22H2 */
     SAFE_RELEASE(d);
+    layer_flag_case(D3D11_CREATE_DEVICE_SWITCH_TO_REF);   /* the reserved flag is ignored by the runtime but needs the layers like DEBUG does */
 }
 T(flag_unknown_high_bits)
 {
     ID3D11Device *d = NULL;
     REQUIRE(DC_FN());
-    HRESULT hr = dc_warp(0x00400000, NULL, 0, &d, NULL, NULL);
-    EXPECT_HR(hr, S_OK);   /* undefined flag bits are ignored on Win10 22H2 */
     SAFE_RELEASE(d);
+    layer_flag_case(0x00400000);   /* undefined flag bits are ignored on Win10 22H2 (an undefined bit also pulls in the layers) */
 }
 
 T(flag_bgra_format_support)
@@ -280,9 +304,14 @@ T(flag_video_support_video_device_interface)
     ID3D11Device *d = NULL; ID3D11VideoDevice *v = NULL;
     REQUIRE(DC_FN());
     HRESULT hr = dc_warp(D3D11_CREATE_DEVICE_VIDEO_SUPPORT, NULL, 0, &d, NULL, NULL);
-    if (FAILED(hr)) { t_skip("video support: %s", d3dh_hr_name(hr)); return; }
-    hr = ID3D11Device_QueryInterface(d, &IID_ID3D11VideoDevice, (void **)&v);
-    t_note("QI ID3D11VideoDevice with VIDEO_SUPPORT -> %s", d3dh_hr_name(hr));
+    if (SUCCEEDED(hr)) {   /* a video-capable device (not WARP on Win10 22H2): the interface must then be there */
+        EXPECT_HR(ID3D11Device_QueryInterface(d, &IID_ID3D11VideoDevice, (void **)&v), S_OK);
+        SAFE_RELEASE(v); SAFE_RELEASE(d); return;
+    }
+    EXPECT_HR(hr, DXGI_ERROR_UNSUPPORTED); CHECK(d == NULL);
+    /* and without the flag the device exposes no video device interface */
+    EXPECT_HR(dc_warp(0, NULL, 0, &d, NULL, NULL), S_OK);
+    if (d) { EXPECT_HR(ID3D11Device_QueryInterface(d, &IID_ID3D11VideoDevice, (void **)&v), E_NOINTERFACE); CHECK(v == NULL); }
     SAFE_RELEASE(v); SAFE_RELEASE(d);
 }
 

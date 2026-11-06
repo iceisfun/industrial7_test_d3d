@@ -179,3 +179,50 @@ TEST(gap4_vsd_stable_address) {
     FARPROC b = GetProcAddress(m, "VSD3DDebugConnectionBuffer");
     CHECK(a != NULL); CHECK(a == b);
 }
+
+/* ---- the remaining ShaderCache_* entry points: argument validation and the Create / GetDesc / Destroy round trip (Win10 22H2) ---- */
+UDECL(HRESULT, ShaderCache_AddValue, (void *cache, void *a, void *b, void *c, void *d));
+UDECL(HRESULT, ShaderCache_FindValue, (void *cache, void *a, void *b, void *c, void *d));
+UDECL(HRESULT, ShaderCache_FreeValue, (void *value));
+UDECL(HRESULT, ShaderCache_Flush, (void *cache));
+
+TEST(gap4_cache_null_arguments_are_invalid) {
+    ShaderCache_AddValue_pfn add = (ShaderCache_AddValue_pfn)t_proc_in("d3dscache.dll", "ShaderCache_AddValue");
+    ShaderCache_FindValue_pfn find = (ShaderCache_FindValue_pfn)t_proc_in("d3dscache.dll", "ShaderCache_FindValue");
+    ShaderCache_FreeValue_pfn fre = (ShaderCache_FreeValue_pfn)t_proc_in("d3dscache.dll", "ShaderCache_FreeValue");
+    ShaderCache_Flush_pfn fl = (ShaderCache_Flush_pfn)t_proc_in("d3dscache.dll", "ShaderCache_Flush");
+    REQUIRE(add); REQUIRE(find); REQUIRE(fre); REQUIRE(fl);
+    EXPECT_EQ((unsigned)add(NULL, NULL, NULL, NULL, NULL), 0x80070057u);
+    EXPECT_EQ((unsigned)find(NULL, NULL, NULL, NULL, NULL), 0x80070057u);
+    EXPECT_EQ((unsigned)fre(NULL), 0x80070057u);
+    EXPECT_EQ((unsigned)fl(NULL), 0x80070057u);
+}
+TEST(gap4_cache_create_zero_desc_roundtrip) {
+    ShaderCache_Create_pfn c = (ShaderCache_Create_pfn)t_proc_in("d3dscache.dll", "ShaderCache_Create");
+    ShaderCache_Destroy_pfn d = (ShaderCache_Destroy_pfn)t_proc_in("d3dscache.dll", "ShaderCache_Destroy");
+    ShaderCache_GetDesc_pfn g = (ShaderCache_GetDesc_pfn)t_proc_in("d3dscache.dll", "ShaderCache_GetDesc");
+    REQUIRE(c); REQUIRE(d); REQUIRE(g);
+    unsigned char desc[0x40]; void *a = NULL, *b = NULL;
+    memset(desc, 0, sizeof desc);
+    EXPECT_EQ((unsigned)c(desc, &a), 0u);                 /* an all-zero description is accepted */
+    EXPECT_EQ((unsigned)c(desc, &b), 0u);
+    CHECK(a != NULL && b != NULL && a != b);
+    if (a) {
+        unsigned long long out[8]; memset(out, 0xEE, sizeof out);
+        g(a, out);
+        EXPECT_EQ(out[3], (ULONG_PTR)a);                    /* the copied block holds the cache's own address at offset 0x18 */
+        EXPECT_EQ(out[0], 0); EXPECT_EQ(out[1], 0); EXPECT_EQ(out[2], 0);
+        CHECK(out[7] != 0xEEEEEEEEEEEEEEEEULL);
+        EXPECT_EQ((unsigned)d(a, 0), 0u);
+    }
+    if (b) EXPECT_EQ((unsigned)d(b, 0), 0u);
+}
+TEST(gap4_cache_create_garbage_desc_still_creates) {
+    ShaderCache_Create_pfn c = (ShaderCache_Create_pfn)t_proc_in("d3dscache.dll", "ShaderCache_Create");
+    ShaderCache_Destroy_pfn d = (ShaderCache_Destroy_pfn)t_proc_in("d3dscache.dll", "ShaderCache_Destroy");
+    REQUIRE(c); REQUIRE(d);
+    unsigned char desc[0x40]; void *a = NULL;
+    memset(desc, 0xff, sizeof desc);
+    EXPECT_EQ((unsigned)c(desc, &a), 0u);                   /* the description is not validated */
+    if (a) EXPECT_EQ((unsigned)d(a, 0), 0u);
+}
