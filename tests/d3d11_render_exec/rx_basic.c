@@ -170,15 +170,17 @@ TEST(d3d11_render_exec_clear_depth_value_clamp)
     rx r; if (!rx_open(&r)) return;
     static const struct { float in; uint32_t bits; } tab[] = {
         { 0.0f, 0x00000000u }, { 1.0f, 0x3F800000u }, { 0.25f, 0x3E800000u }, { 0.5f, 0x3F000000u },
-        { 2.0f, 0x3F800000u }, { -1.0f, 0x00000000u }, { 0.75f, 0x3F400000u },
+        { 2.0f, 0x3F000000u }, { -1.0f, 0x3F000000u }, { 0.75f, 0x3F400000u },
     };
+    /* Measured on Win10 22H2 (WARP): a ClearDepthStencilView with a depth outside [0,1] is DROPPED, not clamped; the target keeps the previous
+     * clear value. In this table the entries 2.0 and -1.0 therefore expect the preceding value 0.5 (0x3F000000). */
     if (rx_target(&r, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM) && rx_depth(&r, DXGI_FORMAT_D32_FLOAT, 0)) {
         for (unsigned i = 0; i < A(tab); i++) {
             d3dh_image im; uint32_t got;
             ID3D11DeviceContext_ClearDepthStencilView(r.ctx, r.dsv, D3D11_CLEAR_DEPTH, tab[i].in, 0);
             if (!rx_read(&r, r.ds, 0, &im)) break;
             memcpy(&got, im.data, 4);
-            CHECKF(got == tab[i].bits, "clear depth %g: got %08x want %08x", tab[i].in, got, tab[i].bits);
+            CHECKF(got == tab[i].bits, "clear depth %g: got %08x want %08x (out-of-range clears are ignored)", tab[i].in, got, tab[i].bits);
             rx_expect_all32(&im, tab[i].bits);
             d3dh_image_free(&im);
         }
@@ -189,7 +191,8 @@ TEST(d3d11_render_exec_clear_depth_value_clamp)
 TEST(d3d11_render_exec_clear_depth_d16_values)
 {
     rx r; if (!rx_open(&r)) return;
-    static const struct { float in; uint16_t want; } tab[] = { { 0.0f, 0 }, { 1.0f, 0xFFFF }, { 2.0f, 0xFFFF }, { -3.0f, 0 } };
+    /* out-of-range depth clears are ignored (see clear_depth_value_clamp): 2.0 keeps 1.0 (0xFFFF), -3.0 keeps it too */
+    static const struct { float in; uint16_t want; } tab[] = { { 0.0f, 0 }, { 1.0f, 0xFFFF }, { 2.0f, 0xFFFF }, { -3.0f, 0xFFFF }, { 0.0f, 0 }, { 1.5f, 0 } };
     if (rx_target(&r, 4, 2, DXGI_FORMAT_R8G8B8A8_UNORM) && rx_depth(&r, DXGI_FORMAT_D16_UNORM, 0)) {
         for (unsigned i = 0; i < A(tab); i++) {
             d3dh_image im;
@@ -741,8 +744,9 @@ TEST(d3d11_render_exec_viewport_depth_range_maps_z)
     if (rx_target(&r, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM) && rx_depth(&r, DXGI_FORMAT_D32_FLOAT, 0)) {
         static const struct { float zmin, zmax, z, want; } tab[] = {
             { 0, 1, 0.5f, 0.5f }, { 0.25f, 0.75f, 1.0f, 0.75f }, { 0.25f, 0.75f, 0.0f, 0.25f }, { 0.25f, 0.75f, 0.5f, 0.5f },
-            { 0.5f, 0.5f, 0.75f, 0.5f }, { 1.0f, 0.0f, 0.25f, 0.75f }, { 0.0f, 0.5f, 1.0f, 0.5f },
+            { 0.5f, 0.5f, 0.75f, 0.5f }, { 1.0f, 0.0f, 0.25f, 0.5f }, { 0.0f, 0.5f, 1.0f, 0.5f },
         };
+        /* case 5 (MinDepth 1.0 > MaxDepth 0.0) is rejected by the runtime: the previous viewport (0.5..0.5) stays bound, so the depth is 0.5, not the mirrored 0.75 */
         D3D11_DEPTH_STENCIL_DESC dd; rx_dss_default(&dd); dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
         rx_set_dss(&r, &dd, 0);
         rx_set_rs(&r, D3D11_FILL_SOLID, D3D11_CULL_NONE, FALSE, TRUE, FALSE);

@@ -154,7 +154,8 @@ TEST(d3d11_render_exec_so_triangle_strip_decomposed_to_list)
         sov *o = NULL; size_t sz;
         if (SUCCEEDED(d3dh_readback_buffer11(r.dev, r.ctx, buf, (void **)&o, &sz))) {
             /* vertices: v0 (0,0) v1 (1,0) v2 (0,1) v3 (1,1) from the point at (0,0); lists: (v0 v1 v2) and (v2 v1 v3) */
-            static const float xy[6][2] = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 0, 1 }, { 1, 0 }, { 1, 1 } };
+            /* Win10 22H2 WARP: the second (odd) triangle of a strip is emitted as (v1, v3, v2) - the winding-preserving rotation, not (v2, v1, v3) */
+            static const float xy[6][2] = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
             for (int i = 0; i < 6; i++) CHECKF(o[i].p[0] == xy[i][0] && o[i].p[1] == xy[i][1], "list vertex %d: %g %g want %g %g", i, o[i].p[0], o[i].p[1], xy[i][0], xy[i][1]);
             free(o);
         }
@@ -470,12 +471,71 @@ TEST(d3d11_render_exec_gs_instancing_attribute)
     rx_close(&r);
 }
 
+TEST(d3d11_render_exec_gs_sv_index_member_order_shifts_interpolants)
+{
+    rx r; if (!rx_open(&r)) return;
+    /* Measured on Win10 22H2 (WARP): declaring SV_RenderTargetArrayIndex BEFORE an interpolant in the GS output struct assigns it an output
+     * register ahead of COLOR, and the pixel shader (which does not consume it) reads COLOR from the shifted register: the draw produces no red.
+     * Declared after COLOR, or with a pixel shader that reads no interpolant, the same geometry renders. */
+    static const char vs_src[] = HL(float4 main(uint id : SV_VertexID) : SV_Position { return float4(0, 0, 0, 1); });
+    static const char gs_first[] = HL(
+        struct O { float4 p : SV_Position; uint rt : SV_RenderTargetArrayIndex; float4 c : COLOR; };
+        [maxvertexcount(3)] void main(point float4 i[1] : SV_Position, inout TriangleStream<O> s) {
+            O o; o.rt = 2; o.c = float4(1, 0, 0, 1);
+            o.p = float4(-1, 1, 0, 1); s.Append(o); o.p = float4(3, 1, 0, 1); s.Append(o); o.p = float4(-1, -3, 0, 1); s.Append(o);
+        });
+    static const char gs_last[] = HL(
+        struct O { float4 p : SV_Position; float4 c : COLOR; uint rt : SV_RenderTargetArrayIndex; };
+        [maxvertexcount(3)] void main(point float4 i[1] : SV_Position, inout TriangleStream<O> s) {
+            O o; o.rt = 2; o.c = float4(1, 0, 0, 1);
+            o.p = float4(-1, 1, 0, 1); s.Append(o); o.p = float4(3, 1, 0, 1); s.Append(o); o.p = float4(-1, -3, 0, 1); s.Append(o);
+        });
+    static const char ps_col[] = HL(float4 main(float4 p : SV_Position, float4 c : COLOR) : SV_Target { return c; });
+    static const char ps_const[] = HL(float4 main(float4 p : SV_Position) : SV_Target { return float4(1, 0, 0, 1); });
+    ID3D11VertexShader *vs = rx_vs(&r, vs_src);
+    ID3D11GeometryShader *g1 = rx_gs(&r, gs_first), *g2 = rx_gs(&r, gs_last);
+    ID3D11PixelShader *pc = rx_ps(&r, ps_col), *pk = rx_ps(&r, ps_const);
+    static const struct { int g, p; unsigned want; const char *n; } cfg[] = {
+        { 1, 0, 0, "index first + COLOR pixel shader" }, { 1, 1, 64, "index first + constant pixel shader" },
+        { 2, 0, 64, "index last + COLOR pixel shader" }, { 2, 1, 64, "index last + constant pixel shader" },
+    };
+    if (vs && g1 && g2 && pc && pk) for (unsigned k = 0; k < A(cfg); k++) {
+        ID3D11Texture2D *ta = rx_tex2d(&r, 8, 8, 1, 4, DXGI_FORMAT_R8G8B8A8_UNORM, 1, D3D11_BIND_RENDER_TARGET, 0, NULL);
+        ID3D11RenderTargetView *rtv = NULL;
+        if (!ta) break;
+        D3D11_RENDER_TARGET_VIEW_DESC d; memset(&d, 0, sizeof d);
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.ArraySize = 4;
+        EXPECT_HR_OK(ID3D11Device_CreateRenderTargetView(r.dev, (ID3D11Resource *)ta, &d, &rtv));
+        if (!rtv) { ID3D11Texture2D_Release(ta); break; }
+        ID3D11DeviceContext_ClearRenderTargetView(r.ctx, rtv, RX_ZERO);
+        ID3D11DeviceContext_OMSetRenderTargets(r.ctx, 1, &rtv, NULL);
+        r.w = r.h = 8;
+        rx_viewport(&r, 0, 0, 8, 8, 0, 1);
+        rx_set_rs(&r, D3D11_FILL_SOLID, D3D11_CULL_NONE, FALSE, TRUE, FALSE);
+        ID3D11DeviceContext_IASetInputLayout(r.ctx, NULL);
+        ID3D11DeviceContext_IASetPrimitiveTopology(r.ctx, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+        ID3D11DeviceContext_VSSetShader(r.ctx, vs, NULL, 0);
+        ID3D11DeviceContext_GSSetShader(r.ctx, cfg[k].g == 1 ? g1 : g2, NULL, 0);
+        ID3D11DeviceContext_PSSetShader(r.ctx, cfg[k].p ? pk : pc, NULL, 0);
+        ID3D11DeviceContext_Draw(r.ctx, 1, 0);
+        d3dh_image im;
+        if (rx_read(&r, ta, 2, &im)) {
+            unsigned n = rx_count32(&im, RGBA8(255, 0, 0, 255));
+            CHECKF(n == cfg[k].want, "%s: %u red pixels in slice 2, want %u", cfg[k].n, n, cfg[k].want);
+            d3dh_image_free(&im);
+        }
+        ID3D11RenderTargetView_Release(rtv); ID3D11Texture2D_Release(ta);
+    }
+    SAFE_RELEASE(pc); SAFE_RELEASE(pk); SAFE_RELEASE(g1); SAFE_RELEASE(g2); SAFE_RELEASE(vs);
+    rx_close(&r);
+}
+
 TEST(d3d11_render_exec_gs_render_target_array_index)
 {
     rx r; if (!rx_open(&r)) return;
     static const char vs_src[] = HL(float4 main(uint id : SV_VertexID) : SV_Position { return float4(0, 0, 0, 1); });
     static const char gs_src[] = HL(
-        struct O { float4 p : SV_Position; uint rt : SV_RenderTargetArrayIndex; float4 c : COLOR; };
+        struct O { float4 p : SV_Position; float4 c : COLOR; uint rt : SV_RenderTargetArrayIndex; };   /* index member LAST: see gs_sv_index_member_order_shifts_interpolants */
         [maxvertexcount(3)] void main(point float4 i[1] : SV_Position, uint pid : SV_PrimitiveID, inout TriangleStream<O> s) {
             O o; o.rt = 3 - pid; o.c = float4((pid + 1) * 60 / 255.0, 0, 0, 1);
             o.p = float4(-1, 1, 0, 1); s.Append(o); o.p = float4(3, 1, 0, 1); s.Append(o); o.p = float4(-1, -3, 0, 1); s.Append(o);
@@ -517,7 +577,7 @@ TEST(d3d11_render_exec_gs_viewport_array_index)
     rx r; if (!rx_open(&r)) return;
     static const char vs_src[] = HL(float4 main(uint id : SV_VertexID) : SV_Position { return float4(0, 0, 0, 1); });
     static const char gs_src[] = HL(
-        struct O { float4 p : SV_Position; uint vp : SV_ViewportArrayIndex; float4 c : COLOR; };
+        struct O { float4 p : SV_Position; float4 c : COLOR; uint vp : SV_ViewportArrayIndex; };   /* index member LAST */
         [instance(2)] [maxvertexcount(3)] void main(point float4 i[1] : SV_Position, uint inst : SV_GSInstanceID, inout TriangleStream<O> s) {
             O o; o.vp = inst; o.c = inst ? float4(0, 1, 0, 1) : float4(1, 0, 0, 1);
             o.p = float4(-1, 1, 0, 1); s.Append(o); o.p = float4(3, 1, 0, 1); s.Append(o); o.p = float4(-1, -3, 0, 1); s.Append(o);
@@ -654,9 +714,9 @@ TEST(d3d11_render_exec_tess_quad_pow2_and_fractional_exact_factors)
 {
     rx r; if (!rx_open(&r)) return;
     static const struct { const char *part; float f; int tris; int hard; } tab[] = {
-        { "pow2", 1, 2, 1 }, { "pow2", 2, 8, 1 }, { "pow2", 4, 32, 1 }, { "pow2", 8, 128, 1 }, { "pow2", 3, 32, 1 }, { "pow2", 5, 128, 1 },
-        { "fractional_odd", 1, 2, 0 }, { "fractional_odd", 3, 18, 1 }, { "fractional_odd", 5, 50, 0 }, { "fractional_even", 2, 8, 1 }, { "fractional_even", 4, 32, 1 },
-        { "fractional_odd", 2, 18, 0 }, { "fractional_even", 3, 32, 0 },
+        { "pow2", 1, 2, 1 }, { "pow2", 2, 8, 1 }, { "pow2", 4, 32, 1 }, { "pow2", 8, 128, 1 },
+        { "fractional_odd", 1, 2, 1 }, { "fractional_odd", 3, 18, 1 }, { "fractional_odd", 5, 50, 1 }, { "fractional_even", 2, 8, 1 }, { "fractional_even", 4, 32, 1 },
+        { "fractional_odd", 2, 18, 1 }, { "fractional_even", 3, 32, 1 },
     };
     for (unsigned i = 0; i < A(tab); i++) {
         unsigned long long need = 0;
@@ -664,6 +724,22 @@ TEST(d3d11_render_exec_tess_quad_pow2_and_fractional_exact_factors)
         if (got < 0) break;
         if (tab[i].hard) CHECKF(got == tab[i].tris, "%s factor %g: %d triangles want %d", tab[i].part, tab[i].f, got, tab[i].tris);
         else if (got != tab[i].tris) t_note("%s factor %g gave %d triangles (expected about %d)", tab[i].part, tab[i].f, got, tab[i].tris);
+    }
+    rx_close(&r);
+}
+
+TEST(d3d11_render_exec_tess_quad_pow2_non_power_of_two_factor)
+{
+    rx r; if (!rx_open(&r)) return;
+    /* REAL DIVERGENCE (Win10 22H2 WARP): "pow2" partitioning must round a factor up to the next power of two (3 -> 4: 32 triangles,
+     * 5 -> 8: 128 triangles). WARP does not round: it tessellates factors 3 and 5 like "integer" (18 and 50 triangles). The check keeps the
+     * specified result and fails on WARP. */
+    static const struct { float f; int tris; } tab[] = { { 3, 32 }, { 5, 128 }, { 6, 128 }, { 7, 128 } };
+    for (unsigned i = 0; i < A(tab); i++) {
+        unsigned long long need = 0;
+        int got = tess_count(&r, HS_QUAD, DS_QUAD, "pow2", tab[i].f, D3D11_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST, 4, &need, NULL, NULL, NULL, NULL);
+        if (got < 0) break;
+        CHECKF(got == tab[i].tris, "pow2 factor %g: %d triangles want %d", tab[i].f, got, tab[i].tris);
     }
     rx_close(&r);
 }
@@ -1095,7 +1171,14 @@ TEST(d3d11_render_exec_deferred_context_map_discard_dynamic_buffer)
             }
         }
         /* NO_OVERWRITE map is rejected on a non-dynamic-index/vertex buffer type only; WRITE_NO_OVERWRITE on dynamic VB is valid on deferred contexts */
+        /* FinishCommandList reset the context: the first map of a dynamic resource in a recording must be a DISCARD, so NO_OVERWRITE fails */
         hr = ID3D11DeviceContext_Map(dc, (ID3D11Resource *)dyn, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
+        EXPECT_HR(hr, (HRESULT)0x887C0004);   /* D3D11_ERROR_DEFERRED_CONTEXT_MAP_WITHOUT_INITIAL_DISCARD */
+        if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(dc, (ID3D11Resource *)dyn, 0);
+        hr = ID3D11DeviceContext_Map(dc, (ID3D11Resource *)dyn, 0, D3D11_MAP_WRITE_DISCARD, 0, &m);
+        EXPECT_HR_OK(hr);
+        if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(dc, (ID3D11Resource *)dyn, 0);
+        hr = ID3D11DeviceContext_Map(dc, (ID3D11Resource *)dyn, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);   /* valid after the initial discard */
         EXPECT_HR_OK(hr);
         if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(dc, (ID3D11Resource *)dyn, 0);
         /* READ is not allowed on a deferred context */
