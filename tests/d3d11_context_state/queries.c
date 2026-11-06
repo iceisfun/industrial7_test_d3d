@@ -103,7 +103,7 @@ TEST(d3d11_context_state_query_create_invalid) {
     d.MiscFlags = 0x80;
     q = NULL;
     HRESULT hr = ID3D11Device_CreateQuery(f.dev, &d, &q);
-    t_note("CreateQuery(EVENT, MiscFlags=0x80) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     SAFE_RELEASE(q);
     CLOSE();
 }
@@ -111,8 +111,7 @@ TEST(d3d11_context_state_query_create_validate_only) {
     OPEN();
     D3D11_QUERY_DESC d = { D3D11_QUERY_EVENT, 0 };
     HRESULT hr = ID3D11Device_CreateQuery(f.dev, &d, NULL);
-    t_note("CreateQuery(valid desc, NULL out) -> %s", d3dh_hr_name(hr));
-    CHECKF(hr == S_FALSE || hr == S_OK, "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE); /* validate-only success */
     d.Query = (D3D11_QUERY)200;
     hr = ID3D11Device_CreateQuery(f.dev, &d, NULL);
     EXPECT_HR(hr, E_INVALIDARG);
@@ -227,13 +226,13 @@ TEST(d3d11_context_state_getdata_bad_size) {
     ID3D11Query_Release(q);
     CLOSE();
 }
-TEST(d3d11_context_state_getdata_not_ended_observed) {
+TEST(d3d11_context_state_getdata_not_ended) {
     OPEN();
     for (unsigned i = 0; i < NQT; i++) {
         ID3D11Query *q = mkq(&f, QT[i].q);
         if (!q) continue;
         HRESULT hr = ID3D11DeviceContext_GetData(f.ctx, (ID3D11Asynchronous *)q, NULL, 0, 0);
-        t_note("%s: GetData before any End -> %s", QT[i].name, d3dh_hr_name(hr));
+        CHECKF(hr == DXGI_ERROR_INVALID_CALL, "%s: GetData before any End -> %s", QT[i].name, d3dh_hr_name(hr));
         ID3D11Query_Release(q);
     }
     CLOSE();
@@ -339,8 +338,9 @@ TEST(d3d11_context_state_timestamp_disjoint) {
     EXPECT_HR(wait_data(&f, (ID3D11Asynchronous *)t1, &a, sizeof a, 0), S_OK);
     EXPECT_HR(wait_data(&f, (ID3D11Asynchronous *)t2, &b, sizeof b, 0), S_OK);
     CHECK(dd.Disjoint == TRUE || dd.Disjoint == FALSE);
-    t_note("timestamp frequency=%llu disjoint=%d t1=%llu t2=%llu", (unsigned long long)dd.Frequency, dd.Disjoint, (unsigned long long)a, (unsigned long long)b);
-    if (!dd.Disjoint) { CHECK(dd.Frequency != 0); CHECK(b >= a); }
+    EXPECT_EQ(dd.Disjoint, FALSE);
+    CHECK(dd.Frequency != 0); CHECK(b >= a);
+    if (f.dt == D3D_DRIVER_TYPE_WARP) EXPECT_EQ((ULONG_PTR)dd.Frequency, 10000000); /* WARP on Win10: 10 MHz */
 out:
     SAFE_RELEASE(dj); SAFE_RELEASE(t1); SAFE_RELEASE(t2);
     CLOSE();
@@ -376,8 +376,9 @@ TEST(d3d11_context_state_pipeline_statistics_draw) {
     EXPECT_EQ(st.IAPrimitives, 1);
     EXPECT_EQ(st.GSInvocations, 0); EXPECT_EQ(st.GSPrimitives, 0);
     EXPECT_EQ(st.HSInvocations, 0); EXPECT_EQ(st.DSInvocations, 0); EXPECT_EQ(st.CSInvocations, 0);
-    t_note("stats: VS=%llu CIn=%llu CPrim=%llu PS=%llu", (unsigned long long)st.VSInvocations, (unsigned long long)st.CInvocations,
-           (unsigned long long)st.CPrimitives, (unsigned long long)st.PSInvocations);
+    EXPECT_EQ(st.VSInvocations, 3);
+    EXPECT_EQ(st.CInvocations, 1); EXPECT_EQ(st.CPrimitives, 3); /* WARP counts */
+    CHECK(st.PSInvocations > 0);
     ID3D11DeviceContext_ClearState(f.ctx);
     scene_close(&s); ID3D11Query_Release(q);
     CLOSE();
@@ -458,7 +459,7 @@ TEST(d3d11_context_state_query_refcount_during_flight) {
     ULONG base = RC(q);
     ID3D11DeviceContext_End(f.ctx, (ID3D11Asynchronous *)q);
     ULONG after = RC(q);
-    t_note("query refcount base=%lu after End=%lu", base, after);
+    EXPECT_EQ(after, base); /* an in-flight query holds no public reference */
     ID3D11Query_Release(q); /* released while in flight: must not crash, nothing left to observe */
     ID3D11DeviceContext_Flush(f.ctx);
     CLOSE();
@@ -501,7 +502,7 @@ TEST(d3d11_context_state_predication_roundtrip) {
     ULONG base = RC(p);
     ID3D11Predicate *g = NULL; BOOL v = 0x55;
     ID3D11DeviceContext_SetPredication(f.ctx, p, TRUE);
-    CHECK(RC(p) > base);
+    EXPECT_EQ(RC(p), base); /* binding takes no public reference on Win10 */
     ID3D11DeviceContext_GetPredication(f.ctx, &g, &v);
     EXPECT_EQ(g, p); EXPECT_EQ(v, TRUE);
     SAFE_RELEASE(g);
@@ -614,14 +615,14 @@ static void annotation_checks(ID3D11DeviceContext *c)
     /* levels depend on whether a profiling tool is attached: only the relations are hard-checked */
     INT l1 = ID3DUserDefinedAnnotation_BeginEvent(a, L"outer");
     INT l2 = ID3DUserDefinedAnnotation_BeginEvent(a, L"inner");
-    t_note("BeginEvent levels: %d, %d", l1, l2);
-    if (l1 >= 0) EXPECT_EQ(l2, l1 + 1);
+    /* Win10 with no profiler/capture tool attached: BeginEvent/EndEvent return -1 */
+    EXPECT_EQ(l1, -1); EXPECT_EQ(l2, -1);
     ID3DUserDefinedAnnotation_SetMarker(a, L"marker");
     INT e1 = ID3DUserDefinedAnnotation_EndEvent(a);
     INT e2 = ID3DUserDefinedAnnotation_EndEvent(a);
-    t_note("EndEvent levels: %d, %d", e1, e2);
+    EXPECT_EQ(e1, -1); EXPECT_EQ(e2, -1);
     ID3DUserDefinedAnnotation_EndEvent(a); /* unbalanced End must not crash */
-    t_note("GetStatus=%d", ID3DUserDefinedAnnotation_GetStatus(a));
+    EXPECT_EQ(ID3DUserDefinedAnnotation_GetStatus(a), FALSE);
     ID3DUserDefinedAnnotation_Release(a);
 }
 TEST(d3d11_context_state_annotation_immediate) {
@@ -647,7 +648,7 @@ TEST(d3d11_context_state_annotation_shares_context_identity) {
     ULONG rc = RC(f.ctx);
     IUnknown *u = NULL;
     ID3DUserDefinedAnnotation_QueryInterface(a, &IID_ID3D11DeviceContext, (void **)&u);
-    t_note("annotation->QI(ID3D11DeviceContext) -> %p (context %p), ctx refcount %lu -> %lu", u, f.ctx, rc, RC(f.ctx));
+    EXPECT_EQ(u, f.ctx); EXPECT_EQ(RC(f.ctx), rc + 1);
     if (u) u->lpVtbl->Release(u);
     ID3DUserDefinedAnnotation_Release(a);
     CLOSE();
@@ -659,7 +660,7 @@ TEST(d3d11_context_state_multithread_default_and_toggle) {
     ID3D11Multithread *m = NULL;
     if (FAILED(ID3D11DeviceContext_QueryInterface(f.ctx, &IID_ID3D11Multithread, (void **)&m))) { t_skip("no ID3D11Multithread"); CLOSE(); return; }
     BOOL def = ID3D11Multithread_GetMultithreadProtected(m);
-    t_note("default GetMultithreadProtected=%d", def);
+    EXPECT_EQ(def, FALSE); /* Win10: immediate contexts start unprotected */
     EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(m, TRUE), def);
     EXPECT_EQ(ID3D11Multithread_GetMultithreadProtected(m), TRUE);
     EXPECT_EQ(ID3D11Multithread_SetMultithreadProtected(m, TRUE), TRUE);
@@ -738,13 +739,13 @@ out:
     ID3D11Multithread_Release(m);
     CLOSE();
 }
-TEST(d3d11_context_state_multithread_singlethreaded_device_observed) {
+TEST(d3d11_context_state_multithread_singlethreaded_device) {
     csf f; memset(&f, 0, sizeof f);
     HRESULT hr = d3dh_make_device11(&f.dev, &f.ctx, &f.fl, &f.dt, D3D11_CREATE_DEVICE_SINGLETHREADED);
     if (FAILED(hr)) { t_skip("no singlethreaded device: %s", d3dh_hr_name(hr)); return; }
     ID3D11Multithread *m = NULL;
     hr = ID3D11DeviceContext_QueryInterface(f.ctx, &IID_ID3D11Multithread, (void **)&m);
-    t_note("QI ID3D11Multithread on D3D11_CREATE_DEVICE_SINGLETHREADED device: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE); /* Win10: no ID3D11Multithread on a SINGLETHREADED device */
     if (m) {
         t_note("protected default=%d, Set(TRUE) returned %d", ID3D11Multithread_GetMultithreadProtected(m), ID3D11Multithread_SetMultithreadProtected(m, TRUE));
         ID3D11Multithread_SetMultithreadProtected(m, FALSE);

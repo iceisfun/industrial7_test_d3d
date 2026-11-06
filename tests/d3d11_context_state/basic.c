@@ -43,8 +43,8 @@ TEST(d3d11_context_state_qi_matrix) {
         { &IID_ID3D11DeviceContext, "ID3D11DeviceContext", 1 },
         { &IID_ID3D11DeviceContext1, "ID3D11DeviceContext1", 1 },
         { &IID_ID3D11DeviceContext2, "ID3D11DeviceContext2", 1 },
-        { &IID_ID3D11DeviceContext3, "ID3D11DeviceContext3", 0 },
-        { &IID_ID3D11DeviceContext4, "ID3D11DeviceContext4", 0 },
+        { &IID_ID3D11DeviceContext3, "ID3D11DeviceContext3", 1 },
+        { &IID_ID3D11DeviceContext4, "ID3D11DeviceContext4", 1 },
         { &IID_ID3D11Multithread, "ID3D11Multithread", 1 },
         { &IID_ID3DUserDefinedAnnotation, "ID3DUserDefinedAnnotation", 1 },
     };
@@ -98,8 +98,9 @@ TEST(d3d11_context_state_deferred_flags_nonzero) {
     OPEN();
     ID3D11DeviceContext *d = (void *)1;
     HRESULT hr = ID3D11Device_CreateDeferredContext(f.dev, 0x1, &d);
-    t_note("CreateDeferredContext(flags=1) -> %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) { t_note("GetContextFlags=%u", ID3D11DeviceContext_GetContextFlags(d)); ID3D11DeviceContext_Release(d); }
+    EXPECT_HR(hr, E_INVALIDARG); /* Win10: any non-zero ContextFlags is rejected */
+    if (SUCCEEDED(hr)) ID3D11DeviceContext_Release(d);
+    else CHECK(d == (void *)1); /* out pointer untouched on failure */
     CLOSE();
 }
 TEST(d3d11_context_state_deferred_unique) {
@@ -226,7 +227,7 @@ TEST(d3d11_context_state_clearstate_releases_refs) {
     ULONG base = RC(vb);
     UINT s = 16, o = 0;
     ID3D11DeviceContext_IASetVertexBuffers(f.ctx, 0, 1, &vb, &s, &o);
-    CHECK(RC(vb) > base);
+    EXPECT_EQ(RC(vb), base); /* Win10: binding takes no public reference */
     ID3D11DeviceContext_ClearState(f.ctx);
     EXPECT_EQ(RC(vb), base);
     SAFE_RELEASE(vb);
@@ -240,7 +241,8 @@ TEST(d3d11_context_state_set_holds_ref_get_adds_ref) {
     ULONG base = RC(vb);
     ID3D11DeviceContext_IASetVertexBuffers(f.ctx, 0, 1, &vb, &s, &o);
     ULONG bound = RC(vb);
-    CHECKF(bound > base, "binding must hold a reference (%lu -> %lu)", base, bound);
+    /* Win10: the runtime holds an internal bind reference only; the public count is unchanged by Set */
+    EXPECT_EQ(bound, base);
     ID3D11Buffer *g = NULL;
     ID3D11DeviceContext_IAGetVertexBuffers(f.ctx, 0, 1, &g, NULL, NULL);
     EXPECT_EQ(g, vb);
@@ -404,7 +406,7 @@ TEST(d3d11_context_state_ia_index_buffer) {
     g = (void *)1;
     ID3D11DeviceContext_IAGetIndexBuffer(f.ctx, &g, &gf, &go);
     CHECK(g == NULL);
-    t_note("after IASetIndexBuffer(NULL, R16_UINT, 0): format=%d offset=%u", gf, go);
+    EXPECT_EQ(gf, DXGI_FORMAT_R16_UINT); EXPECT_EQ(go, 0); /* Win10 keeps the format/offset passed with the NULL buffer */
     SAFE_RELEASE(ib);
     CLOSE();
 }
@@ -437,7 +439,8 @@ TEST(d3d11_context_state_ia_vb_refcount_symmetry) {
     ID3D11DeviceContext_IASetVertexBuffers(f.ctx, 0, 1, &vb, &s, &o);
     EXPECT_EQ(RC(vb), once);
     ID3D11DeviceContext_IASetVertexBuffers(f.ctx, 5, 1, &vb, &s, &o);
-    EXPECT_EQ(RC(vb), once + 1);
+    EXPECT_EQ(RC(vb), once);
+    EXPECT_EQ(once, base);
     ID3D11DeviceContext_ClearState(f.ctx);
     EXPECT_EQ(RC(vb), base);
     SAFE_RELEASE(vb);
@@ -526,7 +529,7 @@ TEST(d3d11_context_state_om_rtv_replaced) {
     if (!v[0] || !v[1]) { t_skip("rtv"); goto out; }
     ULONG b0 = RC(v[0]);
     ID3D11DeviceContext_OMSetRenderTargets(f.ctx, 1, &v[0], NULL);
-    CHECK(RC(v[0]) > b0);
+    EXPECT_EQ(RC(v[0]), b0); /* binding takes no public reference on Win10 */
     ID3D11DeviceContext_OMSetRenderTargets(f.ctx, 1, &v[1], NULL);
     EXPECT_EQ(RC(v[0]), b0);
     ID3D11DeviceContext_ClearState(f.ctx);
@@ -590,7 +593,7 @@ TEST(d3d11_context_state_om_blend_state_refcount) {
     if (!bs) { t_skip("bs"); CLOSE(); return; }
     ULONG base = RC(bs);
     ID3D11DeviceContext_OMSetBlendState(f.ctx, bs, NULL, ~0u);
-    CHECK(RC(bs) > base);
+    EXPECT_EQ(RC(bs), base); /* binding takes no public reference on Win10 */
     ID3D11DeviceContext_OMSetBlendState(f.ctx, NULL, NULL, ~0u);
     EXPECT_EQ(RC(bs), base);
     SAFE_RELEASE(bs);
@@ -606,7 +609,8 @@ TEST(d3d11_context_state_om_dss_roundtrip) {
         ID3D11DeviceContext_OMSetDepthStencilState(f.ctx, ds, refs[i]);
         ID3D11DeviceContext_OMGetDepthStencilState(f.ctx, &g, &gr);
         CHECKF(g == ds, "ref %u state", refs[i]);
-        CHECKF(gr == refs[i], "ref 0x%x -> 0x%x", refs[i], gr);
+        /* Win10: the stencil reference is stored in 8 bits (0x100 -> 0, 0xffffffff -> 0xff) */
+        CHECKF(gr == (refs[i] & 0xff), "ref 0x%x -> 0x%x", refs[i], gr);
         SAFE_RELEASE(g);
     }
     ID3D11DeviceContext_OMSetDepthStencilState(f.ctx, NULL, 3);
@@ -648,10 +652,10 @@ TEST(d3d11_context_state_om_keep_rtv_dsv) {
     ID3D11DeviceContext_OMGetRenderTargetsAndUnorderedAccessViews(f.ctx, 1, &grt, &gds, 1, 1, &gu);
     EXPECT_EQ(grt, rtv); EXPECT_EQ(gds, dsv); EXPECT_EQ(gu, uav);
     SAFE_RELEASE(grt); SAFE_RELEASE(gds); SAFE_RELEASE(gu);
-    /* plain OMSetRenderTargets does not drop UAVs placed after the RTVs?  observation only */
+    /* Win10: plain OMSetRenderTargets also unbinds the UAVs */
     ID3D11DeviceContext_OMSetRenderTargets(f.ctx, 1, &rtv, dsv);
     ID3D11DeviceContext_OMGetRenderTargetsAndUnorderedAccessViews(f.ctx, 0, NULL, NULL, 1, 1, &gu);
-    t_note("UAV slot 1 after plain OMSetRenderTargets: %p (bound earlier: %p)", gu, uav);
+    CHECKF(gu == NULL, "UAV slot 1 after plain OMSetRenderTargets: %p", gu);
     SAFE_RELEASE(gu);
     ID3D11DeviceContext_ClearState(f.ctx);
 out:
@@ -740,7 +744,8 @@ TEST(d3d11_context_state_rs_viewports_get_smaller_buffer) {
     D3D11_VIEWPORT g[4]; UINT c = 2; memset(g, 0x55, sizeof g);
     ID3D11DeviceContext_RSGetViewports(f.ctx, &c, g);
     CHECK(!memcmp(&g[0], &v[0], sizeof g[0])); CHECK(!memcmp(&g[1], &v[1], sizeof g[1]));
-    t_note("RSGetViewports(cap 2 of 4): *num=%u, slot2 untouched=%d", c, ((unsigned char *)&g[2])[0] == 0x55);
+    EXPECT_EQ(c, 2);
+    for (size_t i = 2 * sizeof g[0]; i < sizeof g; i++) if (((unsigned char *)g)[i] != 0x55) { CHECKF(0, "byte %zu beyond the capacity was written", i); break; }
     CLOSE();
 }
 TEST(d3d11_context_state_rs_viewports_get_larger_buffer) {
@@ -752,7 +757,7 @@ TEST(d3d11_context_state_rs_viewports_get_larger_buffer) {
     EXPECT_EQ(c, 2);
     CHECK(!memcmp(&g[0], &v[0], sizeof g[0])); CHECK(!memcmp(&g[1], &v[1], sizeof g[1]));
     D3D11_VIEWPORT z; memset(&z, 0, sizeof z);
-    t_note("RSGetViewports tail zeroed: %d", !memcmp(&g[2], &z, sizeof z));
+    CHECK(!memcmp(&g[2], &z, sizeof z)); CHECK(!memcmp(&g[3], &z, sizeof z)); /* Win10 zero-fills the unused tail */
     CLOSE();
 }
 TEST(d3d11_context_state_rs_scissors_roundtrip) {
@@ -779,13 +784,40 @@ TEST(d3d11_context_state_rs_scissors_zero_clears) {
     EXPECT_EQ(q, 0);
     CLOSE();
 }
+static void vp_roundtrip(csf *f, D3D11_VIEWPORT v, D3D11_VIEWPORT want, UINT want_n, const char *what)
+{
+    D3D11_VIEWPORT g; memset(&g, 0x55, sizeof g); UINT c = 1;
+    ID3D11DeviceContext_RSSetViewports(f->ctx, 1, &v);
+    ID3D11DeviceContext_RSGetViewports(f->ctx, &c, &g);
+    CHECKF(c == want_n, "%s: count %u want %u", what, c, want_n);
+    CHECKF(g.TopLeftX == want.TopLeftX && g.TopLeftY == want.TopLeftY && g.Width == want.Width && g.Height == want.Height &&
+           g.MinDepth == want.MinDepth && g.MaxDepth == want.MaxDepth,
+           "%s: got %g %g %g %g %g %g want %g %g %g %g %g %g", what, g.TopLeftX, g.TopLeftY, g.Width, g.Height, g.MinDepth, g.MaxDepth,
+           want.TopLeftX, want.TopLeftY, want.Width, want.Height, want.MinDepth, want.MaxDepth);
+}
 TEST(d3d11_context_state_rs_viewport_float_values_preserved) {
     OPEN();
-    D3D11_VIEWPORT v = { -10.5f, 3.25f, 0.5f, 1e6f, -1.0f, 2.0f }, g; UINT c = 1;
-    ID3D11DeviceContext_RSSetViewports(f.ctx, 1, &v);
-    ID3D11DeviceContext_RSGetViewports(f.ctx, &c, &g);
-    CHECK(g.TopLeftX == v.TopLeftX); CHECK(g.TopLeftY == v.TopLeftY); CHECK(g.Width == v.Width);
-    CHECK(g.Height == v.Height); CHECK(g.MinDepth == v.MinDepth); CHECK(g.MaxDepth == v.MaxDepth);
+    D3D11_VIEWPORT a = { -10.5f, 3.25f, 0.5f, 1e6f, 0.0f, 1.0f };
+    vp_roundtrip(&f, a, a, 1, "negative origin, huge height");
+    D3D11_VIEWPORT b = { 1.5f, 2.5f, 100.25f, 50.75f, 0.25f, 0.75f };
+    vp_roundtrip(&f, b, b, 1, "fractional");
+    D3D11_VIEWPORT c = { 0, 0, 16385, 16385, 0, 1 };
+    vp_roundtrip(&f, c, c, 1, "16385 (above D3D11_VIEWPORT_BOUNDS_MAX 16384 is stored as given)");
+    D3D11_VIEWPORT z = { 0, 0, 0, 0, 0, 1 };
+    vp_roundtrip(&f, z, z, 1, "empty");
+    CLOSE();
+}
+/* Win10: a viewport with an invalid depth range or an absurd extent/origin is rejected and the previous viewport stays. */
+TEST(d3d11_context_state_rs_viewport_invalid_values_rejected) {
+    OPEN();
+    D3D11_VIEWPORT ok = { 4, 5, 60, 70, 0.1f, 0.9f };
+    vp_roundtrip(&f, ok, ok, 1, "baseline");
+    D3D11_VIEWPORT bad[] = { { 0, 0, 10, 10, -1.0f, 1.0f }, { 0, 0, 10, 10, 0.0f, 2.0f }, { 0, 0, 10, 10, 0.8f, 0.2f } };
+    for (unsigned i = 0; i < 3; i++) vp_roundtrip(&f, bad[i], ok, 1, "invalid depth range keeps previous viewport");
+    D3D11_VIEWPORT big = { 0, 0, 1e9f, 1e9f, 0, 1 };
+    vp_roundtrip(&f, big, ok, 1, "1e9 extent is rejected");
+    D3D11_VIEWPORT bigoff = { -1e9f, -1e9f, 16384, 16384, 0, 1 };
+    vp_roundtrip(&f, bigoff, ok, 1, "-1e9 origin is rejected");
     CLOSE();
 }
 
@@ -835,7 +867,7 @@ TEST(d3d11_context_state_so_targets_unbind_refcount) {
     if (!b) { t_skip("so buf"); CLOSE(); return; }
     ULONG base = RC(b); UINT off = 0;
     ID3D11DeviceContext_SOSetTargets(f.ctx, 1, &b, &off);
-    CHECK(RC(b) > base);
+    EXPECT_EQ(RC(b), base); /* binding takes no public reference on Win10 */
     ID3D11DeviceContext_SOSetTargets(f.ctx, 0, NULL, NULL);
     EXPECT_EQ(RC(b), base);
     SAFE_RELEASE(b);
@@ -851,8 +883,8 @@ TEST(d3d11_context_state_so_vs_ia_hazard) {
     ID3D11Buffer *gv = NULL, *gs = NULL;
     ID3D11DeviceContext_IAGetVertexBuffers(f.ctx, 0, 1, &gv, NULL, NULL);
     ID3D11DeviceContext_SOGetTargets(f.ctx, 1, &gs);
-    t_note("buffer bound as IA vertex buffer then SO target: IA slot=%p SO slot=%p (buffer %p)", gv, gs, b);
-    CHECKF(!(gv == b && gs == b), "a buffer must not stay bound as both vertex buffer and SO target");
+    /* Win10: the SO binding wins and the IA binding is dropped */
+    CHECKF(gv == NULL, "IA vertex buffer slot still holds %p", gv); EXPECT_EQ(gs, b);
     SAFE_RELEASE(gv); SAFE_RELEASE(gs);
     ID3D11DeviceContext_ClearState(f.ctx);
     SAFE_RELEASE(b);
@@ -1012,7 +1044,7 @@ out:
     SAFE_RELEASE(srv); SAFE_RELEASE(dsv); SAFE_RELEASE(t);
     CLOSE();
 }
-TEST(d3d11_context_state_hazard_vs_srv_observed) {
+TEST(d3d11_context_state_hazard_vs_srv) {
     OPEN();
     ID3D11Texture2D *t = cs_tex(&f, 4, 4, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
     ID3D11ShaderResourceView *srv = t ? cs_srv(&f, (ID3D11Resource *)t) : NULL;
@@ -1024,7 +1056,8 @@ TEST(d3d11_context_state_hazard_vs_srv_observed) {
     ID3D11ShaderResourceView *gv = NULL, *gg = NULL;
     ID3D11DeviceContext_VSGetShaderResources(f.ctx, 0, 1, &gv);
     ID3D11DeviceContext_GSGetShaderResources(f.ctx, 0, 1, &gg);
-    t_note("hazard in non-PS stages: VS slot=%p GS slot=%p (srv %p)", gv, gg, srv);
+    /* Win10: the hazard unbinds the SRV in every graphics stage, not only PS */
+    CHECKF(gv == NULL, "VS SRV still bound: %p", gv); CHECKF(gg == NULL, "GS SRV still bound: %p", gg);
     SAFE_RELEASE(gv); SAFE_RELEASE(gg);
     ID3D11DeviceContext_ClearState(f.ctx);
 out:

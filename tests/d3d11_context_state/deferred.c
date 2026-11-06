@@ -221,7 +221,7 @@ TEST(d3d11_context_state_command_list_holds_resources) {
     ID3D11DeviceContext_ClearState(d);
     /* a recorded list keeps the resources it references alive (at least until released) */
     ULONG with_list = RC(b);
-    t_note("refcount base=%lu with command list=%lu", base, with_list);
+    EXPECT_EQ(with_list, base); /* Win10: the list holds the resource through internal references only */
     SAFE_RELEASE(cl);
     ID3D11DeviceContext_Flush(f.ctx);
     EXPECT_EQ(RC(b), base);
@@ -434,7 +434,7 @@ TEST(d3d11_context_state_deferred_map_no_overwrite_after_immediate_discard) {
     EXPECT_HR(ID3D11DeviceContext_Map(f.ctx, (ID3D11Resource *)b, 0, D3D11_MAP_WRITE_DISCARD, 0, &m), S_OK);
     ID3D11DeviceContext_Unmap(f.ctx, (ID3D11Resource *)b, 0);
     HRESULT hr = ID3D11DeviceContext_Map(d, (ID3D11Resource *)b, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
-    t_note("deferred NO_OVERWRITE after immediate-context discard: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, CS_ERR_DEFERRED_MAP_NO_DISCARD);
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(d, (ID3D11Resource *)b, 0);
     SAFE_RELEASE(b);
     CLOSE2();
@@ -479,7 +479,9 @@ TEST(d3d11_context_state_deferred_map_dynamic_texture) {
     if (FAILED(ID3D11Device_CreateTexture2D(f.dev, &td, NULL, &t))) { t_skip("dynamic texture"); CLOSE2(); return; }
     D3D11_MAPPED_SUBRESOURCE m; memset(&m, 0, sizeof m);
     EXPECT_HR(ID3D11DeviceContext_Map(d, (ID3D11Resource *)t, 0, D3D11_MAP_WRITE_DISCARD, 0, &m), S_OK);
-    CHECK(m.pData != NULL); CHECK(m.RowPitch >= 32);
+    CHECK(m.pData != NULL);
+    /* Win10: deferred Map of a dynamic texture reports no pitches (the runtime records the data) */
+    EXPECT_EQ(m.RowPitch, 0); EXPECT_EQ(m.DepthPitch, 0);
     ID3D11DeviceContext_Unmap(d, (ID3D11Resource *)t, 0);
     D3D11_MAPPED_SUBRESOURCE m2;
     HRESULT hr = ID3D11DeviceContext_Map(d, (ID3D11Resource *)t, 0, D3D11_MAP_READ, 0, &m2);
@@ -487,7 +489,7 @@ TEST(d3d11_context_state_deferred_map_dynamic_texture) {
     SAFE_RELEASE(t);
     CLOSE2();
 }
-TEST(d3d11_context_state_deferred_map_staging_read_observed) {
+TEST(d3d11_context_state_deferred_map_staging_read) {
     OPEN2();
     D3D11_BUFFER_DESC bd; memset(&bd, 0, sizeof bd);
     bd.ByteWidth = 64; bd.Usage = D3D11_USAGE_STAGING; bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -495,8 +497,7 @@ TEST(d3d11_context_state_deferred_map_staging_read_observed) {
     if (FAILED(ID3D11Device_CreateBuffer(f.dev, &bd, NULL, &b))) { t_skip("staging buffer"); CLOSE2(); return; }
     D3D11_MAPPED_SUBRESOURCE m;
     HRESULT hr = ID3D11DeviceContext_Map(d, (ID3D11Resource *)b, 0, D3D11_MAP_READ, 0, &m);
-    t_note("Map(READ) of a staging buffer on a deferred context: %s", d3dh_hr_name(hr));
-    CHECKF(FAILED(hr), "a deferred context cannot read back resource contents");
+    EXPECT_HR(hr, E_INVALIDARG); /* a deferred context cannot read back resource contents */
     if (SUCCEEDED(hr)) ID3D11DeviceContext_Unmap(d, (ID3D11Resource *)b, 0);
     SAFE_RELEASE(b);
     CLOSE2();
@@ -555,7 +556,7 @@ TEST(d3d11_context_state_deferred_execute_nested) {
     EXPECT_HR(ID3D11DeviceContext_FinishCommandList(outer, FALSE, &ol), S_OK);
     ID3D11DeviceContext_ExecuteCommandList(f.ctx, ol, FALSE);
     uint32_t px = 0;
-    if (cs_read_px(&f, t, 1, 1, &px)) t_note("nested ExecuteCommandList on a deferred context: pixel 0x%08x (0xff00ffff = executed)", px);
+    if (cs_read_px(&f, t, 1, 1, &px)) EXPECT_EQ(px, 0xff00ffffu); /* Win10: nested lists execute */
 out:
     SAFE_RELEASE(il); SAFE_RELEASE(ol); SAFE_RELEASE(inner); SAFE_RELEASE(outer); SAFE_RELEASE(rtv); SAFE_RELEASE(t);
     CLOSE();

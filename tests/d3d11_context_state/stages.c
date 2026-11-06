@@ -19,7 +19,8 @@ TEST(d3d11_context_state_##XS##_shader_roundtrip) { \
     ULONG base = RC(s); \
     SHT *g = NULL; \
     ID3D11DeviceContext_##XS##SetShader(f.ctx, s, NULL, 0); \
-    CHECK(RC(s) > base); \
+    /* Win10: the runtime keeps an internal bind reference; the public refcount does not move */ \
+    EXPECT_EQ(RC(s), base); \
     ULONG bound = RC(s); \
     ID3D11DeviceContext_##XS##GetShader(f.ctx, &g, NULL, NULL); \
     EXPECT_EQ(g, s); \
@@ -109,14 +110,14 @@ TEST(d3d11_context_state_##XS##_cb_refcount) { \
     if (!b) { t_skip("buf"); CLOSE(); return; } \
     ULONG base = RC(b); \
     ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, 0, 1, &b); \
-    ULONG one = RC(b); CHECK(one > base); \
+    ULONG one = RC(b); EXPECT_EQ(one, base); /* binding takes no public reference on Win10 */ \
     ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, 0, 1, &b); \
-    EXPECT_EQ(RC(b), one); \
+    EXPECT_EQ(RC(b), base); \
     ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, 1, 1, &b); \
-    EXPECT_EQ(RC(b), one + 1); \
+    EXPECT_EQ(RC(b), base); \
     ID3D11Buffer *g = NULL; \
     ID3D11DeviceContext_##XS##GetConstantBuffers(f.ctx, 1, 1, &g); \
-    EXPECT_EQ(RC(b), one + 2); SAFE_RELEASE(g); \
+    EXPECT_EQ(RC(b), base + 1); SAFE_RELEASE(g); /* Get adds a reference */ \
     ID3D11DeviceContext_ClearState(f.ctx); \
     EXPECT_EQ(RC(b), base); \
     SAFE_RELEASE(b); \
@@ -160,12 +161,12 @@ TEST(d3d11_context_state_##XS##_srv_refcount) { \
     if (!v) { t_skip("srv"); SAFE_RELEASE(t); CLOSE(); return; } \
     ULONG base = RC(v); \
     ID3D11DeviceContext_##XS##SetShaderResources(f.ctx, 3, 1, &v); \
-    ULONG one = RC(v); CHECK(one > base); \
+    ULONG one = RC(v); EXPECT_EQ(one, base); /* binding takes no public reference on Win10 */ \
     ID3D11ShaderResourceView *g = NULL; \
     ID3D11DeviceContext_##XS##GetShaderResources(f.ctx, 3, 1, &g); \
-    EXPECT_EQ(RC(v), one + 1); SAFE_RELEASE(g); \
+    EXPECT_EQ(RC(v), base + 1); SAFE_RELEASE(g); /* Get adds a reference */ \
     ID3D11DeviceContext_##XS##SetShaderResources(f.ctx, 3, 0, NULL); \
-    EXPECT_EQ(RC(v), one); \
+    EXPECT_EQ(RC(v), base); \
     ID3D11DeviceContext_ClearState(f.ctx); \
     EXPECT_EQ(RC(v), base); \
     SAFE_RELEASE(v); SAFE_RELEASE(t); \
@@ -262,33 +263,36 @@ out: \
     SAFE_RELEASE(sh); SAFE_RELEASE(b); SAFE_RELEASE(s); SAFE_RELEASE(v); SAFE_RELEASE(t); \
     CLOSE(); \
 } \
-TEST(d3d11_context_state_##XS##_slot_limit_oob_set) { \
+/* Out-of-range slot indices are NOT exercised: the Win10 runtime (no debug layer) does not validate them and either \
+ * silently writes past its slot arrays or raises an access violation depending on stage/array (probed: VS/PS/CS SRV and \
+ * VS sampler at the limit AV, constant buffers at the limit do not); with the debug layer the process exits. Undefined \
+ * behaviour, so only the last valid slot and ranges ending exactly at the limit are pinned. */ \
+TEST(d3d11_context_state_##XS##_slot_limit_last_slot) { \
     OPEN(); \
     ID3D11Buffer *b = cs_buf(&f, D3D11_BIND_CONSTANT_BUFFER, 64); \
     ID3D11SamplerState *s = cs_sampler(&f, D3D11_FILTER_MIN_MAG_MIP_POINT); \
     ID3D11Texture2D *t = NULL; ID3D11ShaderResourceView *v = stage_srv(&f, &t); \
     if (!b || !s || !v) { t_skip("objects"); goto out; } \
     ID3D11Buffer *two[2] = { b, b }; ID3D11SamplerState *twos[2] = { s, s }; ID3D11ShaderResourceView *twov[2] = { v, v }; \
-    ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, NCB, 1, &b); \
-    ID3D11DeviceContext_##XS##SetShaderResources(f.ctx, NSRV, 1, &v); \
-    ID3D11DeviceContext_##XS##SetSamplers(f.ctx, NSMP, 1, &s); \
+    ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, NCB - 1, 1, &b); \
+    ID3D11DeviceContext_##XS##SetShaderResources(f.ctx, NSRV - 1, 1, &v); \
+    ID3D11DeviceContext_##XS##SetSamplers(f.ctx, NSMP - 1, 1, &s); \
     { ID3D11Buffer *g[NCB]; ID3D11ShaderResourceView *gv[NSRV]; ID3D11SamplerState *gs[NSMP]; \
       ID3D11DeviceContext_##XS##GetConstantBuffers(f.ctx, 0, NCB, g); \
       ID3D11DeviceContext_##XS##GetShaderResources(f.ctx, 0, NSRV, gv); \
       ID3D11DeviceContext_##XS##GetSamplers(f.ctx, 0, NSMP, gs); \
-      for (UINT i = 0; i < NCB; i++) { CHECKF(g[i] == NULL, "slot %u bound by out-of-range cb set", i); SAFE_RELEASE(g[i]); } \
-      for (UINT i = 0; i < NSRV; i++) { CHECKF(gv[i] == NULL, "slot %u bound by out-of-range srv set", i); SAFE_RELEASE(gv[i]); } \
-      for (UINT i = 0; i < NSMP; i++) { CHECKF(gs[i] == NULL, "slot %u bound by out-of-range sampler set", i); SAFE_RELEASE(gs[i]); } } \
-    /* ranges that straddle the limit: only observed */ \
-    ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, NCB - 1, 2, two); \
-    ID3D11DeviceContext_##XS##SetSamplers(f.ctx, NSMP - 1, 2, twos); \
-    ID3D11DeviceContext_##XS##SetShaderResources(f.ctx, NSRV - 1, 2, twov); \
-    { ID3D11Buffer *g = NULL; ID3D11SamplerState *gs = NULL; ID3D11ShaderResourceView *gv = NULL; \
-      ID3D11DeviceContext_##XS##GetConstantBuffers(f.ctx, NCB - 1, 1, &g); \
-      ID3D11DeviceContext_##XS##GetSamplers(f.ctx, NSMP - 1, 1, &gs); \
-      ID3D11DeviceContext_##XS##GetShaderResources(f.ctx, NSRV - 1, 1, &gv); \
-      t_note(#XS " straddling Set: last cb=%p last sampler=%p last srv=%p", g, gs, gv); \
-      SAFE_RELEASE(g); SAFE_RELEASE(gs); SAFE_RELEASE(gv); } \
+      for (UINT i = 0; i < NCB; i++) { CHECKF(g[i] == (i == NCB - 1 ? b : NULL), "cb slot %u", i); SAFE_RELEASE(g[i]); } \
+      for (UINT i = 0; i < NSRV; i++) { CHECKF(gv[i] == (i == NSRV - 1 ? v : NULL), "srv slot %u", i); SAFE_RELEASE(gv[i]); } \
+      for (UINT i = 0; i < NSMP; i++) { CHECKF(gs[i] == (i == NSMP - 1 ? s : NULL), "sampler slot %u", i); SAFE_RELEASE(gs[i]); } } \
+    /* two-element ranges ending exactly at the limit */ \
+    ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, NCB - 2, 2, two); \
+    ID3D11DeviceContext_##XS##SetSamplers(f.ctx, NSMP - 2, 2, twos); \
+    ID3D11DeviceContext_##XS##SetShaderResources(f.ctx, NSRV - 2, 2, twov); \
+    { ID3D11Buffer *g[2]; ID3D11SamplerState *gs[2]; ID3D11ShaderResourceView *gv[2]; \
+      ID3D11DeviceContext_##XS##GetConstantBuffers(f.ctx, NCB - 2, 2, g); \
+      ID3D11DeviceContext_##XS##GetSamplers(f.ctx, NSMP - 2, 2, gs); \
+      ID3D11DeviceContext_##XS##GetShaderResources(f.ctx, NSRV - 2, 2, gv); \
+      for (int i = 0; i < 2; i++) { EXPECT_EQ(g[i], b); EXPECT_EQ(gs[i], s); EXPECT_EQ(gv[i], v); SAFE_RELEASE(g[i]); SAFE_RELEASE(gs[i]); SAFE_RELEASE(gv[i]); } } \
     ID3D11DeviceContext_ClearState(f.ctx); \
 out: \
     SAFE_RELEASE(b); SAFE_RELEASE(s); SAFE_RELEASE(v); SAFE_RELEASE(t); \
@@ -403,16 +407,37 @@ TEST(d3d11_context_state_cs_uav_each_slot) {
 TEST(d3d11_context_state_cs_uav_full_range_and_clear) {
     OPEN();
     NEED_FL(D3D_FEATURE_LEVEL_11_0);
+    ID3D11Buffer *bb[8] = { 0 }; ID3D11UnorderedAccessView *all[8] = { 0 }, *g[8]; UINT init[8]; int ok = 1;
+    for (int i = 0; i < 8; i++) { all[i] = mk_buf_uav(&f, &bb[i]); init[i] = 0xffffffffu; if (!all[i]) ok = 0; }
+    if (!ok) t_skip("uav");
+    else {
+        ID3D11DeviceContext_CSSetUnorderedAccessViews(f.ctx, 0, 8, all, init);
+        ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 8, g);
+        for (int i = 0; i < 8; i++) { CHECKF(g[i] == all[i], "slot %d", i); SAFE_RELEASE(g[i]); }
+        ID3D11DeviceContext_ClearState(f.ctx);
+        ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 8, g);
+        for (int i = 0; i < 8; i++) { CHECKF(g[i] == NULL, "slot %d after ClearState", i); SAFE_RELEASE(g[i]); }
+    }
+    for (int i = 0; i < 8; i++) { SAFE_RELEASE(all[i]); SAFE_RELEASE(bb[i]); }
+    CLOSE();
+}
+/* Win10: the same view in two slots of one call is a hazard; the whole call is dropped silently (nothing is bound). */
+TEST(d3d11_context_state_cs_uav_same_view_twice_binds_nothing) {
+    OPEN();
+    NEED_FL(D3D_FEATURE_LEVEL_11_0);
     ID3D11Buffer *b; ID3D11UnorderedAccessView *u = mk_buf_uav(&f, &b);
     if (!u) { t_skip("uav"); CLOSE(); return; }
-    ID3D11UnorderedAccessView *all[8], *g[8]; UINT init[8];
-    for (int i = 0; i < 8; i++) { all[i] = u; init[i] = 0xffffffffu; }
-    ID3D11DeviceContext_CSSetUnorderedAccessViews(f.ctx, 0, 8, all, init);
-    ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 8, g);
-    for (int i = 0; i < 8; i++) { CHECKF(g[i] == u, "slot %d", i); SAFE_RELEASE(g[i]); }
+    ID3D11UnorderedAccessView *dup[2] = { u, u }, *g[2]; UINT in[2] = { 0, 0 };
+    ID3D11DeviceContext_CSSetUnorderedAccessViews(f.ctx, 0, 2, dup, in);
+    ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 2, g);
+    CHECK(g[0] == NULL); CHECK(g[1] == NULL);
+    SAFE_RELEASE(g[0]); SAFE_RELEASE(g[1]);
+    /* the same view in different calls to different slots is accepted: the first binding is replaced (one slot at a time) */
+    ID3D11DeviceContext_CSSetUnorderedAccessViews(f.ctx, 0, 1, &u, in);
+    ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 2, g);
+    EXPECT_EQ(g[0], u); CHECK(g[1] == NULL);
+    SAFE_RELEASE(g[0]); SAFE_RELEASE(g[1]);
     ID3D11DeviceContext_ClearState(f.ctx);
-    ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 8, g);
-    for (int i = 0; i < 8; i++) { CHECKF(g[i] == NULL, "slot %d after ClearState", i); SAFE_RELEASE(g[i]); }
     SAFE_RELEASE(u); SAFE_RELEASE(b);
     CLOSE();
 }
@@ -423,7 +448,7 @@ TEST(d3d11_context_state_cs_uav_refcount) {
     if (!u) { t_skip("uav"); CLOSE(); return; }
     ULONG base = RC(u); UINT init = 0xffffffffu;
     ID3D11DeviceContext_CSSetUnorderedAccessViews(f.ctx, 0, 1, &u, &init);
-    CHECK(RC(u) > base);
+    EXPECT_EQ(RC(u), base); /* binding takes no public reference on Win10 */
     ID3D11DeviceContext_ClearState(f.ctx);
     EXPECT_EQ(RC(u), base);
     SAFE_RELEASE(u); SAFE_RELEASE(b);
@@ -468,8 +493,8 @@ TEST(d3d11_context_state_cs_uav_unbinds_cs_srv) {
     ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 1, &gu);
     ID3D11ShaderResourceView *g2 = NULL;
     ID3D11DeviceContext_CSGetShaderResources(f.ctx, 0, 1, &g2);
-    t_note("after SRV set on bound UAV resource: UAV=%p SRV=%p", gu, g2);
-    CHECKF(!(gu && g2), "resource bound as both UAV and SRV in CS");
+    /* Win10: the UAV binding wins; the later SRV bind of the same resource is dropped */
+    EXPECT_EQ(gu, u); CHECK(g2 == NULL);
     SAFE_RELEASE(gu); SAFE_RELEASE(g2);
     ID3D11DeviceContext_ClearState(f.ctx);
 out:
@@ -498,7 +523,7 @@ TEST(d3d11_context_state_cs_uav_initial_counts_accepted) {
     ID3D11DeviceContext_CSSetUnorderedAccessViews(f.ctx, 0, 1, &u, NULL);
     ID3D11UnorderedAccessView *g = NULL;
     ID3D11DeviceContext_CSGetUnorderedAccessViews(f.ctx, 0, 1, &g);
-    t_note("CSSetUnorderedAccessViews with NULL initial counts: slot=%p", g);
+    EXPECT_EQ(g, u); /* NULL pUAVInitialCounts is accepted (counts unchanged) */
     SAFE_RELEASE(g);
     ID3D11DeviceContext_ClearState(f.ctx);
     SAFE_RELEASE(u); SAFE_RELEASE(b);

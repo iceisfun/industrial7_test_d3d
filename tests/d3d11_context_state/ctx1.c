@@ -8,6 +8,26 @@
 
 static const struct { UINT first, num; } CB1[] = { { 0, 16 }, { 16, 16 }, { 32, 64 }, { 240, 16 }, { 0, 256 }, { 128, 128 } };
 
+/* Win10: GetConstantBuffers1 with a NULL ppConstantBuffers is not validated and faults (access violation). */
+typedef struct { ID3D11DeviceContext1 *c1; int stage; } getnull_ctx;
+static void getcb1_null(void *p)
+{
+    getnull_ctx *g = p; UINT first = 0, num = 0;
+    switch (g->stage) {
+    case 0: ID3D11DeviceContext1_VSGetConstantBuffers1(g->c1, 1, 1, NULL, &first, &num); break;
+    case 1: ID3D11DeviceContext1_HSGetConstantBuffers1(g->c1, 1, 1, NULL, &first, &num); break;
+    case 2: ID3D11DeviceContext1_DSGetConstantBuffers1(g->c1, 1, 1, NULL, &first, &num); break;
+    case 3: ID3D11DeviceContext1_GSGetConstantBuffers1(g->c1, 1, 1, NULL, &first, &num); break;
+    case 4: ID3D11DeviceContext1_PSGetConstantBuffers1(g->c1, 1, 1, NULL, &first, &num); break;
+    case 5: ID3D11DeviceContext1_CSGetConstantBuffers1(g->c1, 1, 1, NULL, &first, &num); break;
+    }
+}
+#define STAGE_INDEX_VS 0
+#define STAGE_INDEX_HS 1
+#define STAGE_INDEX_DS 2
+#define STAGE_INDEX_GS 3
+#define STAGE_INDEX_PS 4
+#define STAGE_INDEX_CS 5
 #define CB1_TESTS(XS) \
 TEST(d3d11_context_state_##XS##_cb1_offsets) { \
     OPEN1(); \
@@ -34,11 +54,12 @@ TEST(d3d11_context_state_##XS##_cb1_plain_set_defaults) { \
     ID3D11DeviceContext_##XS##SetConstantBuffers(f.ctx, 1, 1, &b); \
     ID3D11DeviceContext1_##XS##GetConstantBuffers1(c1, 1, 1, &g, &first, &num); \
     EXPECT_EQ(g, b); EXPECT_EQ(first, 0); \
-    t_note(#XS " NumConstants for a plain bind of a 1024 byte buffer (64 constants): %u", num); \
+    /* Win10: a plain bind reports NumConstants = D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT (4096), not the buffer size */ \
+    EXPECT_EQ(num, 4096); \
     SAFE_RELEASE(g); \
     /* offsets are optional on Get */ \
     ID3D11DeviceContext1_##XS##GetConstantBuffers1(c1, 1, 1, &g, NULL, NULL); EXPECT_EQ(g, b); SAFE_RELEASE(g); \
-    ID3D11DeviceContext1_##XS##GetConstantBuffers1(c1, 1, 1, NULL, &first, NULL); EXPECT_EQ(first, 0); \
+    { getnull_ctx gc = { c1, STAGE_INDEX_##XS }; EXPECT_EQ(t_try(getcb1_null, &gc), 0xc0000005); } \
     SAFE_RELEASE(b); \
     CLOSE1(); \
 } \
@@ -50,24 +71,26 @@ TEST(d3d11_context_state_##XS##_cb1_null_ranges) { \
     ID3D11DeviceContext1_##XS##SetConstantBuffers1(c1, 0, 1, &b, NULL, NULL); \
     ID3D11DeviceContext1_##XS##GetConstantBuffers1(c1, 0, 1, &g, &first, &num); \
     EXPECT_EQ(g, b); EXPECT_EQ(first, 0); \
-    t_note(#XS " SetConstantBuffers1 with NULL ranges: NumConstants=%u (buffer has 64)", num); \
+    EXPECT_EQ(num, 4096); /* NULL ranges behave like a plain bind */ \
     SAFE_RELEASE(g); \
     SAFE_RELEASE(b); \
     CLOSE1(); \
 } \
-TEST(d3d11_context_state_##XS##_cb1_misaligned_observed) { \
+TEST(d3d11_context_state_##XS##_cb1_misaligned) { \
     OPEN1(); \
     ID3D11Buffer *b = cs_buf(&f, D3D11_BIND_CONSTANT_BUFFER, 4096); \
     if (!b) { t_skip("buf"); CLOSE1(); return; } \
     UINT first = 1, num = 16, gf = 0x55, gn = 0x55; ID3D11Buffer *g = NULL; \
     ID3D11DeviceContext1_##XS##SetConstantBuffers1(c1, 2, 1, &b, &first, &num); \
     ID3D11DeviceContext1_##XS##GetConstantBuffers1(c1, 2, 1, &g, &gf, &gn); \
-    t_note(#XS " misaligned FirstConstant=1: bound=%d first=%u num=%u", g == b, gf, gn); \
+    /* Win10: a FirstConstant that is not a multiple of 16 is rejected; the slot stays empty (defaults reported) */ \
+    CHECKF(g == NULL, #XS " misaligned FirstConstant=1 was bound"); EXPECT_EQ(gf, 0); EXPECT_EQ(gn, 4096); \
     SAFE_RELEASE(g); \
     first = 240; num = 32; /* past the end of the buffer */ \
     ID3D11DeviceContext1_##XS##SetConstantBuffers1(c1, 4, 1, &b, &first, &num); \
     g = NULL; ID3D11DeviceContext1_##XS##GetConstantBuffers1(c1, 4, 1, &g, &gf, &gn); \
-    t_note(#XS " range past end of buffer: bound=%d first=%u num=%u", g == b, gf, gn); \
+    /* Win10 (no debug layer): a range running past the end of the buffer is stored as given */ \
+    EXPECT_EQ(g, b); EXPECT_EQ(gf, 240); EXPECT_EQ(gn, 32); \
     SAFE_RELEASE(g); \
     SAFE_RELEASE(b); \
     CLOSE1(); \
@@ -100,8 +123,7 @@ TEST(d3d11_context_state_cb1_rebind_resets_range) {
     ID3D11DeviceContext_VSSetConstantBuffers(f.ctx, 0, 1, &b);
     ID3D11DeviceContext1_VSGetConstantBuffers1(c1, 0, 1, &g, &gf, &gn);
     EXPECT_EQ(g, b); EXPECT_EQ(gf, 0);
-    t_note("range after plain rebind: first=%u num=%u", gf, gn);
-    CHECKF(gn != 16, "a plain SetConstantBuffers must drop the earlier sub-range");
+    EXPECT_EQ(gn, 4096); /* a plain SetConstantBuffers drops the earlier sub-range */
     SAFE_RELEASE(g); SAFE_RELEASE(b);
     CLOSE1();
 }
@@ -114,7 +136,7 @@ TEST(d3d11_context_state_cb1_clearstate_resets_range) {
     ID3D11DeviceContext_ClearState(f.ctx);
     ID3D11DeviceContext1_VSGetConstantBuffers1(c1, 0, 1, &g, &gf, &gn);
     CHECK(g == NULL);
-    t_note("ranges for an empty slot after ClearState: first=%u num=%u", gf, gn);
+    EXPECT_EQ(gf, 0); EXPECT_EQ(gn, 4096); /* empty slot reports the defaults */
     SAFE_RELEASE(b);
     CLOSE1();
 }
@@ -312,7 +334,7 @@ out:
     SAFE_RELEASE(s); SAFE_RELEASE(d);
     CLOSE1();
 }
-TEST(d3d11_context_state_copy_subresource_region1_flags_observed) {
+TEST(d3d11_context_state_copy_subresource_region1_flags) {
     OPEN1();
     UINT src[16], z[16] = { 0 };
     for (int i = 0; i < 16; i++) src[i] = 0x55 + i;
@@ -324,7 +346,7 @@ TEST(d3d11_context_state_copy_subresource_region1_flags_observed) {
         ID3D11DeviceContext1_CopySubresourceRegion1(c1, (ID3D11Resource *)d, 0, 0, 0, 0, (ID3D11Resource *)s, 0, NULL, fl[k]);
         void *p = NULL; size_t n = 0;
         if (SUCCEEDED(d3dh_readback_buffer11(f.dev, f.ctx, d, &p, &n))) {
-            t_note("CopySubresourceRegion1 flags=%u on DEFAULT buffer: %s", fl[k], !memcmp(p, src, 64) ? "copied" : "not copied");
+            CHECKF(!memcmp(p, src, 64), "CopySubresourceRegion1 flags=%u on a DEFAULT buffer must copy", fl[k]); /* Win10: copied for both */
             free(p);
         }
     }
@@ -390,7 +412,7 @@ TEST(d3d11_context_state_update_subresource1_texture_pitch) {
     SAFE_RELEASE(t);
     CLOSE1();
 }
-TEST(d3d11_context_state_update_subresource1_discard_observed) {
+TEST(d3d11_context_state_update_subresource1_discard) {
     OPEN1();
     UINT data[16];
     for (int i = 0; i < 16; i++) data[i] = i + 1;
@@ -398,7 +420,7 @@ TEST(d3d11_context_state_update_subresource1_discard_observed) {
     if (!b) { t_skip("buf"); CLOSE1(); return; }
     ID3D11DeviceContext1_UpdateSubresource1(c1, (ID3D11Resource *)b, 0, NULL, data, 0, 0, D3D11_COPY_DISCARD);
     void *p = NULL; size_t n = 0;
-    if (SUCCEEDED(d3dh_readback_buffer11(f.dev, f.ctx, b, &p, &n))) { t_note("UpdateSubresource1(COPY_DISCARD, full) stored data: %d", !memcmp(p, data, 64)); free(p); }
+    if (SUCCEEDED(d3dh_readback_buffer11(f.dev, f.ctx, b, &p, &n))) { CHECK(!memcmp(p, data, 64)); /* Win10: stored */ free(p); }
     SAFE_RELEASE(b);
     CLOSE1();
 }
@@ -454,18 +476,18 @@ TEST(d3d11_context_state_state_object_create_args) {
     static const D3D_FEATURE_LEVEL l[] = { D3D_FEATURE_LEVEL_11_0 };
     ID3DDeviceContextState *s = (void *)1; D3D_FEATURE_LEVEL ch = 0;
     HRESULT hr = ID3D11Device1_CreateDeviceContextState(d1, 0, l, 1, D3D11_SDK_VERSION, &IID_IUnknown, &ch, &s);
-    t_note("CreateDeviceContextState(Emulated=IID_IUnknown) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) SAFE_RELEASE(s);
     s = (void *)1;
     hr = ID3D11Device1_CreateDeviceContextState(d1, 0x80, l, 1, D3D11_SDK_VERSION, &IID_ID3D11Device1, &ch, &s);
-    t_note("CreateDeviceContextState(Flags=0x80) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) SAFE_RELEASE(s);
     s = (void *)1;
     hr = ID3D11Device1_CreateDeviceContextState(d1, 0, l, 0, D3D11_SDK_VERSION, &IID_ID3D11Device1, &ch, &s);
-    t_note("CreateDeviceContextState(0 levels) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     if (SUCCEEDED(hr)) SAFE_RELEASE(s);
     hr = ID3D11Device1_CreateDeviceContextState(d1, 0, l, 1, D3D11_SDK_VERSION, &IID_ID3D11Device1, &ch, NULL);
-    t_note("CreateDeviceContextState(NULL out) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE); /* validate-only: success without creating an object */
     CLOSE_STATE();
 }
 TEST(d3d11_context_state_state_swap_isolation) {
@@ -525,18 +547,18 @@ TEST(d3d11_context_state_state_swap_same_state_twice) {
     SAFE_RELEASE(orig); SAFE_RELEASE(p1); SAFE_RELEASE(p2); SAFE_RELEASE(s);
     CLOSE_STATE();
 }
-TEST(d3d11_context_state_state_swap_emulated_feature_level_observed) {
+TEST(d3d11_context_state_state_swap_emulated_feature_level) {
     OPEN_STATE();
     static const D3D_FEATURE_LEVEL l10[] = { D3D_FEATURE_LEVEL_10_0 };
     ID3DDeviceContextState *s = NULL, *prev = NULL;
     D3D_FEATURE_LEVEL ch = 0;
     if (FAILED(ID3D11Device1_CreateDeviceContextState(d1, 0, l10, 1, D3D11_SDK_VERSION, &IID_ID3D11Device, &ch, &s))) { t_skip("10_0 state"); CLOSE_STATE(); return; }
-    t_note("device feature level before swap: 0x%x", ID3D11Device_GetFeatureLevel(f.dev));
+    EXPECT_EQ(ID3D11Device_GetFeatureLevel(f.dev), f.fl);
     ID3D11DeviceContext1_SwapDeviceContextState(c1, s, &prev);
-    t_note("device feature level with 10_0 state active: 0x%x", ID3D11Device_GetFeatureLevel(f.dev));
+    EXPECT_EQ(ID3D11Device_GetFeatureLevel(f.dev), D3D_FEATURE_LEVEL_10_0); /* the device reports the emulated level while the state is active */
     ID3D11Device1 *q = NULL;
     HRESULT hr = ID3D11Device_QueryInterface(f.dev, &IID_ID3D11Device1, (void **)&q);
-    t_note("QI ID3D11Device1 with ID3D11Device-emulating state active: %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (q) ID3D11Device1_Release(q);
     if (prev) { ID3D11DeviceContext1_SwapDeviceContextState(c1, prev, NULL); ID3DDeviceContextState_Release(prev); }
     EXPECT_EQ(ID3D11Device_GetFeatureLevel(f.dev), f.fl);
