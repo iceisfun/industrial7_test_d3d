@@ -118,16 +118,16 @@ TEST(d3d9_core_cdt_matrix_ref_note) {
     D9_GET(d);
     if (!IDirect3D9_GetAdapterCount(d)) { IDirect3D9_Release(d); t_skip("no adapters"); return; }
     HRESULT hr = IDirect3D9_CheckDeviceType(d, 0, REF, D3DFMT_X8R8G8B8, D3DFMT_X8R8G8B8, TRUE);
-    t_note("REF X8R8G8B8/X8R8G8B8 windowed: %s (REF rasteriser ships only with the SDK)", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);                 /* Win10 22H2: the REF device type is answered from the runtime's tables even without the SDK rasteriser */
     hr = IDirect3D9_CheckDeviceType(d, 0, SW, D3DFMT_X8R8G8B8, D3DFMT_X8R8G8B8, TRUE);
-    t_note("SW X8R8G8B8/X8R8G8B8 windowed (no software device registered): %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D9_NOTAVAILABLE);      /* no software device registered */
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_cdt_hal_x8r8g8b8_windowed_note) {
     D9_GET(d);
     if (!IDirect3D9_GetAdapterCount(d)) { IDirect3D9_Release(d); t_skip("no adapters"); return; }
     HRESULT hr = IDirect3D9_CheckDeviceType(d, 0, HAL, D3DFMT_X8R8G8B8, D3DFMT_X8R8G8B8, TRUE);
-    t_note("HAL X8R8G8B8/X8R8G8B8 windowed -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (hr == S_OK) {
         /* A HAL that accepts X8R8G8B8 as adapter format accepts the alpha variant as windowed back buffer too, or says NOTAVAILABLE. */
         hr = IDirect3D9_CheckDeviceType(d, 0, HAL, D3DFMT_X8R8G8B8, D3DFMT_A8R8G8B8, TRUE);
@@ -193,7 +193,7 @@ TEST(d3d9_core_cdf_nullref_allows_unknown_adapter_format) {
     D9_GET(d);
     if (!IDirect3D9_GetAdapterCount(d)) { IDirect3D9_Release(d); t_skip("no adapters"); return; }
     HRESULT hr = IDirect3D9_CheckDeviceFormat(d, 0, NREF, D3DFMT_UNKNOWN, 0, D3DRTYPE_TEXTURE, D3DFMT_A8R8G8B8);
-    t_note("NULLREF with UNKNOWN adapter format -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_cdf_nondisplay_adapter_format_notavailable) {
@@ -434,7 +434,8 @@ TEST(d3d9_core_cdms_nullref_accepted_devtype) {
     if (!IDirect3D9_GetAdapterCount(d)) { IDirect3D9_Release(d); t_skip("no adapters"); return; }
     DWORD q = 77;
     HRESULT hr = IDirect3D9_CheckDeviceMultiSampleType(d, 0, NREF, D3DFMT_X8R8G8B8, TRUE, D3DMULTISAMPLE_NONE, &q);
-    t_note("NULLREF multisample NONE -> %s quality %lu", d3dh_hr_name(hr), q);
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(q, 1);
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_cdms_plain_vs_ex) {
@@ -495,7 +496,7 @@ TEST(d3d9_core_cdsm_non_z_ds_format_fails) {
     D3DDEVTYPE t = hal_or_skip(d);
     if (!t) { IDirect3D9_Release(d); t_skip("no HAL caps"); return; }
     HRESULT hr = IDirect3D9_CheckDepthStencilMatch(d, 0, t, D3DFMT_X8R8G8B8, D3DFMT_X8R8G8B8, D3DFMT_A8R8G8B8);
-    t_note("color format used as depth format -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, D9_INVALIDCALL);
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_cdsm_consistent_with_cdf) {

@@ -37,7 +37,8 @@ TEST(d3d9_core_caps_failure_zeroes_struct) {
     for (unsigned i = 0; i < N(tys); i++) {
         D3DCAPS9 c; memset(&c, 0xA5, sizeof c);
         HRESULT hr = IDirect3D9_GetDeviceCaps(d, 0, tys[i], &c);
-        t_note("GetDeviceCaps devtype %u -> %s", tys[i], d3dh_hr_name(hr));
+        /* Win10 22H2: the runtime answers HAL, REF and NULLREF itself; SW needs RegisterSoftwareDevice */
+        CHECKF(hr == (tys[i] == D3DDEVTYPE_SW ? D9_NOTAVAILABLE : S_OK), "GetDeviceCaps devtype %u -> %s", tys[i], d3dh_hr_name(hr));
         if (FAILED(hr)) CHECKF(caps_zero(&c), "failed call (%s) must return zeroed caps for devtype %u", d3dh_hr_name(hr), tys[i]);
     }
     IDirect3D9_Release(d);
@@ -49,8 +50,8 @@ TEST(d3d9_core_caps_invalid_devtypes_note) {
     for (unsigned i = 0; i < N(bad); i++) {
         D3DCAPS9 c; memset(&c, 0xA5, sizeof c);
         HRESULT hr = IDirect3D9_GetDeviceCaps(d, 0, bad[i], &c);
-        t_note("devtype %u -> %s", bad[i], d3dh_hr_name(hr));
-        if (FAILED(hr)) CHECK(caps_zero(&c));
+        CHECKF(hr == D3DERR_INVALIDDEVICE, "devtype %u -> %s", bad[i], d3dh_hr_name(hr));
+        CHECK(caps_zero(&c));
     }
     IDirect3D9_Release(d);
 }
@@ -217,8 +218,8 @@ TEST(d3d9_core_caps_sw_without_registration) {
     if (!IDirect3D9_GetAdapterCount(d)) { IDirect3D9_Release(d); t_skip("no adapters"); return; }
     D3DCAPS9 c; memset(&c, 0xA5, sizeof c);
     HRESULT hr = IDirect3D9_GetDeviceCaps(d, 0, D3DDEVTYPE_SW, &c);
-    t_note("SW device caps without RegisterSoftwareDevice -> %s", d3dh_hr_name(hr));
-    if (FAILED(hr)) CHECK(caps_zero(&c));
+    EXPECT_HR(hr, D9_NOTAVAILABLE);
+    CHECK(caps_zero(&c));
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_caps_nullref_note) {
@@ -226,9 +227,9 @@ TEST(d3d9_core_caps_nullref_note) {
     if (!IDirect3D9_GetAdapterCount(d)) { IDirect3D9_Release(d); t_skip("no adapters"); return; }
     D3DCAPS9 c; memset(&c, 0xA5, sizeof c);
     HRESULT hr = IDirect3D9_GetDeviceCaps(d, 0, D3DDEVTYPE_NULLREF, &c);
-    t_note("NULLREF caps -> %s DeviceType %u tex %lu", d3dh_hr_name(hr), c.DeviceType, c.MaxTextureWidth);
-    if (SUCCEEDED(hr)) { EXPECT_EQ(c.DeviceType, D3DDEVTYPE_NULLREF); CHECK(c.MaxPointSize >= 1.0f); }
-    else CHECK(caps_zero(&c));
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ(c.DeviceType, D3DDEVTYPE_NULLREF); CHECK(c.MaxPointSize >= 1.0f);
+    EXPECT_EQ(c.MaxTextureWidth, 8192);                       /* Win10 22H2 runtime-defined NULLREF limits */
     IDirect3D9_Release(d);
 }
 TEST(d3d9_core_caps_msaa_consistent_with_checks) {
