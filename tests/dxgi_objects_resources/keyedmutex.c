@@ -24,7 +24,15 @@ TEST(objs_km_identity)
     EXPECT_HR_OK(ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r));
     EXPECT_HR_OK(IDXGIResource_QueryInterface(r, &IID_IDXGIObject, (void **)&o2));
     EXPECT_EQ(o1, o2);
-    EXPECT_EQ(km, (IDXGIKeyedMutex *)r);
+    /* the keyed-mutex interface pointer is a separate COM interface of the texture, not the IDXGIResource pointer; identity (below) is shared */
+    CHECK((void *)km != (void *)r);
+    {
+        IUnknown *ik = NULL, *ir = NULL;
+        EXPECT_HR_OK(IDXGIKeyedMutex_QueryInterface(km, &IID_IUnknown, (void **)&ik));
+        EXPECT_HR_OK(IDXGIResource_QueryInterface(r, &IID_IUnknown, (void **)&ir));
+        EXPECT_EQ(ik, ir);
+        SAFE_RELEASE(ik); SAFE_RELEASE(ir);
+    }
     SAFE_RELEASE(o1); SAFE_RELEASE(o2); SAFE_RELEASE(r);
     DONE_KM(c, t, km);
 }
@@ -142,7 +150,7 @@ TEST(objs_km_timeout_returns_wait_timeout)
     el = GetTickCount() - t0;
     EXPECT_HR(hr, WAIT_TIMEOUT);
     CHECKF(el < 5000, "100 ms timeout took %lu ms", el);
-    t_note("AcquireSync(100 ms timeout) returned after %lu ms", el);
+    CHECKF(el >= 90, "AcquireSync(100 ms) returned after only %lu ms", el);
     DONE_KM(c, t, km);
 }
 TEST(objs_km_wait_timeout_value)
@@ -342,6 +350,7 @@ TEST(objs_km_named_collision)
         SUCCEEDED(ID3D11Texture2D_QueryInterface(t2, &IID_IDXGIResource1, (void **)&r2))) {
         HRESULT hr = IDXGIResource1_CreateSharedHandle(r2, NULL, GENERIC_ALL | DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, wname, &h2);
         t_note("second CreateSharedHandle with an existing name -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_ERROR_NAME_ALREADY_EXISTS);   /* Win10 22H2 */
         if (SUCCEEDED(hr) && h2) CloseHandle(h2);
         IDXGIResource1_Release(r2);
     }

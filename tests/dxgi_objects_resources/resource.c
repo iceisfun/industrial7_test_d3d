@@ -121,13 +121,13 @@ TEST(objs_res_usage_staging_dynamic)
     if (SUCCEEDED(objs_staging(c.dev, 16, 16, DXGI_FORMAT_R8G8B8A8_UNORM, &t))) {
         EXPECT_HR_OK(ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r));
         EXPECT_HR_OK(IDXGIResource_GetUsage(r, &u));
-        EXPECT_EQ(u, 0);
+        EXPECT_EQ(u, DXGI_CPU_ACCESS_SCRATCH);   /* a staging texture reports the "scratch" CPU-access field (3) */
         IDXGIResource_Release(r); ID3D11Texture2D_Release(t);
     }
     if (SUCCEEDED(objs_tex2d(c.dev, 16, 16, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_USAGE_DYNAMIC, D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_WRITE, 0, &t))) {
         EXPECT_HR_OK(ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r));
         EXPECT_HR_OK(IDXGIResource_GetUsage(r, &u));
-        EXPECT_EQ(u, DXGI_USAGE_SHADER_INPUT);
+        EXPECT_EQ(u, DXGI_USAGE_SHADER_INPUT | DXGI_CPU_ACCESS_DYNAMIC);   /* dynamic: CPU-access field 1 */
         IDXGIResource_Release(r); ID3D11Texture2D_Release(t);
     }
     objs_close(&c);
@@ -241,8 +241,8 @@ TEST(objs_res_iface_buffer)
         CHECK(supports((IUnknown *)b, &IID_IDXGIResource));
         CHECK(supports((IUnknown *)b, &IID_IDXGIObject));
         CHECK(supports((IUnknown *)b, &IID_IDXGIDeviceSubObject));
-        CHECK(!supports((IUnknown *)b, &IID_IDXGISurface));
-        CHECK(!supports((IUnknown *)b, &IID_IDXGISurface1));
+        CHECK(supports((IUnknown *)b, &IID_IDXGISurface));     /* Win10 exposes a one-row byte surface on buffers */
+        CHECK(supports((IUnknown *)b, &IID_IDXGISurface1));
         CHECK(!supports((IUnknown *)b, &IID_IDXGIKeyedMutex));
         ID3D11Buffer_Release(b);
     }
@@ -356,7 +356,7 @@ TEST(objs_res_eviction_default)
     if (!t) { objs_close(&c); return; }
     EXPECT_HR_OK(ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r));
     EXPECT_HR_OK(IDXGIResource_GetEvictionPriority(r, &p));
-    t_note("default eviction priority %#x (DXGI_RESOURCE_PRIORITY_NORMAL = 0x78000000)", p);
+    EXPECT_EQ(p, DXGI_RESOURCE_PRIORITY_NORMAL);
     EXPECT_EQ(ID3D11Texture2D_GetEvictionPriority(t), p);
     IDXGIResource_Release(r); ID3D11Texture2D_Release(t);
     objs_close(&c);
@@ -406,7 +406,7 @@ TEST(objs_res_eviction_noncanonical)
     for (i = 0; i < OBJS_ARRAY(vals); i++) {
         UINT p = 0xdead; HRESULT hr = IDXGIResource_SetEvictionPriority(r, vals[i]);
         HRESULT hg = IDXGIResource_GetEvictionPriority(r, &p);
-        t_note("SetEvictionPriority(%#x) -> %s; Get -> %s %#x", vals[i], d3dh_hr_name(hr), d3dh_hr_name(hg), p);
+        EXPECT_HR_OK(hr); EXPECT_HR_OK(hg); EXPECT_EQ(p, vals[i]);   /* any value, canonical or not, is stored verbatim */
     }
     IDXGIResource_Release(r); ID3D11Texture2D_Release(t);
     objs_close(&c);
@@ -640,9 +640,11 @@ TEST(objs_res_shared_open_wrong_iid)
     HRESULT hr = ID3D11Device_OpenSharedResource(c.dev, h, &IID_ID3D11Buffer, (void **)&p);
     EXPECT_HR_FAILED(hr);
     t_note("OpenSharedResource(texture handle, IID_ID3D11Buffer) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);   /* Win10 22H2 */
     CHECK(p == NULL);
     hr = ID3D11Device_OpenSharedResource(c.dev, h, &IID_IDXGIFactory, (void **)&p);
     t_note("OpenSharedResource(texture handle, IID_IDXGIFactory) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);   /* Win10 22H2 */
     SAFE_RELEASE(p);
     IDXGIResource_Release(r); ID3D11Texture2D_Release(t);
     objs_close(&c);
@@ -654,6 +656,7 @@ TEST(objs_res_shared_open_null_handle)
     HRESULT hr = ID3D11Device_OpenSharedResource(c.dev, NULL, &IID_ID3D11Texture2D, (void **)&o);
     EXPECT_HR_FAILED(hr);
     t_note("OpenSharedResource(NULL handle) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     if (SUCCEEDED(hr) && o) ID3D11Texture2D_Release(o);
     objs_close(&c);
 }
@@ -832,5 +835,40 @@ TEST(objs_res_subsurface_nonstaging_default)
         IDXGISurface2_Release(s);
     }
     IDXGIResource1_Release(r); ID3D11Texture2D_Release(t);
+    objs_close(&c);
+}
+
+/* A buffer is exposed as a Width=ByteWidth, Height=1, DXGI_FORMAT_UNKNOWN surface; only CPU-readable/writable buffers can be mapped through it. */
+TEST(objs_res_buffer_as_surface)
+{
+    NEED_DEV(c);
+    static const struct { D3D11_USAGE u; UINT bind, cpu; int mappable; const char *n; } k[] = {
+        { D3D11_USAGE_DEFAULT, D3D11_BIND_VERTEX_BUFFER, 0, 0, "default" },
+        { D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE, 1, "staging" },
+        { D3D11_USAGE_DYNAMIC, D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_WRITE, 0, "dynamic" },
+    };
+    unsigned i;
+    for (i = 0; i < 3; i++) {
+        ID3D11Buffer *b = NULL; IDXGISurface *s = NULL; IDXGISurface1 *s1 = NULL;
+        DXGI_SURFACE_DESC d; DXGI_MAPPED_RECT mr; HDC dc = NULL;
+        if (FAILED(objs_buf(c.dev, 128, k[i].u, k[i].bind, k[i].cpu, 0, &b))) { CHECKF(0, "%s buffer", k[i].n); continue; }
+        EXPECT_HR_OK(ID3D11Buffer_QueryInterface(b, &IID_IDXGISurface, (void **)&s));
+        if (s) {
+            memset(&d, 0xcc, sizeof d);
+            EXPECT_HR_OK(IDXGISurface_GetDesc(s, &d));
+            EXPECT_EQ(d.Width, 128); EXPECT_EQ(d.Height, 1); EXPECT_EQ(d.Format, DXGI_FORMAT_UNKNOWN);
+            EXPECT_EQ(d.SampleDesc.Count, 1); EXPECT_EQ(d.SampleDesc.Quality, 0);
+            memset(&mr, 0, sizeof mr);
+            EXPECT_HR(IDXGISurface_Map(s, &mr, DXGI_MAP_READ), k[i].mappable ? S_OK : E_INVALIDARG);
+            if (k[i].mappable) { EXPECT_EQ(mr.Pitch, 128); CHECK(mr.pBits != NULL); EXPECT_HR_OK(IDXGISurface_Unmap(s)); }
+            EXPECT_HR(IDXGISurface_Map(s, &mr, DXGI_MAP_WRITE), k[i].mappable ? S_OK : E_INVALIDARG);
+            if (k[i].mappable) EXPECT_HR_OK(IDXGISurface_Unmap(s));
+            EXPECT_HR_OK(IDXGISurface_Unmap(s));   /* an unbalanced Unmap is harmless */
+            EXPECT_HR_OK(IDXGISurface_QueryInterface(s, &IID_IDXGISurface1, (void **)&s1));
+            if (s1) { EXPECT_HR(IDXGISurface1_GetDC(s1, FALSE, &dc), DXGI_ERROR_INVALID_CALL); IDXGISurface1_Release(s1); }
+            IDXGISurface_Release(s);
+        }
+        ID3D11Buffer_Release(b);
+    }
     objs_close(&c);
 }

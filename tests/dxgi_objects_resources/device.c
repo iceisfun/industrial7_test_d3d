@@ -51,6 +51,7 @@ TEST(objs_dev_qi_dxgidevice4)
     IDXGIDevice4 *d4 = NULL;
     HRESULT hr = IDXGIDevice_QueryInterface(c.dx, &IID_IDXGIDevice4, (void **)&d4);
     t_note("IDXGIDevice4 via QI: %s (Windows 10 1607+ expected S_OK)", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     SAFE_RELEASE(d4);
     objs_close(&c);
 }
@@ -149,6 +150,7 @@ TEST(objs_dev_getadapter_null)
     HRESULT hr = IDXGIDevice_GetAdapter(c.dx, NULL);
     EXPECT_HR(hr, E_INVALIDARG);
     t_note("GetAdapter(NULL) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     objs_close(&c);
 }
 TEST(objs_dev_getadapter_via_device1)
@@ -171,7 +173,8 @@ TEST(objs_dev_adapter_is_warp_identity)
     EXPECT_HR_OK(IDXGIAdapter_GetDesc(a, &d));
     EXPECT_EQ(d.VendorId, 0x1414);
     EXPECT_EQ(d.DeviceId, 0x8c);
-    t_note("WARP adapter description: %ls, dedicated video %llu", d.Description, (unsigned long long)d.DedicatedVideoMemory);
+    EXPECT_WSTR(d.Description, L"Microsoft Basic Render Driver");
+    EXPECT_EQ(d.DedicatedVideoMemory, 0);
     IDXGIAdapter_Release(a);
     objs_close(&c);
 }
@@ -192,6 +195,7 @@ TEST(objs_parent_device_to_adapter1)
     NEED_DEV(c);
     IUnknown *p = NULL; HRESULT hr = IDXGIDevice_GetParent(c.dx, &IID_IDXGIAdapter1, (void **)&p);
     t_note("device->GetParent(IDXGIAdapter1) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) { CHECK(p != NULL); IUnknown_Release(p); }
     else CHECK(p == NULL);
     objs_close(&c);
@@ -211,6 +215,7 @@ TEST(objs_parent_device_iid_factory)
     IUnknown *p = (IUnknown *)(ULONG_PTR)1;
     HRESULT hr = IDXGIDevice_GetParent(c.dx, &IID_IDXGIFactory, (void **)&p);
     t_note("device->GetParent(IDXGIFactory) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) IUnknown_Release(p);
     objs_close(&c);
 }
@@ -286,8 +291,14 @@ TEST(objs_parent_output_to_adapter)
 {
     NEED_DEV(c);
     IDXGIAdapter *a = NULL; IDXGIOutput *o = NULL; IUnknown *p = NULL;
-    EXPECT_HR_OK(IDXGIDevice_GetAdapter(c.dx, &a));
-    if (IDXGIAdapter_EnumOutputs(a, 0, &o) != S_OK) { t_skip("adapter has no outputs"); IDXGIAdapter_Release(a); objs_close(&c); return; }
+    {   /* the device's own adapter (software, factory adapter 1 on the oracle) has no outputs: DXGI_ERROR_NOT_FOUND */
+        IDXGIOutput *none = (IDXGIOutput *)(ULONG_PTR)1;
+        EXPECT_HR_OK(IDXGIDevice_GetAdapter(c.dx, &a));
+        EXPECT_HR(IDXGIAdapter_EnumOutputs(a, 0, &none), DXGI_ERROR_NOT_FOUND);
+        EXPECT_EQ(none, NULL);
+        IDXGIAdapter_Release(a); a = NULL;
+    }
+    if (!objs_first_output(&a, &o)) { t_skip("no adapter with an output"); objs_close(&c); return; }
     EXPECT_HR_OK(IDXGIOutput_GetParent(o, &IID_IDXGIAdapter, (void **)&p));
     EXPECT_EQ(p, (IUnknown *)a);
     SAFE_RELEASE(p);
@@ -339,6 +350,7 @@ TEST(objs_parent_texture_to_device)
     SAFE_RELEASE(p);
     HRESULT hr = IDXGIObject_GetParent(o, &IID_IDXGIAdapter, (void **)&p);
     t_note("texture->GetParent(IDXGIAdapter) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_NOINTERFACE);   /* Win10 22H2 */
     SAFE_RELEASE(p);
     IDXGIObject_Release(o); ID3D11Texture2D_Release(t);
     objs_close(&c);
@@ -408,6 +420,7 @@ TEST(objs_subobject_getdevice_surface)
         HRESULT hr = IDXGIDeviceSubObject_GetDevice(so, &IID_IDXGIFactory, (void **)&p);
         EXPECT_HR_FAILED(hr);
         t_note("GetDevice(IDXGIFactory) -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_NOINTERFACE);   /* Win10 22H2 */
         CHECK(p == NULL);
         IDXGIDeviceSubObject_Release(so);
     }
@@ -437,9 +450,11 @@ TEST(objs_subobject_buffer_has_no_subobject)
     NEED_DEV(c);
     ID3D11Buffer *b = NULL; IUnknown *p = (IUnknown *)(ULONG_PTR)1; HRESULT hr;
     if (FAILED(objs_buf(c.dev, 64, D3D11_USAGE_DEFAULT, D3D11_BIND_VERTEX_BUFFER, 0, 0, &b))) { t_skip("no buffer"); objs_close(&c); return; }
+    /* Win10: a buffer answers QI for IDXGISurface (see objs_res_buffer_as_surface for what it then does) */
     hr = ID3D11Buffer_QueryInterface(b, &IID_IDXGISurface, (void **)&p);
-    EXPECT_HR(hr, E_NOINTERFACE);
-    EXPECT_EQ(p, NULL);
+    EXPECT_HR(hr, S_OK);
+    SAFE_RELEASE(p);
+    p = (IUnknown *)(ULONG_PTR)1;
     hr = ID3D11Buffer_QueryInterface(b, &IID_IDXGIResource, (void **)&p);
     EXPECT_HR_OK(hr);
     SAFE_RELEASE(p);
@@ -505,8 +520,7 @@ TEST(objs_dev_latency_zero)
     if (!d) { t_skip("no IDXGIDevice1"); objs_close(&c); return; }
     EXPECT_HR_OK(IDXGIDevice1_SetMaximumFrameLatency(d, 0));
     EXPECT_HR_OK(IDXGIDevice1_GetMaximumFrameLatency(d, &l));
-    t_note("GetMaximumFrameLatency after Set(0) -> %u (3 = reset to default, 0 = stored verbatim)", l);
-    CHECK(l == 0 || l == 3);
+    EXPECT_EQ(l, 0);   /* stored verbatim (not reset to the default 3) */
     IDXGIDevice1_Release(d); objs_close(&c);
 }
 TEST(objs_dev_latency_per_device)
@@ -529,7 +543,7 @@ TEST(objs_dev_gpu_priority_default)
     NEED_DEV(c);
     INT p = 0x7777; HRESULT hr = IDXGIDevice_GetGPUThreadPriority(c.dx, &p);
     EXPECT_HR_OK(hr);
-    t_note("initial GPU thread priority %d (kernel scheduling priority, driver dependent)", p);
+    EXPECT_EQ(p, 0);
     objs_close(&c);
 }
 TEST(objs_dev_gpu_priority_range)
@@ -554,6 +568,7 @@ TEST(objs_dev_gpu_priority_out_of_range)
         HRESULT hr = IDXGIDevice_SetGPUThreadPriority(c.dx, bad[i]);
         INT p = 0x7777;
         t_note("SetGPUThreadPriority(%d) -> %s", bad[i], d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
         if (SUCCEEDED(hr)) { IDXGIDevice_GetGPUThreadPriority(c.dx, &p); t_note("  readback %d", p); }
     }
     IDXGIDevice_SetGPUThreadPriority(c.dx, 0);
@@ -567,7 +582,7 @@ TEST(objs_dev_gpu_priority_per_device)
     if (!objs_open(&c2)) { t_skip("second device"); objs_close(&c); return; }
     EXPECT_HR_OK(IDXGIDevice_SetGPUThreadPriority(c.dx, 3));
     EXPECT_HR_OK(IDXGIDevice_GetGPUThreadPriority(c2.dx, &p));
-    t_note("second device priority %d after first set to 3", p);
+    EXPECT_EQ(p, 0);   /* the GPU thread priority is per device, not per adapter */
     IDXGIDevice_SetGPUThreadPriority(c.dx, 0);
     objs_close(&c2); objs_close(&c);
 }
@@ -590,7 +605,7 @@ TEST(objs_dev_residency_valid)
     }
     res[0] = (IUnknown *)t; res[1] = (IUnknown *)b;
     HRESULT hr = IDXGIDevice_QueryResourceResidency(c.dx, res, st, 2);
-    t_note("QueryResourceResidency(2) -> %s, status %d %d", d3dh_hr_name(hr), st[0], st[1]);
+    EXPECT_HR_OK(hr); EXPECT_EQ(st[0], DXGI_RESIDENCY_RESIDENT_IN_SHARED_MEMORY); EXPECT_EQ(st[1], DXGI_RESIDENCY_RESIDENT_IN_SHARED_MEMORY);
     if (SUCCEEDED(hr)) {
         CHECKF(st[0] >= DXGI_RESIDENCY_FULLY_RESIDENT && st[0] <= DXGI_RESIDENCY_EVICTED_TO_DISK, "status0 %d", st[0]);
         CHECKF(st[1] >= DXGI_RESIDENCY_FULLY_RESIDENT && st[1] <= DXGI_RESIDENCY_EVICTED_TO_DISK, "status1 %d", st[1]);
@@ -619,6 +634,7 @@ TEST(objs_dev_residency_other_device_resource)
     res[0] = (IUnknown *)t;
     HRESULT hr = IDXGIDevice_QueryResourceResidency(c.dx, res, st, 1);
     t_note("QueryResourceResidency(resource of another device) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     ID3D11Texture2D_Release(t);
     objs_close(&c2); objs_close(&c);
 }
@@ -628,6 +644,7 @@ TEST(objs_dev_residency_zero_count)
     DXGI_RESIDENCY st[1] = { 0 }; IUnknown *res[1] = { NULL };
     HRESULT hr = IDXGIDevice_QueryResourceResidency(c.dx, res, st, 0);
     t_note("QueryResourceResidency(0 resources) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     objs_close(&c);
 }
 
@@ -646,6 +663,7 @@ TEST(objs_dev_offer_reclaim_roundtrip)
     EXPECT_HR_OK(ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r));
     HRESULT hr = IDXGIDevice2_OfferResources(d2, 1, &r, DXGI_OFFER_RESOURCE_PRIORITY_NORMAL);
     t_note("OfferResources(NORMAL) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) {
         hr = IDXGIDevice2_ReclaimResources(d2, 1, &r, &disc);
         EXPECT_HR_OK(hr);
@@ -683,9 +701,11 @@ TEST(objs_dev_offer_bad_priority)
     ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r);
     HRESULT hr = IDXGIDevice2_OfferResources(d2, 1, &r, (DXGI_OFFER_RESOURCE_PRIORITY)0);
     t_note("OfferResources(priority 0) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) IDXGIDevice2_ReclaimResources(d2, 1, &r, &disc);
     hr = IDXGIDevice2_OfferResources(d2, 1, &r, (DXGI_OFFER_RESOURCE_PRIORITY)4);
     t_note("OfferResources(priority 4) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) IDXGIDevice2_ReclaimResources(d2, 1, &r, &disc);
     IDXGIResource_Release(r); ID3D11Texture2D_Release(t); IDXGIDevice2_Release(d2);
     objs_close(&c);
@@ -713,6 +733,7 @@ TEST(objs_dev_offer_twice)
     if (SUCCEEDED(h1)) {
         HRESULT h2 = IDXGIDevice2_OfferResources(d2, 1, &r, DXGI_OFFER_RESOURCE_PRIORITY_LOW);
         t_note("second OfferResources of an offered resource -> %s", d3dh_hr_name(h2));
+        EXPECT_HR(h2, E_INVALIDARG);   /* Win10 22H2 */
         IDXGIDevice2_ReclaimResources(d2, 1, &r, &disc);
     } else t_note("OfferResources -> %s", d3dh_hr_name(h1));
     IDXGIResource_Release(r); ID3D11Texture2D_Release(t); IDXGIDevice2_Release(d2);
@@ -729,6 +750,7 @@ TEST(objs_dev_offer_multiple)
     if (ok) {
         HRESULT hr = IDXGIDevice2_OfferResources(d2, 3, r, DXGI_OFFER_RESOURCE_PRIORITY_NORMAL);
         t_note("OfferResources(3) -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
         if (SUCCEEDED(hr)) {
             hr = IDXGIDevice2_ReclaimResources(d2, 3, r, disc);
             EXPECT_HR_OK(hr);
@@ -749,6 +771,7 @@ TEST(objs_dev_offer_reclaim_null_discarded)
     if (SUCCEEDED(IDXGIDevice2_OfferResources(d2, 1, &r, DXGI_OFFER_RESOURCE_PRIORITY_NORMAL))) {
         HRESULT hr = IDXGIDevice2_ReclaimResources(d2, 1, &r, NULL);
         t_note("ReclaimResources with NULL pDiscarded -> %s (NULL is documented as allowed)", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     }
     IDXGIResource_Release(r); ID3D11Texture2D_Release(t); IDXGIDevice2_Release(d2);
     objs_close(&c);
@@ -789,6 +812,7 @@ TEST(objs_dev_offer1_reclaim1)
     ID3D11Texture2D_QueryInterface(t, &IID_IDXGIResource, (void **)&r);
     HRESULT hr = IDXGIDevice4_OfferResources1(d4, 1, &r, DXGI_OFFER_RESOURCE_PRIORITY_LOW, 0);
     t_note("OfferResources1 -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) {
         hr = IDXGIDevice4_ReclaimResources1(d4, 1, &r, &res);
         EXPECT_HR_OK(hr);
@@ -838,12 +862,16 @@ TEST(objs_dev_createsurface_interfaces)
     EXPECT_HR_OK(IDXGISurface_QueryInterface(s, &IID_IDXGIObject, (void **)&p)); SAFE_RELEASE(p);
     hr = IDXGISurface_QueryInterface(s, &IID_ID3D10Texture2D, (void **)&p);
     t_note("surface->ID3D10Texture2D: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     hr = IDXGISurface_QueryInterface(s, &IID_ID3D11Texture2D, (void **)&p);
     t_note("surface->ID3D11Texture2D: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     hr = IDXGISurface_QueryInterface(s, &IID_IDXGISurface1, (void **)&p);
     t_note("surface->IDXGISurface1: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     hr = IDXGISurface_QueryInterface(s, &IID_IDXGISurface2, (void **)&p);
     t_note("surface->IDXGISurface2: %s", d3dh_hr_name(hr)); SAFE_RELEASE(p);
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     hr = IDXGISurface_QueryInterface(s, &IID_IDXGIFactory, (void **)&p);
     EXPECT_HR(hr, E_NOINTERFACE);
     IDXGISurface_Release(s);
@@ -870,6 +898,7 @@ TEST(objs_dev_createsurface_array)
     surface_desc(&d, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM);
     HRESULT hr = IDXGIDevice_CreateSurface(c.dx, &d, 3, DXGI_USAGE_RENDER_TARGET_OUTPUT, NULL, s);
     t_note("CreateSurface(NumSurfaces=3) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) {
         for (i = 0; i < 3; i++) CHECKF(s[i] != NULL, "surface %d NULL", i);
         CHECK(s[0] != s[1] && s[1] != s[2] && s[0] != s[2]);
@@ -884,6 +913,7 @@ TEST(objs_dev_createsurface_zero_count)
     surface_desc(&d, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM);
     HRESULT hr = IDXGIDevice_CreateSurface(c.dx, &d, 0, DXGI_USAGE_RENDER_TARGET_OUTPUT, NULL, &s);
     t_note("CreateSurface(NumSurfaces=0) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr) && s != (IDXGISurface *)(ULONG_PTR)1 && s) IDXGISurface_Release(s);
     objs_close(&c);
 }
@@ -895,6 +925,7 @@ TEST(objs_dev_createsurface_zero_size)
     HRESULT hr = IDXGIDevice_CreateSurface(c.dx, &d, 1, DXGI_USAGE_RENDER_TARGET_OUTPUT, NULL, &s);
     EXPECT_HR_FAILED(hr);
     t_note("CreateSurface(width 0) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     SAFE_RELEASE(s);
     surface_desc(&d, 32, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
     hr = IDXGIDevice_CreateSurface(c.dx, &d, 1, DXGI_USAGE_RENDER_TARGET_OUTPUT, NULL, &s);
@@ -910,6 +941,7 @@ TEST(objs_dev_createsurface_unknown_format)
     HRESULT hr = IDXGIDevice_CreateSurface(c.dx, &d, 1, DXGI_USAGE_RENDER_TARGET_OUTPUT, NULL, &s);
     EXPECT_HR_FAILED(hr);
     t_note("CreateSurface(DXGI_FORMAT_UNKNOWN) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     SAFE_RELEASE(s);
     objs_close(&c);
 }
@@ -923,6 +955,7 @@ TEST(objs_dev_createsurface_usage_matrix)
         surface_desc(&d, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM);
         HRESULT hr = IDXGIDevice_CreateSurface(c.dx, &d, 1, u[i], NULL, &s);
         t_note("CreateSurface(usage %#x) -> %s", u[i], d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
         if (SUCCEEDED(hr) && s && SUCCEEDED(IDXGISurface_QueryInterface(s, &IID_IDXGIResource, (void **)&r))) {
             EXPECT_HR_OK(IDXGIResource_GetUsage(r, &got));
             t_note("  GetUsage -> %#x", got);

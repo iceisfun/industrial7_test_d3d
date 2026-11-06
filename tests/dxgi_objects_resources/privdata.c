@@ -64,8 +64,7 @@ static int pd_open(pd_subj *s, int kind)
         return 1;
     }
     case PK_OUTPUT:
-        if (FAILED(IDXGIDevice_GetAdapter(s->c.dx, &s->adapter))) { pd_close(s); return 0; }
-        if (FAILED(IDXGIAdapter_EnumOutputs(s->adapter, 0, &s->output))) { pd_close(s); return 0; }
+        if (!objs_first_output(&s->adapter, &s->output)) { pd_close(s); return 0; }
         if (FAILED(IDXGIOutput_QueryInterface(s->output, &IID_IDXGIObject, (void **)&s->o))) { pd_close(s); return 0; }
         return 1;
     }
@@ -520,12 +519,9 @@ PD_T(identity)
 static void pd_isolation(pd_subj *s)
 {
     pd_subj t; DWORD v = 7; UINT size = 4; DWORD out;
-    if (s->kind == PK_FACTORY || s->kind == PK_ADAPTER || s->kind == PK_OUTPUT || s->kind == PK_DEVICE) {
-        /* second device/factory instances; adapters/outputs may legitimately be shared */
-        if (s->kind == PK_ADAPTER || s->kind == PK_OUTPUT) { t_skip("adapter/output objects may be shared"); return; }
-    }
     if (!pd_open(&t, s->kind)) { t_skip("second subject not available"); return; }
     EXPECT_HR_OK(SET(s->o, OBJS_G1, 4, &v));
+    /* each pd_open builds its own factory, so adapter/output instances are distinct objects with separate private data */
     EXPECT_HR(IDXGIObject_GetPrivateData(t.o, &OBJS_G1, &size, &out), DXGI_ERROR_NOT_FOUND);
     EXPECT_HR(SET(s->o, OBJS_G1, 0, NULL), S_OK);
     pd_close(&t);
@@ -559,6 +555,7 @@ TEST(objs_pd_texture_d3d11_vs_dxgi)
     EXPECT_HR_OK(ID3D11Texture2D_SetPrivateData(t, &OBJS_G1, 4, &v));
     hr = IDXGIObject_GetPrivateData(o, &OBJS_G1, &size, &out);
     t_note("ID3D11DeviceChild::SetPrivateData then IDXGIObject::GetPrivateData -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     size = 4;
     EXPECT_HR_OK(ID3D11Texture2D_GetPrivateData(t, &OBJS_G1, &size, &out));
     EXPECT_EQ(out, 0xabcd);

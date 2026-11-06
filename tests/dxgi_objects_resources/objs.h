@@ -31,6 +31,29 @@ static void objs_close(objs_ctx *c)
 #define NEED_DEV(c) objs_ctx c; \
     do { if (!objs_open(&c)) { t_skip("no D3D11 device"); return; } } while (0)
 
+/* The display adapter that owns the output. On the oracle this is factory adapter 0 (Microsoft Basic Render Driver, flags 0, one output on
+ * the desktop), which is NOT the adapter D3D11CreateDevice(NULL, HARDWARE/WARP) ends up on (factory adapter 1, software, no outputs). */
+static int objs_first_output(IDXGIAdapter **adapter, IDXGIOutput **output)
+{
+    IDXGIFactory1 *f = NULL;
+    UINT i;
+    *adapter = NULL; *output = NULL;
+    if (FAILED(d3dh_make_factory1(&f))) return 0;
+    for (i = 0; ; i++) {
+        IDXGIAdapter1 *a1 = NULL;
+        IDXGIOutput *o = NULL;
+        if (IDXGIFactory1_EnumAdapters1(f, i, &a1) != S_OK) break;
+        if (IDXGIAdapter1_EnumOutputs(a1, 0, &o) == S_OK) {
+            *adapter = (IDXGIAdapter *)a1; *output = o;
+            IDXGIFactory1_Release(f);
+            return 1;
+        }
+        IDXGIAdapter1_Release(a1);
+    }
+    IDXGIFactory1_Release(f);
+    return 0;
+}
+
 static HRESULT objs_tex2d(ID3D11Device *d, UINT w, UINT h, UINT mips, UINT arr, DXGI_FORMAT f,
                           D3D11_USAGE u, UINT bind, UINT cpu, UINT misc, ID3D11Texture2D **out)
 {

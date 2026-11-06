@@ -137,9 +137,11 @@ TEST(objs_surf_map_unknown_flag_bits)
     DXGI_MAPPED_RECT m; memset(&m, 0, sizeof(m));
     HRESULT hr = IDXGISurface_Map(s, &m, DXGI_MAP_READ | 0x8);
     t_note("Map(READ|0x8) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
     hr = IDXGISurface_Map(s, &m, 0x8);
     t_note("Map(0x8) -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
     DONE_STAGING(c, t, s);
 }
@@ -168,6 +170,7 @@ TEST(objs_surf_map_createsurface_no_cpu_access)
     if (s) {
         hr = IDXGISurface_Map(s, &m, DXGI_MAP_READ);
         t_note("Map(READ) on CreateSurface(RENDER_TARGET_OUTPUT) surface -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
         if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
         IDXGISurface_Release(s);
     }
@@ -182,10 +185,13 @@ TEST(objs_surf_map_dynamic)
     if (s) {
         hr = IDXGISurface_Map(s, &m, DXGI_MAP_READ);
         t_note("dynamic texture: Map(READ) -> %s", d3dh_hr_name(hr)); if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
+        EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
         hr = IDXGISurface_Map(s, &m, DXGI_MAP_WRITE);
         t_note("dynamic texture: Map(WRITE) -> %s", d3dh_hr_name(hr)); if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
+        EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
         hr = IDXGISurface_Map(s, &m, DXGI_MAP_WRITE | DXGI_MAP_DISCARD);
         t_note("dynamic texture: Map(WRITE|DISCARD) -> %s", d3dh_hr_name(hr)); if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
+        EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
         IDXGISurface_Release(s);
     }
     ID3D11Texture2D_Release(t);
@@ -199,6 +205,7 @@ TEST(objs_surf_map_twice)
     EXPECT_HR_OK(IDXGISurface_Map(s, &m1, DXGI_MAP_READ));
     hr = IDXGISurface_Map(s, &m2, DXGI_MAP_READ);
     t_note("second Map without Unmap -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     if (SUCCEEDED(hr)) IDXGISurface_Unmap(s);
     IDXGISurface_Unmap(s);
     DONE_STAGING(c, t, s);
@@ -208,6 +215,7 @@ TEST(objs_surf_unmap_without_map)
     NEED_STAGING(c, t, s);
     HRESULT hr = IDXGISurface_Unmap(s);
     t_note("Unmap without Map -> %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     DONE_STAGING(c, t, s);
 }
 TEST(objs_surf_map_remap_cycle)
@@ -411,6 +419,7 @@ TEST(objs_gdi_createsurface_not_compatible)
     if (s && SUCCEEDED(IDXGISurface_QueryInterface(s, &IID_IDXGISurface1, (void **)&s1))) {
         HRESULT hr = IDXGISurface1_GetDC(s1, FALSE, &dc);
         t_note("GetDC on CreateSurface surface -> %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_ERROR_INVALID_CALL);   /* Win10 22H2 */
         if (SUCCEEDED(hr)) IDXGISurface1_ReleaseDC(s1, NULL);
         IDXGISurface1_Release(s1);
     }
@@ -561,6 +570,7 @@ TEST(objs_gdi_other_formats_observed)
         ID3D11Texture2D *t = NULL;
         HRESULT hr = objs_tex2d(c.dev, 64, 64, 1, 1, f[i], D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET, 0, D3D11_RESOURCE_MISC_GDI_COMPATIBLE, &t);
         t_note("GDI_COMPATIBLE texture of format %d -> %s", f[i], d3dh_hr_name(hr));
+        EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
         SAFE_RELEASE(t);
     }
     objs_close(&c);
@@ -571,8 +581,10 @@ TEST(objs_gdi_mips_array_observed)
     ID3D11Texture2D *t = NULL;
     HRESULT hr = objs_tex2d(c.dev, 64, 64, 4, 1, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET, 0, D3D11_RESOURCE_MISC_GDI_COMPATIBLE, &t);
     t_note("GDI_COMPATIBLE with 4 mips -> %s", d3dh_hr_name(hr)); SAFE_RELEASE(t);
+    EXPECT_HR(hr, E_INVALIDARG);   /* Win10 22H2 */
     hr = objs_tex2d(c.dev, 64, 64, 1, 2, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET, 0, D3D11_RESOURCE_MISC_GDI_COMPATIBLE, &t);
     t_note("GDI_COMPATIBLE with array 2 -> %s", d3dh_hr_name(hr)); SAFE_RELEASE(t);
+    EXPECT_HR(hr, S_OK);   /* Win10 22H2 */
     objs_close(&c);
 }
 TEST(objs_gdi_surface1_without_gdi_flag)
