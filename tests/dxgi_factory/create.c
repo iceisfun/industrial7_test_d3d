@@ -64,14 +64,14 @@ TEST(dxgi_factory_cf0_factory) {
     CHECK(f != NULL && f != POISON);
     if (f && f != POISON) EXPECT_EQ(IDXGIFactory_Release(f), 0);
 }
-TEST(dxgi_factory_cf0_factory1_observed) {
+TEST(dxgi_factory_cf0_factory1_not_exposed) {
     WINE_NOFAC();
     REQUIRE(fh_cf0());
-    /* The legacy entry point hands out a DXGI 1.0 factory; whether IDXGIFactory1 is exposed is observed only. */
+    /* Win10: the legacy entry point hands out a DXGI 1.0 factory and refuses IDXGIFactory1 */
     IUnknown *u = POISON;
     HRESULT hr = fh_cf0()(&IID_IDXGIFactory1, (void **)&u);
-    t_note("CreateDXGIFactory(IID_IDXGIFactory1) = %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) u->lpVtbl->Release(u); else CHECK(u == NULL);
+    EXPECT_HR(hr, E_NOINTERFACE);
+    CHECK(u == NULL);
 }
 TEST(dxgi_factory_cf0_wrong_iid_nulls_out) {
     WINE_NOFAC();
@@ -87,14 +87,12 @@ TEST(dxgi_factory_cf0_null_out) {
     WINE_NOFAC();
     REQUIRE(fh_cf0());
     HRESULT hr = fh_cf0()(&IID_IDXGIFactory, NULL);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
-    t_note("CreateDXGIFactory(IDXGIFactory, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_POINTER);
 }
 TEST(dxgi_factory_cf0_null_out_wrong_iid) {
     REQUIRE(fh_cf0());
     HRESULT hr = fh_cf0()(&IID_IDXGIDevice, NULL);
-    CHECK(FAILED(hr));
-    t_note("CreateDXGIFactory(IDXGIDevice, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_POINTER); /* the NULL out pointer is diagnosed before the IID */
 }
 TEST(dxgi_factory_cf0_distinct_objects_each_call) {
     WINE_NOFAC();
@@ -102,7 +100,7 @@ TEST(dxgi_factory_cf0_distinct_objects_each_call) {
     IDXGIFactory *a = NULL, *b = NULL;
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&a), S_OK);
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&b), S_OK);
-    if (a && b) t_note("two CreateDXGIFactory calls %s", a == b ? "return the same object" : "return distinct objects");
+    CHECK(a != NULL && a != b); /* every call returns a new object */
     if (b && b != a) IDXGIFactory_Release(b);
     if (a) IDXGIFactory_Release(a);
 }
@@ -118,7 +116,7 @@ TEST(dxgi_factory_cf0_refcount_roundtrip) {
     EXPECT_EQ(IDXGIFactory_Release(f), 1);
     EXPECT_EQ(IDXGIFactory_Release(f), 0);
 }
-TEST(dxgi_factory_cf0_qi_up_levels_observed) {
+TEST(dxgi_factory_cf0_qi_up_levels) {
     WINE_NOFAC();
     REQUIRE(fh_cf0());
     IDXGIFactory *f = NULL;
@@ -127,7 +125,8 @@ TEST(dxgi_factory_cf0_qi_up_levels_observed) {
     for (size_t i = 0; i < NGOOD; i++) {
         void *p = POISON;
         HRESULT hr = IDXGIFactory_QueryInterface(f, k_good[i].iid, &p);
-        t_note("cf0 factory QI %s = %s", k_good[i].name, d3dh_hr_name(hr));
+        /* Win10: a CreateDXGIFactory (v0) factory exposes everything except IDXGIFactory1 */
+        CHECKF(hr == (k_good[i].iid == &IID_IDXGIFactory1 ? E_NOINTERFACE : S_OK), "cf0 factory QI %s = %s", k_good[i].name, d3dh_hr_name(hr));
         if (FAILED(hr)) CHECKF(p == NULL, "%s: out not cleared on failure", k_good[i].name);
         else ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p);
     }
@@ -166,15 +165,13 @@ TEST(dxgi_factory_cf1_null_out) {
     WINE_NOFAC();
     REQUIRE(fh_cf1());
     HRESULT hr = fh_cf1()(&IID_IDXGIFactory1, NULL);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
-    t_note("CreateDXGIFactory1(IDXGIFactory1, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_POINTER);
 }
 TEST(dxgi_factory_cf2_null_out) {
     WINE_NOFAC();
     REQUIRE(fh_cf2());
     HRESULT hr = fh_cf2()(0, &IID_IDXGIFactory2, NULL);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
-    t_note("CreateDXGIFactory2(0, IDXGIFactory2, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_POINTER);
 }
 TEST(dxgi_factory_cf2_null_out_all_iids) {
     REQUIRE(fh_cf2());
@@ -203,20 +200,19 @@ TEST(dxgi_factory_cf2_flag0_ok) {
     EXPECT_HR(fh_cf2()(0, &IID_IDXGIFactory2, (void **)&f), S_OK);
     if (f) EXPECT_EQ(IDXGIFactory2_Release(f), 0);
 }
-TEST(dxgi_factory_cf2_debug_flag_observed) {
+TEST(dxgi_factory_cf2_debug_flag) {
     WINE_NOFAC();
     REQUIRE(fh_cf2());
     void *p = POISON;
     HRESULT hr = fh_cf2()(DXGI_CREATE_FACTORY_DEBUG, &IID_IDXGIFactory3, &p);
-    /* Without the Graphics Tools feature the debug DLL is absent; the call must still either succeed or fail cleanly. */
-    t_note("CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG) = %s", d3dh_hr_name(hr));
+    /* With the Graphics Tools feature installed the debug factory is created and reports the flag back; without it the
+     * debug DLL is absent and the call fails with DXGI_ERROR_SDK_COMPONENT_MISSING (0x887a002d). */
+    CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D, "CreateDXGIFactory2(DEBUG) = %s", d3dh_hr_name(hr));
     if (SUCCEEDED(hr)) {
         CHECK(p != NULL && p != POISON);
         IDXGIFactory3 *f3 = p;
         if (p && p != POISON) {
-            UINT fl = IDXGIFactory3_GetCreationFlags(f3);
-            t_note("debug factory creation flags %#x", fl);
-            if (!(fl & DXGI_CREATE_FACTORY_DEBUG)) t_note("debug flag not reflected in GetCreationFlags (debug layer absent?)");
+            EXPECT_EQ(IDXGIFactory3_GetCreationFlags(f3), DXGI_CREATE_FACTORY_DEBUG);
             IDXGIFactory3_Release(f3);
         }
     } else {
@@ -232,14 +228,14 @@ TEST(dxgi_factory_cf2_debug_flag_riid_matrix) {
     riid_matrix("CreateDXGIFactory2(DEBUG)", 1, DXGI_CREATE_FACTORY_DEBUG);
     bad_matrix("CreateDXGIFactory2(DEBUG)", 1, DXGI_CREATE_FACTORY_DEBUG);
 }
-TEST(dxgi_factory_cf2_unknown_flag_bits_observed) {
+TEST(dxgi_factory_cf2_unknown_flag_bits_ignored) {
     WINE_NOFAC();
     REQUIRE(fh_cf2());
     static const UINT fl[] = { 0x2, 0x4, 0x80, 0x10000, 0x80000000u, 0xFFFFFFFEu };
     for (size_t i = 0; i < sizeof(fl) / sizeof(fl[0]); i++) {
         void *p = POISON;
         HRESULT hr = fh_cf2()(fl[i], &IID_IDXGIFactory2, &p);
-        t_note("CreateDXGIFactory2(flags=%#x) = %s", fl[i], d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK); /* Win10 ignores undefined flag bits */
         if (SUCCEEDED(hr)) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p); else CHECK(p == NULL);
     }
 }
@@ -277,8 +273,10 @@ TEST(dxgi_factory_creation_flags_cf0_zero) {
     EXPECT_HR(fh_cf0()(&IID_IDXGIFactory, (void **)&f), S_OK);
     if (!f) return;
     IDXGIFactory3 *f3 = fh_qi((IUnknown *)f, &IID_IDXGIFactory3);
-    if (f3) { EXPECT_EQ(IDXGIFactory3_GetCreationFlags(f3), 0); IDXGIFactory3_Release(f3); }
-    else t_note("cf0 factory does not expose IDXGIFactory3");
+    /* Win10: a legacy CreateDXGIFactory factory reports the internal flag 0x40000000 */
+    REQUIRE(f3);
+    EXPECT_EQ(IDXGIFactory3_GetCreationFlags(f3), 0x40000000);
+    IDXGIFactory3_Release(f3);
     IDXGIFactory_Release(f);
 }
 
@@ -340,8 +338,7 @@ TEST(dxgi_factory_qi_downward_consistency) {
         void *p = fh_qi((IUnknown *)f, k_good[i].iid);
         if (p) { if (k_good[i].level > highest) highest = k_good[i].level; ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p); }
     }
-    t_note("highest IDXGIFactoryN exposed: %d", highest);
-    CHECK(highest >= 4);
+    EXPECT_EQ(highest, 7); /* Win10 22H2 exposes IDXGIFactory .. IDXGIFactory7 */
     for (size_t i = 0; i < NGOOD; i++) {
         if (k_good[i].level < 0 || k_good[i].level > highest) continue;
         void *p = fh_qi((IUnknown *)f, k_good[i].iid);
@@ -367,11 +364,11 @@ TEST(dxgi_factory_qi_failure_keeps_refcount) {
     EXPECT_EQ(fh_rc((IUnknown *)f), 1);
     EXPECT_EQ(IDXGIFactory1_Release(f), 0);
 }
-TEST(dxgi_factory_qi_media_factory_observed) {
+TEST(dxgi_factory_qi_media_factory) {
     NEED_F1(f);
     void *p = POISON;
     HRESULT hr = IDXGIFactory1_QueryInterface(f, &IID_IDXGIFactoryMedia, &p);
-    t_note("QI IDXGIFactoryMedia = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p); else CHECK(p == NULL);
     IDXGIFactory1_Release(f);
 }
@@ -448,8 +445,7 @@ TEST(dxgi_factory_private_data_two_guids_independent) {
 TEST(dxgi_factory_private_data_null_data_nonzero_size) {
     NEED_F1(f);
     HRESULT hr = IDXGIFactory1_SetPrivateData(f, &k_pd, 4, NULL);
-    CHECKF(hr == E_INVALIDARG || hr == DXGI_E_INVALID_CALL || hr == E_POINTER, "got %s", d3dh_hr_name(hr));
-    t_note("SetPrivateData(size 4, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_FALSE); /* Win10 DXGI objects accept a NULL buffer with a non-zero size and report S_FALSE */
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_private_data_interface_roundtrip) {
@@ -491,16 +487,15 @@ TEST(dxgi_factory_private_data_interface_replaced) {
     IDXGIFactory1_Release(held);
     IDXGIFactory1_Release(f);
 }
-TEST(dxgi_factory_private_data_interface_null_removes) {
+TEST(dxgi_factory_private_data_interface_null_stores_null_pointer) {
     NEED_F1(f);
     BYTE b = 3; UINT sz = 1;
     IDXGIFactory1_SetPrivateData(f, &k_pd, 1, &b);
     HRESULT hr = IDXGIFactory1_SetPrivateDataInterface(f, &k_pd, NULL);
-    t_note("SetPrivateDataInterface(NULL) = %s", d3dh_hr_name(hr));
-    if (SUCCEEDED(hr)) {
-        hr = IDXGIFactory1_GetPrivateData(f, &k_pd, &sz, &b);
-        t_note("GetPrivateData after NULL interface = %s size %u", d3dh_hr_name(hr), sz);
-    }
+    EXPECT_HR(hr, S_OK);
+    /* Win10: a NULL interface replaces the entry by a NULL pointer (8 bytes); it does not delete it */
+    hr = IDXGIFactory1_GetPrivateData(f, &k_pd, &sz, &b);
+    EXPECT_HR(hr, DXGI_E_MORE_DATA); EXPECT_EQ(sz, sizeof(void *));
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_private_data_large_blob) {
@@ -522,7 +517,7 @@ TEST(dxgi_factory_private_data_per_object) {
     IDXGIFactory1_SetPrivateData(f, &k_pd, 1, &b);
     if (g) {
         HRESULT hr = IDXGIFactory1_GetPrivateData(g, &k_pd, &sz, &d);
-        t_note("private data visible from a second factory object: %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_E_NOT_FOUND); /* private data belongs to the object */
         IDXGIFactory1_Release(g);
     }
     IDXGIFactory1_Release(f);
@@ -538,20 +533,21 @@ TEST(dxgi_factory_private_data_shared_across_iface_views) {
     IDXGIFactory2_Release(f2);
     IDXGIFactory1_Release(f);
 }
-TEST(dxgi_factory_get_parent_observed) {
+TEST(dxgi_factory_get_parent_of_factory) {
     NEED_F1(f);
     void *p = POISON;
     HRESULT hr = IDXGIFactory1_GetParent(f, &IID_IUnknown, &p);
-    t_note("Factory::GetParent(IUnknown) = %s", d3dh_hr_name(hr));
     EXPECT_HR(hr, E_NOINTERFACE);
     CHECK(p == NULL);
     IDXGIFactory1_Release(f);
 }
-TEST(dxgi_factory_get_parent_null_out) {
+/* Win10: GetParent with a NULL output pointer is not validated and faults. */
+typedef struct { IDXGIFactory1 *f; } gp_ctx;
+static void gp_null(void *p) { gp_ctx *c = p; IDXGIFactory1_GetParent(c->f, &IID_IUnknown, NULL); }
+TEST(dxgi_factory_get_parent_null_out_faults) {
     NEED_F1(f);
-    HRESULT hr = IDXGIFactory1_GetParent(f, &IID_IUnknown, NULL);
-    CHECK(FAILED(hr));
-    t_note("Factory::GetParent(NULL out) = %s", d3dh_hr_name(hr));
+    gp_ctx c = { f };
+    EXPECT_EQ(t_try(gp_null, &c), 0xc0000005);
     IDXGIFactory1_Release(f);
 }
 

@@ -48,19 +48,17 @@ TEST(dxgi_factory_gwa_initial_value) {
     NEED_F1(f);
     HWND h = (HWND)POISON;
     EXPECT_HR(IDXGIFactory1_GetWindowAssociation(f, &h), S_OK);
-    CHECK(h != (HWND)POISON);
-    t_note("GetWindowAssociation on fresh factory = %p", (void *)h);
+    CHECK(h == NULL);
     IDXGIFactory1_Release(f);
 }
-TEST(dxgi_factory_gwa_after_make_observed) {
+TEST(dxgi_factory_gwa_after_make_reads_null) {
     NEED_F1(f);
     HWND w = d3dh_create_hidden_window();
     if (!w) { t_skip("no window"); IDXGIFactory1_Release(f); return; }
     EXPECT_HR(IDXGIFactory1_MakeWindowAssociation(f, w, 0), S_OK);
     HWND h = (HWND)POISON;
     EXPECT_HR(IDXGIFactory1_GetWindowAssociation(f, &h), S_OK);
-    CHECK(h == NULL || h == w);
-    t_note("GetWindowAssociation after Make(w) = %s", h == w ? "the window" : (h ? "other" : "NULL"));
+    CHECK(h == NULL); /* Win10: GetWindowAssociation does not report the associated window (only swap-chain-time hooks) */
     IDXGIFactory1_MakeWindowAssociation(f, NULL, 0);
     IDXGIFactory1_Release(f);
     d3dh_destroy_window(w);
@@ -110,10 +108,10 @@ TEST(dxgi_factory_mwa_window_destroyed_before_factory) {
     EXPECT_HR(IDXGIFactory1_GetWindowAssociation(f, &h), S_OK);
     EXPECT_EQ(IDXGIFactory1_Release(f), 0);
 }
-TEST(dxgi_factory_mwa_invalid_hwnd_observed) {
+TEST(dxgi_factory_mwa_invalid_hwnd) {
     NEED_F1(f);
     HRESULT hr = IDXGIFactory1_MakeWindowAssociation(f, (HWND)(ULONG_PTR)0x7fff0, 0);
-    t_note("MakeWindowAssociation(non-window handle) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK); /* the handle is not validated */
     IDXGIFactory1_MakeWindowAssociation(f, NULL, 0);
     IDXGIFactory1_Release(f);
 }
@@ -184,8 +182,7 @@ TEST(dxgi_factory_is_current_new_factory_also_current) {
 TEST(dxgi_factory_stereo_enabled_value) {
     NEED_FAC(f2, IDXGIFactory2, IID_IDXGIFactory2);
     BOOL s = IDXGIFactory2_IsWindowedStereoEnabled(f2);
-    CHECKF(s == TRUE || s == FALSE, "value %d", s);
-    t_note("IsWindowedStereoEnabled = %d", s);
+    EXPECT_EQ(s, FALSE); /* no stereo display on the VM */
     for (int i = 0; i < 10; i++) CHECK(IDXGIFactory2_IsWindowedStereoEnabled(f2) == s);
     IDXGIFactory2_Release(f2);
 }
@@ -201,8 +198,7 @@ TEST(dxgi_factory_feature_tearing_ok) {
     NEED_FAC(f5, IDXGIFactory5, IID_IDXGIFactory5);
     BOOL data = (BOOL)0xdeadbeef;
     EXPECT_HR(IDXGIFactory5_CheckFeatureSupport(f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &data, sizeof(data)), S_OK);
-    CHECKF(data == TRUE || data == FALSE, "data = %#x", data);
-    t_note("PRESENT_ALLOW_TEARING supported = %d", data);
+    EXPECT_EQ(data, TRUE);
     IDXGIFactory5_Release(f5);
 }
 TEST(dxgi_factory_feature_tearing_size_protocol) {
@@ -262,8 +258,7 @@ TEST(dxgi_factory_occlusion_window_register_unregister) {
     if (!w) { t_skip("no window"); IDXGIFactory2_Release(f2); return; }
     DWORD cookie = 0xdeadbeef;
     HRESULT hr = IDXGIFactory2_RegisterOcclusionStatusWindow(f2, w, WM_OCC, &cookie);
-    CHECKF(hr == S_OK || hr == DXGI_E_NOT_CURRENTLY_AVAILABLE, "got %s", d3dh_hr_name(hr));
-    t_note("RegisterOcclusionStatusWindow = %s cookie %#lx", d3dh_hr_name(hr), (unsigned long)cookie);
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(cookie, 1); /* the first registration on a factory gets cookie 1 */
     if (SUCCEEDED(hr)) IDXGIFactory2_UnregisterOcclusionStatus(f2, cookie);
     IDXGIFactory2_Release(f2);
     d3dh_destroy_window(w);
@@ -272,7 +267,7 @@ TEST(dxgi_factory_occlusion_window_null_cookie) {
     NEED_FAC(f2, IDXGIFactory2, IID_IDXGIFactory2);
     HWND w = d3dh_create_hidden_window();
     HRESULT hr = IDXGIFactory2_RegisterOcclusionStatusWindow(f2, w, WM_OCC, NULL);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     IDXGIFactory2_Release(f2);
     if (w) d3dh_destroy_window(w);
 }
@@ -280,8 +275,7 @@ TEST(dxgi_factory_occlusion_window_null_hwnd) {
     NEED_FAC(f2, IDXGIFactory2, IID_IDXGIFactory2);
     DWORD cookie = 0xdeadbeef;
     HRESULT hr = IDXGIFactory2_RegisterOcclusionStatusWindow(f2, NULL, WM_OCC, &cookie);
-    t_note("RegisterOcclusionStatusWindow(NULL hwnd) = %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr) || cookie != 0xdeadbeef);
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL); EXPECT_EQ(cookie, 0xdeadbeef);
     if (SUCCEEDED(hr)) IDXGIFactory2_UnregisterOcclusionStatus(f2, cookie);
     IDXGIFactory2_Release(f2);
 }
@@ -304,8 +298,7 @@ TEST(dxgi_factory_occlusion_event_register_unregister) {
     HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
     DWORD cookie = 0xdeadbeef;
     HRESULT hr = IDXGIFactory2_RegisterOcclusionStatusEvent(f2, ev, &cookie);
-    CHECKF(hr == S_OK || hr == DXGI_E_NOT_CURRENTLY_AVAILABLE, "got %s", d3dh_hr_name(hr));
-    t_note("RegisterOcclusionStatusEvent = %s cookie %#lx", d3dh_hr_name(hr), (unsigned long)cookie);
+    EXPECT_HR(hr, S_OK); EXPECT_EQ(cookie, 1);
     if (SUCCEEDED(hr)) IDXGIFactory2_UnregisterOcclusionStatus(f2, cookie);
     CloseHandle(ev);
     IDXGIFactory2_Release(f2);
@@ -314,7 +307,7 @@ TEST(dxgi_factory_occlusion_event_null_cookie) {
     NEED_FAC(f2, IDXGIFactory2, IID_IDXGIFactory2);
     HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
     HRESULT hr = IDXGIFactory2_RegisterOcclusionStatusEvent(f2, ev, NULL);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     CloseHandle(ev);
     IDXGIFactory2_Release(f2);
 }
@@ -322,7 +315,7 @@ TEST(dxgi_factory_occlusion_event_null_handle) {
     NEED_FAC(f2, IDXGIFactory2, IID_IDXGIFactory2);
     DWORD cookie = 0xdeadbeef;
     HRESULT hr = IDXGIFactory2_RegisterOcclusionStatusEvent(f2, NULL, &cookie);
-    t_note("RegisterOcclusionStatusEvent(NULL event) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     if (SUCCEEDED(hr)) IDXGIFactory2_UnregisterOcclusionStatus(f2, cookie);
     IDXGIFactory2_Release(f2);
 }
@@ -332,7 +325,7 @@ TEST(dxgi_factory_occlusion_event_not_signalled_by_register) {
     DWORD cookie = 0;
     if (FAILED(IDXGIFactory2_RegisterOcclusionStatusEvent(f2, ev, &cookie))) { t_skip("unavailable"); CloseHandle(ev); IDXGIFactory2_Release(f2); return; }
     DWORD w = WaitForSingleObject(ev, 50);
-    t_note("occlusion event after register: %s", w == WAIT_OBJECT_0 ? "signalled" : "not signalled");
+    EXPECT_EQ(w, WAIT_OBJECT_0); /* Win10 signals the event on registration (current status delivered immediately) */
     IDXGIFactory2_UnregisterOcclusionStatus(f2, cookie);
     CloseHandle(ev);
     IDXGIFactory2_Release(f2);
@@ -373,7 +366,7 @@ TEST(dxgi_factory_adapters_changed_register_unregister) {
     EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
         CHECK(cookie != 0xdeadbeef);
-        t_note("adapters-changed cookie %#lx", (unsigned long)cookie);
+        EXPECT_EQ(cookie, 1);
         EXPECT_HR(IDXGIFactory7_UnregisterAdaptersChangedEvent(f7, cookie), S_OK);
     }
     CloseHandle(ev);
@@ -383,7 +376,7 @@ TEST(dxgi_factory_adapters_changed_null_cookie) {
     NEED_FAC(f7, IDXGIFactory7, IID_IDXGIFactory7);
     HANDLE ev = CreateEventW(NULL, FALSE, FALSE, NULL);
     HRESULT hr = IDXGIFactory7_RegisterAdaptersChangedEvent(f7, ev, NULL);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     CloseHandle(ev);
     IDXGIFactory7_Release(f7);
 }
@@ -391,8 +384,7 @@ TEST(dxgi_factory_adapters_changed_null_event) {
     NEED_FAC(f7, IDXGIFactory7, IID_IDXGIFactory7);
     DWORD cookie = 0xdeadbeef;
     HRESULT hr = IDXGIFactory7_RegisterAdaptersChangedEvent(f7, NULL, &cookie);
-    t_note("RegisterAdaptersChangedEvent(NULL event) = %s", d3dh_hr_name(hr));
-    CHECK(FAILED(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     if (SUCCEEDED(hr)) IDXGIFactory7_UnregisterAdaptersChangedEvent(f7, cookie);
     IDXGIFactory7_Release(f7);
 }
@@ -416,7 +408,7 @@ TEST(dxgi_factory_adapters_changed_double_unregister) {
     if (SUCCEEDED(IDXGIFactory7_RegisterAdaptersChangedEvent(f7, ev, &c))) {
         EXPECT_HR(IDXGIFactory7_UnregisterAdaptersChangedEvent(f7, c), S_OK);
         HRESULT hr = IDXGIFactory7_UnregisterAdaptersChangedEvent(f7, c);
-        t_note("second UnregisterAdaptersChangedEvent = %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_E_NOT_FOUND);
     }
     CloseHandle(ev);
     IDXGIFactory7_Release(f7);
@@ -424,7 +416,7 @@ TEST(dxgi_factory_adapters_changed_double_unregister) {
 TEST(dxgi_factory_adapters_changed_unregister_bogus) {
     NEED_FAC(f7, IDXGIFactory7, IID_IDXGIFactory7);
     HRESULT hr = IDXGIFactory7_UnregisterAdaptersChangedEvent(f7, 0x7e57c001);
-    t_note("UnregisterAdaptersChangedEvent(bogus cookie) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_NOT_FOUND);
     IDXGIFactory7_Release(f7);
 }
 TEST(dxgi_factory_adapters_changed_not_signalled_immediately) {
@@ -433,7 +425,7 @@ TEST(dxgi_factory_adapters_changed_not_signalled_immediately) {
     DWORD c = 0;
     if (SUCCEEDED(IDXGIFactory7_RegisterAdaptersChangedEvent(f7, ev, &c))) {
         DWORD w = WaitForSingleObject(ev, 20);
-        t_note("adapters-changed event right after register: %s", w == WAIT_OBJECT_0 ? "signalled" : "not signalled");
+        EXPECT_EQ(w, WAIT_TIMEOUT);
         IDXGIFactory7_UnregisterAdaptersChangedEvent(f7, c);
     }
     CloseHandle(ev);
@@ -453,7 +445,7 @@ TEST(dxgi_factory_create_software_adapter_null_module) {
     NEED_F1(f);
     IDXGIAdapter *a = POISON;
     HRESULT hr = IDXGIFactory1_CreateSoftwareAdapter(f, NULL, &a);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG, "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     CHECK(a == POISON || a == NULL);
     IDXGIFactory1_Release(f);
 }
@@ -464,7 +456,7 @@ TEST(dxgi_factory_create_swapchain_null_device) {
     d.SampleDesc.Count = 1; d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; d.BufferCount = 1; d.Windowed = TRUE;
     IDXGISwapChain *sc = POISON;
     HRESULT hr = IDXGIFactory1_CreateSwapChain(f, NULL, &d, &sc);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG, "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_create_swapchain_for_hwnd_null_device) {
@@ -475,7 +467,7 @@ TEST(dxgi_factory_create_swapchain_for_hwnd_null_device) {
     d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; d.BufferCount = 2; d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     IDXGISwapChain1 *sc = POISON;
     HRESULT hr = IDXGIFactory2_CreateSwapChainForHwnd(f2, NULL, w, &d, NULL, NULL, &sc);
-    CHECKF(fh_inv_ok(hr), "got %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     IDXGIFactory2_Release(f2);
     if (w) d3dh_destroy_window(w);
 }
@@ -485,8 +477,7 @@ TEST(dxgi_factory_get_shared_resource_adapter_luid_bad_handle) {
     if (g) {
         LUID l = { 0x1234, 0x5678 };
         HRESULT hr = IDXGIFactory4_GetSharedResourceAdapterLuid(g, (HANDLE)NULL, &l);
-        CHECK(FAILED(hr));
-        t_note("GetSharedResourceAdapterLuid(NULL handle) = %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_E_INVALID_CALL);
         IDXGIFactory4_Release(g);
     }
     IDXGIFactory3_Release(f4);

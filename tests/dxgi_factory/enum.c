@@ -12,10 +12,19 @@ static UINT count_adapters0(IDXGIFactory *f) {
     return n;
 }
 
+/* True on the Win10 oracle VM: adapter 0 is the Microsoft Basic Render Driver (1414:008c). That configuration enumerates
+ * exactly two adapters (the display adapter plus the software WARP adapter); other machines only get relational checks. */
+static int basic_vm(IDXGIFactory1 *f) {
+    IDXGIAdapter1 *a; DXGI_ADAPTER_DESC1 d; int r;
+    if (FAILED(IDXGIFactory1_EnumAdapters1(f, 0, &a))) return 0;
+    IDXGIAdapter1_GetDesc1(a, &d); IDXGIAdapter1_Release(a);
+    r = d.VendorId == 0x1414 && d.DeviceId == 0x008c && !(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE);
+    return r;
+}
 TEST(dxgi_factory_enum_adapters_end_not_found) {
     NEED_F1(f);
     UINT n = count_adapters0((IDXGIFactory *)f);
-    t_note("EnumAdapters count = %u", n);
+    if (basic_vm(f)) EXPECT_EQ(n, 2);
     IDXGIAdapter *a = POISON;
     EXPECT_HR(IDXGIFactory1_EnumAdapters(f, n, &a), DXGI_E_NOT_FOUND);
     CHECK(a == NULL);
@@ -24,7 +33,7 @@ TEST(dxgi_factory_enum_adapters_end_not_found) {
 TEST(dxgi_factory_enum_adapters1_end_not_found) {
     NEED_F1(f);
     UINT n = count_adapters1(f);
-    t_note("EnumAdapters1 count = %u", n);
+    if (basic_vm(f)) EXPECT_EQ(n, 2);
     IDXGIAdapter1 *a = POISON;
     EXPECT_HR(IDXGIFactory1_EnumAdapters1(f, n, &a), DXGI_E_NOT_FOUND);
     CHECK(a == NULL);
@@ -47,18 +56,15 @@ TEST(dxgi_factory_enum_adapters_far_indices_not_found) {
 TEST(dxgi_factory_enum_adapters_null_out) {
     NEED_F1(f);
     HRESULT hr = IDXGIFactory1_EnumAdapters(f, 0, NULL);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG || hr == E_POINTER || hr == DXGI_E_NOT_FOUND, "got %s", d3dh_hr_name(hr));
-    t_note("EnumAdapters(0, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     hr = IDXGIFactory1_EnumAdapters1(f, 0, NULL);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG || hr == E_POINTER || hr == DXGI_E_NOT_FOUND, "got %s", d3dh_hr_name(hr));
-    t_note("EnumAdapters1(0, NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_enum_adapters_null_out_past_end) {
     NEED_F1(f);
     HRESULT hr = IDXGIFactory1_EnumAdapters(f, 0xffffff, NULL);
     CHECK(FAILED(hr));
-    t_note("EnumAdapters(0xffffff, NULL) = %s", d3dh_hr_name(hr));
     IDXGIFactory1_Release(f);
 }
 TEST(dxgi_factory_enum_adapters_counts_match) {
@@ -101,7 +107,7 @@ TEST(dxgi_factory_enum_adapters_new_instance_each_time) {
         IDXGIAdapter1_GetDesc1(a, &da); IDXGIAdapter1_GetDesc1(b, &db);
         CHECK(fh_luid_eq(da.AdapterLuid, db.AdapterLuid));
         CHECK(!wcscmp(da.Description, db.Description));
-        t_note("repeated EnumAdapters1(0) %s the same object", a == b ? "returns" : "does not return");
+        CHECK(a != b); /* each call returns a new adapter object */
         IDXGIAdapter1_Release(b);
     }
     IDXGIAdapter1_Release(a);
@@ -139,8 +145,7 @@ TEST(dxgi_factory_enum_adapter_keeps_factory_alive) {
     IDXGIAdapter1 *a = NULL;
     if (FAILED(IDXGIFactory1_EnumAdapters1(f, 0, &a))) { t_skip("no adapters"); IDXGIFactory1_Release(f); return; }
     ULONG rc = fh_rc((IUnknown *)f);
-    t_note("factory refcount with one live adapter: %lu", rc);
-    CHECKF(rc >= 1, "rc %lu", rc);
+    EXPECT_EQ(rc, 2); /* the live adapter holds a reference on its factory */
     IDXGIFactory1_Release(f);
     /* adapter still usable after the application dropped the factory */
     DXGI_ADAPTER_DESC1 d;
@@ -157,7 +162,7 @@ TEST(dxgi_factory_enum_adapter_qi_levels) {
     static const struct { const char *n; const IID *i; int hard; } t[] = {
         { "IUnknown", &IID_IUnknown, 1 }, { "IDXGIObject", &IID_IDXGIObject, 1 }, { "IDXGIAdapter", &IID_IDXGIAdapter, 1 },
         { "IDXGIAdapter1", &IID_IDXGIAdapter1, 1 }, { "IDXGIAdapter2", &IID_IDXGIAdapter2, 1 },
-        { "IDXGIAdapter3", &IID_IDXGIAdapter3, 0 }, { "IDXGIAdapter4", &IID_IDXGIAdapter4, 0 },
+        { "IDXGIAdapter3", &IID_IDXGIAdapter3, 1 }, { "IDXGIAdapter4", &IID_IDXGIAdapter4, 1 },
     };
     for (size_t i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
         void *p = POISON;
@@ -189,8 +194,13 @@ TEST(dxgi_factory_enum_adapter_desc_consistency) {
         CHECK(d1.Description[0] != 0);
         size_t len = wcsnlen(d1.Description, 128);
         CHECK(len < 128);
-        t_note("adapter %u: %ls vendor %04x device %04x flags %#x luid %08lx:%08lx", i, d1.Description, d1.VendorId, d1.DeviceId, d1.Flags, (unsigned long)d1.AdapterLuid.HighPart, (unsigned long)d1.AdapterLuid.LowPart);
-        if (d1.Flags & ~(DXGI_ADAPTER_FLAG_REMOTE | DXGI_ADAPTER_FLAG_SOFTWARE)) t_note("adapter %u has extra flag bits %#x", i, d1.Flags);
+        CHECKF(!(d1.Flags & ~(DXGI_ADAPTER_FLAG_REMOTE | DXGI_ADAPTER_FLAG_SOFTWARE)), "adapter %u has extra flag bits %#x", i, d1.Flags);
+        if (basic_vm(f)) {
+            EXPECT_EQ(d1.VendorId, 0x1414); EXPECT_EQ(d1.DeviceId, 0x008c);
+            EXPECT_EQ(d1.Flags, i == 0 ? 0 : DXGI_ADAPTER_FLAG_SOFTWARE);
+            EXPECT_EQ(d1.DedicatedVideoMemory, 0);
+            CHECK(!wcscmp(d1.Description, L"Microsoft Basic Render Driver"));
+        }
         IDXGIAdapter1_Release(a);
     }
     IDXGIFactory1_Release(f);
@@ -212,9 +222,9 @@ TEST(dxgi_factory_enum_adapter_getdesc_null) {
     IDXGIAdapter1 *a;
     if (FAILED(IDXGIFactory1_EnumAdapters1(f, 0, &a))) { t_skip("no adapters"); IDXGIFactory1_Release(f); return; }
     HRESULT hr = IDXGIAdapter1_GetDesc(a, NULL);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG, "GetDesc(NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     hr = IDXGIAdapter1_GetDesc1(a, NULL);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG, "GetDesc1(NULL) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, E_INVALIDARG);
     IDXGIAdapter1_Release(a);
     IDXGIFactory1_Release(f);
 }
@@ -224,11 +234,12 @@ TEST(dxgi_factory_enum_adapter_interface_support_umd) {
     if (FAILED(IDXGIFactory1_EnumAdapters1(f, 0, &a))) { t_skip("no adapters"); IDXGIFactory1_Release(f); return; }
     LARGE_INTEGER v; v.QuadPart = 0x1234567890abcdefLL;
     HRESULT hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIDevice, &v);
-    t_note("CheckInterfaceSupport(IDXGIDevice) = %s version %08lx:%08lx", d3dh_hr_name(hr), (unsigned long)v.HighPart, (unsigned long)v.LowPart);
+    EXPECT_HR(hr, S_OK);
+    EXPECT_EQ((ULONG)v.HighPart, 0x000a0000); /* UMD version 10.0.x.x on Win10 */
     hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_ID3D11Device, &v);
     CHECKF(hr == DXGI_E_UNSUPPORTED, "CheckInterfaceSupport(ID3D11Device) = %s", d3dh_hr_name(hr));
     hr = IDXGIAdapter1_CheckInterfaceSupport(a, &IID_IDXGIDevice, NULL);
-    t_note("CheckInterfaceSupport(NULL version) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK); /* the version out pointer is optional */
     IDXGIAdapter1_Release(a);
     IDXGIFactory1_Release(f);
 }
@@ -249,8 +260,8 @@ TEST(dxgi_factory_warp_adapter_desc) {
     EXPECT_EQ(d.Flags, DXGI_ADAPTER_FLAG_SOFTWARE);
     EXPECT_EQ(d.VendorId, 0x1414);
     EXPECT_EQ(d.DeviceId, 0x008c);
-    t_note("WARP adapter: %ls luid %08lx:%08lx", d.Description, (unsigned long)d.AdapterLuid.HighPart, (unsigned long)d.AdapterLuid.LowPart);
-    t_note("WARP dedicated video memory %llu", (unsigned long long)d.DedicatedVideoMemory);
+    CHECK(!wcscmp(d.Description, L"Microsoft Basic Render Driver"));
+    EXPECT_EQ(d.DedicatedVideoMemory, 0);
     EXPECT_EQ(IDXGIAdapter1_Release(a), 0);
     IDXGIFactory4_Release(f4);
 }
@@ -298,10 +309,10 @@ TEST(dxgi_factory_warp_adapter_parent_is_factory) {
     if (FAILED(IDXGIFactory4_EnumWarpAdapter(f4, &IID_IDXGIAdapter1, (void **)&a))) { t_skip("no WARP"); IDXGIFactory4_Release(f4); return; }
     void *par = NULL;
     HRESULT hr = IDXGIAdapter1_GetParent(a, &IID_IDXGIFactory4, &par);
-    t_note("WARP adapter GetParent(IDXGIFactory4) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, S_OK);
     if (SUCCEEDED(hr)) {
         IUnknown *x = fh_ident((IUnknown *)par), *y = fh_ident((IUnknown *)f4);
-        t_note("WARP adapter parent %s the enumerating factory", x == y ? "is" : "is not");
+        CHECK(x == y); /* the parent is the enumerating factory object */
         if (x) x->lpVtbl->Release(x);
         if (y) y->lpVtbl->Release(y);
         ((IUnknown *)par)->lpVtbl->Release((IUnknown *)par);
@@ -319,7 +330,7 @@ TEST(dxgi_factory_warp_adapter_has_no_outputs) {
     IDXGIAdapter1_Release(a);
     IDXGIFactory4_Release(f4);
 }
-TEST(dxgi_factory_warp_adapter_in_enumeration_observed) {
+TEST(dxgi_factory_warp_adapter_in_enumeration) {
     NEED_FAC(f4, IDXGIFactory4, IID_IDXGIFactory4);
     IDXGIAdapter1 *w = NULL;
     if (FAILED(IDXGIFactory4_EnumWarpAdapter(f4, &IID_IDXGIAdapter1, (void **)&w))) { t_skip("no WARP"); IDXGIFactory4_Release(f4); return; }
@@ -332,7 +343,7 @@ TEST(dxgi_factory_warp_adapter_in_enumeration_observed) {
         if (fh_luid_eq(d.AdapterLuid, wd.AdapterLuid)) found = 1;
         IDXGIAdapter1_Release(a);
     }
-    t_note("WARP adapter %s in EnumAdapters1", found ? "listed" : "not listed");
+    CHECK(found); /* the WARP adapter is listed by EnumAdapters1 (flagged SOFTWARE) */
     IDXGIAdapter1_Release(w);
     IDXGIFactory4_Release(f4);
 }
@@ -381,8 +392,7 @@ TEST(dxgi_factory_by_luid_null_out) {
         EXPECT_HR(IDXGIFactory4_EnumAdapterByLuid(f4, l, &IID_IDXGIAdapter1, NULL), DXGI_E_INVALID_CALL);
     } else {
         HRESULT hr = IDXGIFactory4_EnumAdapterByLuid(f4, l, &IID_IDXGIAdapter1, NULL);
-        CHECK(FAILED(hr));
-        t_note("no adapters; EnumAdapterByLuid(NULL out) = %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, DXGI_E_NOT_FOUND);
     }
     IDXGIFactory4_Release(f4);
 }
@@ -427,7 +437,7 @@ TEST(dxgi_factory_by_luid_via_factory2_and_5) {
         DXGI_ADAPTER_DESC1 d; IDXGIAdapter1_GetDesc1(w, &d);
         IDXGIAdapter1 *b = NULL;
         HRESULT hr = IDXGIFactory5_EnumAdapterByLuid(f5, d.AdapterLuid, &IID_IDXGIAdapter1, (void **)&b);
-        t_note("EnumAdapterByLuid(WARP luid) = %s", d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK);
         if (b) IDXGIAdapter1_Release(b);
         IDXGIAdapter1_Release(w);
     }
@@ -446,7 +456,7 @@ TEST(dxgi_factory_gpupref_end_not_found) {
     static const DXGI_GPU_PREFERENCE p[] = { DXGI_GPU_PREFERENCE_UNSPECIFIED, DXGI_GPU_PREFERENCE_MINIMUM_POWER, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE };
     for (size_t i = 0; i < 3; i++) {
         UINT n = count_pref(f6, p[i]);
-        t_note("pref %d count %u", (int)p[i], n);
+        if (basic_vm((IDXGIFactory1 *)f6)) EXPECT_EQ(n, 2);
         IDXGIAdapter1 *a = POISON;
         EXPECT_HR(IDXGIFactory6_EnumAdapterByGpuPreference(f6, n, p[i], &IID_IDXGIAdapter1, (void **)&a), DXGI_E_NOT_FOUND);
         CHECK(a == NULL);
@@ -459,8 +469,7 @@ TEST(dxgi_factory_gpupref_end_not_found) {
 TEST(dxgi_factory_gpupref_null_out) {
     NEED_FAC(f6, IDXGIFactory6, IID_IDXGIFactory6);
     HRESULT hr = IDXGIFactory6_EnumAdapterByGpuPreference(f6, 0, DXGI_GPU_PREFERENCE_UNSPECIFIED, &IID_IDXGIAdapter1, NULL);
-    CHECKF(hr == DXGI_E_INVALID_CALL || hr == E_INVALIDARG || hr == E_POINTER || hr == DXGI_E_NOT_FOUND, "got %s", d3dh_hr_name(hr));
-    t_note("EnumAdapterByGpuPreference(NULL out) = %s", d3dh_hr_name(hr));
+    EXPECT_HR(hr, DXGI_E_INVALID_CALL);
     IDXGIFactory6_Release(f6);
 }
 TEST(dxgi_factory_gpupref_bad_iid) {
@@ -475,13 +484,13 @@ TEST(dxgi_factory_gpupref_bad_iid) {
     }
     IDXGIFactory6_Release(f6);
 }
-TEST(dxgi_factory_gpupref_invalid_enum_observed) {
+TEST(dxgi_factory_gpupref_invalid_enum_not_validated) {
     NEED_FAC(f6, IDXGIFactory6, IID_IDXGIFactory6);
     static const int bad[] = { 3, 4, 99, -1, 0x7fffffff };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         IDXGIAdapter1 *a = POISON;
         HRESULT hr = IDXGIFactory6_EnumAdapterByGpuPreference(f6, 0, (DXGI_GPU_PREFERENCE)bad[i], &IID_IDXGIAdapter1, (void **)&a);
-        t_note("EnumAdapterByGpuPreference(pref=%d) = %s", bad[i], d3dh_hr_name(hr));
+        EXPECT_HR(hr, S_OK); /* Win10 treats unknown preference values like UNSPECIFIED */
         if (SUCCEEDED(hr)) IDXGIAdapter1_Release(a); else CHECK(a == NULL);
     }
     IDXGIFactory6_Release(f6);
@@ -492,9 +501,8 @@ TEST(dxgi_factory_gpupref_counts_vs_enum) {
     UINT u = count_pref(f6, DXGI_GPU_PREFERENCE_UNSPECIFIED);
     UINT mp = count_pref(f6, DXGI_GPU_PREFERENCE_MINIMUM_POWER);
     UINT hp = count_pref(f6, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE);
-    t_note("EnumAdapters1 %u, unspecified %u, min power %u, high perf %u", base, u, mp, hp);
     CHECK(u <= base + 1 && mp <= base + 1 && hp <= base + 1);
-    if (u != mp || u != hp) t_note("preference modes enumerate different counts");
+    if (basic_vm((IDXGIFactory1 *)f6)) { EXPECT_EQ(base, 2); EXPECT_EQ(u, 2); EXPECT_EQ(mp, 2); EXPECT_EQ(hp, 2); }
     IDXGIFactory6_Release(f6);
 }
 TEST(dxgi_factory_gpupref_unspecified_matches_enum_order) {
@@ -504,7 +512,7 @@ TEST(dxgi_factory_gpupref_unspecified_matches_enum_order) {
     IDXGIFactory6_EnumAdapters1(f6, 0, &b);
     if (b) {
         DXGI_ADAPTER_DESC1 da, db; IDXGIAdapter1_GetDesc1(a, &da); IDXGIAdapter1_GetDesc1(b, &db);
-        t_note("pref-unspecified[0]=%ls EnumAdapters1[0]=%ls", da.Description, db.Description);
+        CHECK(!wcscmp(da.Description, db.Description));
         CHECK(fh_luid_eq(da.AdapterLuid, db.AdapterLuid));
         IDXGIAdapter1_Release(b);
     }
@@ -529,6 +537,7 @@ TEST(dxgi_factory_gpupref_set_is_same_adapters) {
     IDXGIFactory6_Release(f6);
 }
 TEST(dxgi_factory_gpupref_iid_adapter4) {
+    /* Desc3.Flags 0x2c on the Basic Render Driver (hardware adapter 0): bits 2,3,5 of DXGI_ADAPTER_FLAG3. */
     NEED_FAC(f6, IDXGIFactory6, IID_IDXGIFactory6);
     IDXGIAdapter4 *a = POISON;
     HRESULT hr = IDXGIFactory6_EnumAdapterByGpuPreference(f6, 0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, &IID_IDXGIAdapter4, (void **)&a);
@@ -538,7 +547,10 @@ TEST(dxgi_factory_gpupref_iid_adapter4) {
     if (SUCCEEDED(hr)) {
         DXGI_ADAPTER_DESC3 d3;
         EXPECT_HR(IDXGIAdapter4_GetDesc3(a, &d3), S_OK);
-        t_note("Desc3 flags %#x graphics preemption %d compute preemption %d", d3.Flags, d3.GraphicsPreemptionGranularity, d3.ComputePreemptionGranularity);
+        if (basic_vm((IDXGIFactory1 *)f6)) {
+            EXPECT_EQ(d3.Flags, 0x2c);
+            EXPECT_EQ(d3.GraphicsPreemptionGranularity, 0); EXPECT_EQ(d3.ComputePreemptionGranularity, 0);
+        }
         IDXGIAdapter4_Release(a);
     }
     IDXGIFactory6_Release(f6);

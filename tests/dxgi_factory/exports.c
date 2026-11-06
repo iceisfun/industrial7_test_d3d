@@ -59,12 +59,12 @@ TEST(dxgi_factory_exports_stub_sharing) {
     WINE_SKIP();
     /* PIX* and DXGID3D10GetLayeredDeviceSize share one body; three DXGID3D10 entries share another (identical-code folding). */
     if (!d3dh_have_dll("dxgi.dll")) { t_skip("no dxgi.dll"); return; }
-    t_note("%s -> %%d", !!(DX("PIXBeginCapture") == DX("PIXEndCapture")));
-    t_note("%s -> %%d", !!(DX("PIXBeginCapture") == DX("PIXGetCaptureState")));
-    t_note("%s -> %%d", !!(DX("PIXBeginCapture") == DX("DXGID3D10GetLayeredDeviceSize")));
-    t_note("%s -> %%d", !!(DX("DXGID3D10CreateDevice") == DX("DXGID3D10CreateLayeredDevice")));
-    t_note("%s -> %%d", !!(DX("DXGID3D10CreateDevice") == DX("DXGID3D10RegisterLayers")));
-    t_note("%s -> %%d", !!(DX("DXGID3D10CreateDevice") != DX("PIXBeginCapture")));
+    CHECK(DX("PIXBeginCapture") == DX("PIXEndCapture"));
+    CHECK(DX("PIXBeginCapture") == DX("PIXGetCaptureState"));
+    CHECK(DX("PIXBeginCapture") == DX("DXGID3D10GetLayeredDeviceSize"));
+    CHECK(DX("DXGID3D10CreateDevice") == DX("DXGID3D10CreateLayeredDevice"));
+    CHECK(DX("DXGID3D10CreateDevice") == DX("DXGID3D10RegisterLayers"));
+    CHECK(DX("DXGID3D10CreateDevice") != DX("PIXBeginCapture"));
 }
 TEST(dxgi_factory_exports_not_forwarders) {
     WINE_SKIP();
@@ -256,8 +256,8 @@ TEST(dxgi_factory_compat_string_zero_capacity) {
     char buf[8]; memset(buf, 'Q', sizeof(buf));
     unsigned long long n = 0;
     int r = cs("name", &n, buf, 0);
-    t_note("CompatString with capacity 0: ret %d size %llu buf[0]=%d", r, n, buf[0]);
-    CHECK(r == 1);
+    EXPECT_EQ(r, 1); EXPECT_EQ(n, 6);          /* required size is reported */
+    EXPECT_EQ(buf[0], 0);                      /* Win10 writes the terminator even with capacity 0 */
     CHECK(buf[1] == 'Q');
     clear_compat();
 }
@@ -294,7 +294,7 @@ TEST(dxgi_factory_compat_string_too_short_declared_length) {
     sp(5, s);                      /* shorter than strlen+1: the copy into the cache fails, nothing is registered */
     char buf[16]; unsigned long long n = sizeof(buf);
     int r = cs("abc", &n, buf, 0);
-    t_note("CompatString with declared length 5 for a 9 char string = %d '%s'", r, buf);
+    EXPECT_EQ(r, 1); EXPECT_STR(buf, ""); /* Win10: the name is found but its (truncated) value is empty */
     clear_compat();
 }
 TEST(dxgi_factory_compat_string_exact_declared_length) {
@@ -363,7 +363,7 @@ TEST(dxgi_factory_compat_value_overflow_wraps_atoi) {
     CHECKF((long long)v == -2147483648LL, "neg = %lld", (long long)v);
     v = 1;
     EXPECT_EQ(cv("big", &v), 1);
-    t_note("CompatValue(\"4294967296\") = %lld (atoi overflow)", (long long)v);
+    EXPECT_EQ(v, 0); /* atoi-style conversion overflows to 0 */
     clear_compat();
 }
 TEST(dxgi_factory_compat_value_long_value_rejected) {
@@ -373,7 +373,6 @@ TEST(dxgi_factory_compat_value_long_value_rejected) {
     set_compat(s);
     unsigned long long v = 0x55;
     int r = cv("long", &v);
-    t_note("CompatValue with a 120 digit value: ret %d value %llu", r, v);
     CHECK(r == 1);
     EXPECT_EQ(v, 0x55);   /* size 121 exceeds the 100 byte scratch buffer: the number is not stored */
     clear_compat();
@@ -407,7 +406,7 @@ TEST(dxgi_factory_quirk_ordinary_resolutions_unchanged) {
         CHECKF(w == r[i][0] && h == r[i][1], "%ux%u became %ux%u", r[i][0], r[i][1], w, h);
     }
 }
-TEST(dxgi_factory_quirk_special_pairs_observed) {
+TEST(dxgi_factory_quirk_special_pairs_unflagged_process) {
     pfn_Quirk q = (pfn_Quirk)DX("ApplyCompatResolutionQuirking");
     REQUIRE(q);
     /* Substitution happens only for apps flagged by the OS compatibility database; an unflagged test process sees no change. */
@@ -415,8 +414,7 @@ TEST(dxgi_factory_quirk_special_pairs_observed) {
     for (size_t i = 0; i < 3; i++) {
         UINT w = r[i][0], h = r[i][1];
         q(&w, &h);
-        t_note("quirk %ux%u -> %ux%u", r[i][0], r[i][1], w, h);
-        CHECK((w == r[i][0] && h == r[i][1]) || (w == 720 && h == 1280) || (w == 480 && h == 800));
+        CHECKF(w == r[i][0] && h == r[i][1], "quirk %ux%u -> %ux%u", r[i][0], r[i][1], w, h); /* Win10: unchanged */
     }
 }
 TEST(dxgi_factory_quirk_swapped_axes_not_matched) {
@@ -453,7 +451,7 @@ TEST(dxgi_factory_journal_callback_count) {
     j(jcb);
     EXPECT_EQ(g_jn, 64);   /* the journal ring has 64 slots and every slot is reported */
     EXPECT_EQ(g_jbad, 0);
-    t_note("first journal line: %s", g_jfirst);
+    CHECK(!strncmp(g_jfirst, "DXGI Error ", 11));
 }
 TEST(dxgi_factory_journal_repeatable) {
     pfn_Journal j = (pfn_Journal)DX("DXGIDumpJournal");
@@ -532,7 +530,9 @@ TEST(dxgi_factory_debug_iid_matrix_observed) {
     for (size_t i = 0; i < 3; i++) {
         void *p = POISON;
         HRESULT hr = d(0, t[i].i, &p);
-        t_note("DXGIGetDebugInterface1(%s) = %s", t[i].n, d3dh_hr_name(hr));
+        /* all three interfaces are present together (Graphics Tools installed) or all absent (SDK_COMPONENT_MISSING) */
+        CHECKF(hr == S_OK || hr == (HRESULT)0x887A002D, "DXGIGetDebugInterface1(%s) = %s", t[i].n, d3dh_hr_name(hr));
+        static HRESULT first_hr = 1; if (i == 0) first_hr = hr; else CHECKF(hr == first_hr, "%s differs from IDXGIDebug", t[i].n);
         if (SUCCEEDED(hr)) ((IUnknown *)p)->lpVtbl->Release((IUnknown *)p); else CHECK(p == NULL);
     }
 }
@@ -552,9 +552,8 @@ TEST(dxgi_factory_debug_cf2_flag_matches_debug_availability) {
     if (q) ((IUnknown *)q)->lpVtbl->Release((IUnknown *)q);
     void *f = NULL;
     HRESULT hf = fh_cf2()(DXGI_CREATE_FACTORY_DEBUG, &IID_IDXGIFactory2, &f);
-    t_note("debug interface %s, debug factory %s", d3dh_hr_name(hd), d3dh_hr_name(hf));
+    CHECKF(SUCCEEDED(hd) == SUCCEEDED(hf), "debug interface %s, debug factory %s", d3dh_hr_name(hd), d3dh_hr_name(hf));
     if (f) ((IUnknown *)f)->lpVtbl->Release((IUnknown *)f);
-    if (FAILED(hd)) CHECK(1);
 }
 
 /* ---------------- UpdateHMDEmulationStatus ---------------- */
@@ -572,7 +571,7 @@ TEST(dxgi_factory_hmd_update_with_live_factory) {
     if (!f) { t_skip("no factory"); return; }
     EXPECT_EQ((ULONG)h(1), 0);
     BOOL cur = IDXGIFactory1_IsCurrent(f);
-    t_note("IsCurrent after HMD emulation toggled on: %d", cur);
+    EXPECT_EQ(cur, FALSE); /* Win10: enabling HMD emulation invalidates existing factories */
     EXPECT_EQ((ULONG)h(0), 0);
     IDXGIFactory1_Release(f);
 }
@@ -606,15 +605,14 @@ TEST(dxgi_factory_declare_removal_support_child) {
     CHECKF(rc != 0xDEAD0000 && rc != 0xDEAD0001 && rc != 90, "child failed to run: %#lx", (unsigned long)rc);
     if (rc < 0x100) {
         int a = rc & 15, b = rc >> 4;
-        t_note("first call class %d, second call class %d (0 ok, 2 already exists, 3 invalid call, 1 other)", a, b);
-        CHECK(a == 0 || a == 1 || a == 2 || a == 3);
+        EXPECT_EQ(a, 0); EXPECT_EQ(b, 2); /* S_OK, then DXGI_ERROR_ALREADY_EXISTS */
     }
 }
 TEST(dxgi_factory_declare_removal_support_after_factory_child) {
     REQUIRE(DX("DXGIDeclareAdapterRemovalSupport"));
     DWORD rc = t_run_child("declare_removal_after_factory", "", 30000);
     CHECKF(rc != 0xDEAD0000 && rc != 0xDEAD0001 && rc != 90, "child failed to run: %#lx", (unsigned long)rc);
-    t_note("declaration after a factory exists: class %lu", (unsigned long)rc);
+    EXPECT_EQ(rc, 0); /* S_OK: an existing factory does not block the declaration */
 }
 
 /* ---------------- additional cases ---------------- */
